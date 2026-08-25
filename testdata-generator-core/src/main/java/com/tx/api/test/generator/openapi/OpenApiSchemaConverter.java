@@ -31,6 +31,29 @@ public final class OpenApiSchemaConverter {
         return node;
     }
 
+    public static boolean isJsonStructuredSchema(Schema<?> schema) {
+        if (schema == null) {
+            return false;
+        }
+        if (schema.getItems() != null) {
+            return true;
+        }
+        if (schema.getProperties() != null && !schema.getProperties().isEmpty()) {
+            return true;
+        }
+        if (schema.getAdditionalProperties() instanceof Schema) {
+            return true;
+        }
+        String type = schema.getType();
+        if (type == null && schema.getTypes() != null && !schema.getTypes().isEmpty()) {
+            if (schema.getTypes().contains("array") || schema.getTypes().contains("object")) {
+                return true;
+            }
+            type = schema.getTypes().iterator().next();
+        }
+        return "array".equals(type) || "object".equals(type);
+    }
+
     private static JsonElement toJsonSchemaNode(Schema<?> schema) {
         if (schema == null) {
             JsonObject empty = new JsonObject();

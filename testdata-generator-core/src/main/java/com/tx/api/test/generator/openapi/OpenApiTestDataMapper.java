@@ -225,18 +225,9 @@ public final class OpenApiTestDataMapper {
 
         String schemaReference = "file:" + normalizePathPrefix(options.getSchemaPathPrefix()) + "/" + schemaFileName;
         String jsonPathAssertions = buildJsonPathAssertions(resolvedSchema);
-        String responseType = hasJsonResponseBody(resolvedSchema) ? "JSON" : "NONE";
+        String responseType = OpenApiSchemaConverter.isJsonStructuredSchema(resolvedSchema) ? "JSON" : "NONE";
 
         return new ResponseInfo(statusCode, responseType, jsonPathAssertions, schemaReference);
-    }
-
-    private boolean hasJsonResponseBody(Schema<?> schema) {
-        if (schema == null) {
-            return false;
-        }
-        return schema.getProperties() != null && !schema.getProperties().isEmpty()
-                || "array".equals(schema.getType())
-                || "object".equals(schema.getType());
     }
 
     private SuccessResponse findSuccessResponse(Map<String, ApiResponse> responses) {

@@ -218,7 +218,7 @@ public final class OpenApiOperationInspector {
         JsonElement schemaJson = OpenApiSchemaConverter.toJsonSchema(resolvedSchema);
         JsonElement sample = SchemaSampleGenerator.generateSample(resolvedSchema);
         String assertions = buildJsonPathAssertions(resolvedSchema);
-        String responseType = hasJsonResponseBody(resolvedSchema) ? "JSON" : "NONE";
+        String responseType = OpenApiSchemaConverter.isJsonStructuredSchema(resolvedSchema) ? "JSON" : "NONE";
         return new ResponseSchema(
                 statusCode,
                 selected.getKey(),
@@ -227,15 +227,6 @@ public final class OpenApiOperationInspector {
                 toValue(sample),
                 assertions
         );
-    }
-
-    private boolean hasJsonResponseBody(Schema<?> schema) {
-        if (schema == null) {
-            return false;
-        }
-        return schema.getProperties() != null && !schema.getProperties().isEmpty()
-                || "array".equals(schema.getType())
-                || "object".equals(schema.getType());
     }
 
     private String buildJsonPathAssertions(Schema<?> schema) {
