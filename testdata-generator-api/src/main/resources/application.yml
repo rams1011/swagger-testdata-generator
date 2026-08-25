@@ -1,0 +1,46 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: testdata-studio
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 20MB
+  sql:
+    init:
+      mode: update
+      schema-locations: classpath:ddl/schema.sql
+  datasource:
+    # Used when testdata.storage.type is database (PostgreSQL). Overridden automatically for h2.
+    url: jdbc:postgresql://localhost:5432/testdata_studio
+    username: testdata
+    password: testdata
+    driver-class-name: org.postgresql.Driver
+  h2:
+    console:
+      enabled: false
+      path: /h2-console
+
+testdata:
+  storage:
+    # excel | h2 | database
+    type: h2
+  excel:
+    file: ./studio-output/studio-testdata.xlsx
+  h2:
+    file: ./studio-output/testdata
+    username: sa
+    password: ""
+    console: true
+    in-memory: false
+  default-output-dir: D:/code/api-automation/src/test/data
+  default-excel-file-name: TestData.xlsx
+  payload-path-prefix: src/test/data/payloads
+  schema-path-prefix: src/test/data/schemas
+
+logging:
+  level:
+    com.tx.api.test.generator.studio: INFO
+    com.tx.api.test.generator.studio.logging.MethodLoggingAspect: INFO

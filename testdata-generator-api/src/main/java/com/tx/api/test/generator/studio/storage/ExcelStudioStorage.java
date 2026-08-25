@@ -1,0 +1,518 @@
+package com.tx.api.test.generator.studio.storage;
+
+import com.tx.api.test.generator.studio.config.StudioProperties;
+import com.tx.api.test.generator.studio.model.StoredSpec;
+import com.tx.api.test.generator.studio.model.StudioTestCase;
+import com.tx.api.test.generator.studio.model.StudioTestPlan;
+import org.apache.commons.lang3.StringUtils;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.Optional;
+
+public class ExcelStudioStorage implements StudioStorage {
+
+    private static final DataFormatter FORMATTER = new DataFormatter();
+    private static final String SPECS = "Specs";
+    private static final String PLANS = "Plans";
+    private static final String CASES = "TestCases";
+    private static final String PARAMS = "Params";
+    private static final String[] SPEC_HEADERS = {
+            "spec_id", "title", "version", "description", "base_url", "source_location",
+            "source_content", "operation_count", "created_at", "updated_at"
+    };
+    private static final String[] PLAN_HEADERS = {
+            "plan_id", "spec_id", "name", "description", "created_at", "updated_at"
+    };
+    private static final String[] CASE_HEADERS = {
+            "test_case_id", "spec_id", "operation_key", "test_name", "http_method", "raw_path",
+            "endpoint", "base_url", "content_type", "request_body_json", "response_schema_json",
+            "status_code", "response_type", "expected_response", "enabled", "test_group",
+            "json_path_assertions", "max_response_time_ms", "created_at", "updated_at", "plan_id"
+    };
+    private static final String[] PARAM_HEADERS = {
+            "test_case_id", "param_in", "param_name", "param_value"
+    };
+
+    private final Path workbookPath;
+    private final Object lock = new Object();
+
+    public ExcelStudioStorage(StudioProperties properties) {
+        Path path = Path.of(properties.getExcel().getFile()).toAbsolutePath().normalize();
+        if ("TestData.xlsx".equalsIgnoreCase(path.getFileName().toString())) {
+            throw new IllegalStateException(
+                    "Studio Excel storage cannot use TestData.xlsx. That file is reserved for api-automation export "
+                            + "(single TestData sheet). Set testdata.excel.file to an internal workbook such as "
+                            + "studio-testdata.xlsx.");
+        }
+        this.workbookPath = path;
+    }
+
+    @Override
+    public void saveSpec(StoredSpec spec) {
+        synchronized (lock) {
+            WorkbookState state = load();
+            Instant now = Instant.now();
+            StoredSpec existing = state.specs.get(spec.getSpecId());
+            spec.setCreatedAt(existing != null && existing.getCreatedAt() != null ? existing.getCreatedAt() : now);
+            spec.setUpdatedAt(now);
+            spec.setSourceContent(persistSpecContent(spec));
+            state.specs.put(spec.getSpecId(), spec);
+            write(state);
+        }
+    }
+
+    @Override
+    public Optional<StoredSpec> findSpec(String specId) {
+        synchronized (lock) {
+            StoredSpec spec = load().specs.get(specId);
+            if (spec != null) {
+                spec.setSourceContent(readSpecContent(spec.getSourceContent()));
+            }
+            return Optional.ofNullable(spec);
+        }
+    }
+
+    @Override
+    public List<StoredSpec> listSpecs() {
+        synchronized (lock) {
+            return new ArrayList<>(load().specs.values());
+        }
+    }
+
+    @Override
+    public void savePlan(StudioTestPlan plan) {
+        synchronized (lock) {
+            WorkbookState state = load();
+            if (!state.specs.containsKey(plan.getSpecId())) {
+                throw new IllegalStateException("Spec not found in Excel store: " + plan.getSpecId());
+            }
+            Instant now = Instant.now();
+            StudioTestPlan existing = state.plans.get(plan.getId());
+            plan.setCreatedAt(existing != null && existing.getCreatedAt() != null ? existing.getCreatedAt() : now);
+            plan.setUpdatedAt(now);
+            state.plans.put(plan.getId(), plan);
+            write(state);
+        }
+    }
+
+    @Override
+    public void deletePlan(String planId) {
+        synchronized (lock) {
+            WorkbookState state = load();
+            if (state.plans.remove(planId) == null) {
+                throw new NoSuchElementException("Test plan not found: " + planId);
+            }
+            List<String> removed = new ArrayList<>();
+            state.cases.entrySet().removeIf(entry -> {
+                if (planId.equals(entry.getValue().getPlanId())) {
+                    removed.add(entry.getKey());
+                    return true;
+                }
+                return false;
+            });
+            removed.forEach(id -> {
+                state.caseCreatedAt.remove(id);
+                state.caseUpdatedAt.remove(id);
+            });
+            write(state);
+        }
+    }
+
+    @Override
+    public Optional<StudioTestPlan> findPlan(String planId) {
+        synchronized (lock) {
+            return Optional.ofNullable(load().plans.get(planId));
+        }
+    }
+
+    @Override
+    public List<StudioTestPlan> listPlans(String specId) {
+        synchronized (lock) {
+            return load().plans.values().stream()
+                    .filter(plan -> specId == null || specId.equals(plan.getSpecId()))
+                    .sorted((left, right) -> StringUtils.defaultString(left.getName())
+                            .compareToIgnoreCase(StringUtils.defaultString(right.getName())))
+                    .toList();
+        }
+    }
+
+    @Override
+    public void saveTestCase(StudioTestCase testCase) {
+        synchronized (lock) {
+            WorkbookState state = load();
+            if (!state.specs.containsKey(testCase.getSpecId())) {
+                throw new IllegalStateException("Spec not found in Excel store: " + testCase.getSpecId());
+            }
+            Instant now = Instant.now();
+            StudioTestCase existing = state.cases.get(testCase.getId());
+            state.caseCreatedAt.put(testCase.getId(),
+                    existing != null ? state.caseCreatedAt.getOrDefault(testCase.getId(), now) : now);
+            state.caseUpdatedAt.put(testCase.getId(), now);
+            state.cases.put(testCase.getId(), testCase);
+            write(state);
+        }
+    }
+
+    @Override
+    public void deleteTestCase(String testCaseId) {
+        synchronized (lock) {
+            WorkbookState state = load();
+            if (state.cases.remove(testCaseId) == null) {
+                throw new NoSuchElementException("Test case not found: " + testCaseId);
+            }
+            state.caseCreatedAt.remove(testCaseId);
+            state.caseUpdatedAt.remove(testCaseId);
+            write(state);
+        }
+    }
+
+    @Override
+    public Optional<StudioTestCase> findTestCase(String testCaseId) {
+        synchronized (lock) {
+            return Optional.ofNullable(load().cases.get(testCaseId));
+        }
+    }
+
+    @Override
+    public List<StudioTestCase> listTestCases(String specId, String planId, String operationKey) {
+        synchronized (lock) {
+            return load().cases.values().stream()
+                    .filter(testCase -> specId == null || specId.equals(testCase.getSpecId()))
+                    .filter(testCase -> planId == null || planId.equals(testCase.getPlanId()))
+                    .filter(testCase -> operationKey == null || operationKey.equals(testCase.getOperationKey()))
+                    .sorted((left, right) -> StringUtils.defaultString(left.getTestName())
+                            .compareToIgnoreCase(StringUtils.defaultString(right.getTestName())))
+                    .toList();
+        }
+    }
+
+    private WorkbookState load() {
+        WorkbookState state = new WorkbookState();
+        if (!Files.exists(workbookPath)) {
+            return state;
+        }
+        try (InputStream input = Files.newInputStream(workbookPath);
+             Workbook workbook = new XSSFWorkbook(input)) {
+            readSpecs(workbook.getSheet(SPECS), state);
+            readPlans(workbook.getSheet(PLANS), state);
+            readCases(workbook.getSheet(CASES), state);
+            readParams(workbook.getSheet(PARAMS), state);
+            return state;
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to read Excel store: " + workbookPath, exception);
+        }
+    }
+
+    private void write(WorkbookState state) {
+        try {
+            Path parent = workbookPath.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
+            }
+            try (Workbook workbook = new XSSFWorkbook()) {
+                writeSpecs(workbook.createSheet(SPECS), state);
+                writePlans(workbook.createSheet(PLANS), state);
+                writeCases(workbook.createSheet(CASES), state);
+                writeParams(workbook.createSheet(PARAMS), state);
+                try (OutputStream output = Files.newOutputStream(workbookPath)) {
+                    workbook.write(output);
+                }
+            }
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to write Excel store: " + workbookPath, exception);
+        }
+    }
+
+    private void readSpecs(Sheet sheet, WorkbookState state) {
+        if (sheet == null) {
+            return;
+        }
+        for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null || StringUtils.isBlank(cell(row, 0))) {
+                continue;
+            }
+            StoredSpec spec = new StoredSpec();
+            spec.setSpecId(cell(row, 0));
+            spec.setTitle(cell(row, 1));
+            spec.setVersion(cell(row, 2));
+            spec.setDescription(cell(row, 3));
+            spec.setBaseUrl(cell(row, 4));
+            spec.setSourceLocation(cell(row, 5));
+            spec.setSourceContent(cell(row, 6));
+            spec.setOperationCount(parseInt(cell(row, 7), 0));
+            spec.setCreatedAt(parseInstant(cell(row, 8)));
+            spec.setUpdatedAt(parseInstant(cell(row, 9)));
+            state.specs.put(spec.getSpecId(), spec);
+        }
+    }
+
+    private void readPlans(Sheet sheet, WorkbookState state) {
+        if (sheet == null) {
+            return;
+        }
+        for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null || StringUtils.isBlank(cell(row, 0))) {
+                continue;
+            }
+            StudioTestPlan plan = new StudioTestPlan();
+            plan.setId(cell(row, 0));
+            plan.setSpecId(cell(row, 1));
+            plan.setName(cell(row, 2));
+            plan.setDescription(cell(row, 3));
+            plan.setCreatedAt(parseInstant(cell(row, 4)));
+            plan.setUpdatedAt(parseInstant(cell(row, 5)));
+            state.plans.put(plan.getId(), plan);
+        }
+    }
+
+    private void readCases(Sheet sheet, WorkbookState state) {
+        if (sheet == null) {
+            return;
+        }
+        for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null || StringUtils.isBlank(cell(row, 0))) {
+                continue;
+            }
+            StudioTestCase testCase = new StudioTestCase();
+            testCase.setId(cell(row, 0));
+            testCase.setSpecId(cell(row, 1));
+            testCase.setOperationKey(cell(row, 2));
+            testCase.setTestName(cell(row, 3));
+            testCase.setMethod(cell(row, 4));
+            testCase.setRawPath(cell(row, 5));
+            testCase.setEndpoint(cell(row, 6));
+            testCase.setBaseUrl(cell(row, 7));
+            testCase.setContentType(cell(row, 8));
+            testCase.setRequestBody(JsonMaps.toObject(cell(row, 9)));
+            testCase.setResponseJsonSchema(JsonMaps.toObjectMap(cell(row, 10)));
+            testCase.setStatusCode(parseInt(cell(row, 11), 200));
+            testCase.setResponseType(cell(row, 12));
+            testCase.setExpectedResponse(cell(row, 13));
+            testCase.setEnabled(cell(row, 14));
+            testCase.setTestGroup(cell(row, 15));
+            testCase.setJsonPathAssertions(cell(row, 16));
+            testCase.setMaxResponseTimeMs(parseLong(cell(row, 17), 3000L));
+            testCase.setPlanId(cell(row, 20));
+            state.cases.put(testCase.getId(), testCase);
+            state.caseCreatedAt.put(testCase.getId(), parseInstant(cell(row, 18)));
+            state.caseUpdatedAt.put(testCase.getId(), parseInstant(cell(row, 19)));
+        }
+    }
+
+    private void readParams(Sheet sheet, WorkbookState state) {
+        if (sheet == null) {
+            return;
+        }
+        for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null || StringUtils.isBlank(cell(row, 0))) {
+                continue;
+            }
+            StudioTestCase testCase = state.cases.get(cell(row, 0));
+            if (testCase == null) {
+                continue;
+            }
+            String in = cell(row, 1);
+            String name = cell(row, 2);
+            String value = cell(row, 3);
+            if ("path".equalsIgnoreCase(in)) {
+                testCase.getPathParams().put(name, value);
+            } else if ("header".equalsIgnoreCase(in)) {
+                testCase.getHeaders().put(name, value);
+            } else {
+                testCase.getQueryParams().put(name, value);
+            }
+        }
+    }
+
+    private void writeSpecs(Sheet sheet, WorkbookState state) {
+        writeHeader(sheet, SPEC_HEADERS);
+        int rowIndex = 1;
+        for (StoredSpec spec : state.specs.values()) {
+            Row row = sheet.createRow(rowIndex++);
+            set(row, 0, spec.getSpecId());
+            set(row, 1, spec.getTitle());
+            set(row, 2, spec.getVersion());
+            set(row, 3, spec.getDescription());
+            set(row, 4, spec.getBaseUrl());
+            set(row, 5, spec.getSourceLocation());
+            set(row, 6, spec.getSourceContent());
+            set(row, 7, String.valueOf(spec.getOperationCount()));
+            set(row, 8, formatInstant(spec.getCreatedAt()));
+            set(row, 9, formatInstant(spec.getUpdatedAt()));
+        }
+    }
+
+    private void writePlans(Sheet sheet, WorkbookState state) {
+        writeHeader(sheet, PLAN_HEADERS);
+        int rowIndex = 1;
+        for (StudioTestPlan plan : state.plans.values()) {
+            Row row = sheet.createRow(rowIndex++);
+            set(row, 0, plan.getId());
+            set(row, 1, plan.getSpecId());
+            set(row, 2, plan.getName());
+            set(row, 3, plan.getDescription());
+            set(row, 4, formatInstant(plan.getCreatedAt()));
+            set(row, 5, formatInstant(plan.getUpdatedAt()));
+        }
+    }
+
+    private void writeCases(Sheet sheet, WorkbookState state) {
+        writeHeader(sheet, CASE_HEADERS);
+        int rowIndex = 1;
+        for (StudioTestCase testCase : state.cases.values()) {
+            Row row = sheet.createRow(rowIndex++);
+            set(row, 0, testCase.getId());
+            set(row, 1, testCase.getSpecId());
+            set(row, 2, testCase.getOperationKey());
+            set(row, 3, testCase.getTestName());
+            set(row, 4, testCase.getMethod());
+            set(row, 5, testCase.getRawPath());
+            set(row, 6, testCase.getEndpoint());
+            set(row, 7, testCase.getBaseUrl());
+            set(row, 8, testCase.getContentType());
+            set(row, 9, JsonMaps.toJson(testCase.getRequestBody()));
+            set(row, 10, JsonMaps.toJson(testCase.getResponseJsonSchema()));
+            set(row, 11, String.valueOf(testCase.getStatusCode()));
+            set(row, 12, testCase.getResponseType());
+            set(row, 13, testCase.getExpectedResponse());
+            set(row, 14, testCase.getEnabled());
+            set(row, 15, testCase.getTestGroup());
+            set(row, 16, testCase.getJsonPathAssertions());
+            set(row, 17, String.valueOf(testCase.getMaxResponseTimeMs()));
+            set(row, 18, formatInstant(state.caseCreatedAt.get(testCase.getId())));
+            set(row, 19, formatInstant(state.caseUpdatedAt.get(testCase.getId())));
+            set(row, 20, testCase.getPlanId());
+        }
+    }
+
+    private void writeParams(Sheet sheet, WorkbookState state) {
+        writeHeader(sheet, PARAM_HEADERS);
+        int rowIndex = 1;
+        for (StudioTestCase testCase : state.cases.values()) {
+            rowIndex = writeParamGroup(sheet, rowIndex, testCase.getId(), "path", testCase.getPathParams());
+            rowIndex = writeParamGroup(sheet, rowIndex, testCase.getId(), "query", testCase.getQueryParams());
+            rowIndex = writeParamGroup(sheet, rowIndex, testCase.getId(), "header", testCase.getHeaders());
+        }
+    }
+
+    private int writeParamGroup(Sheet sheet, int rowIndex, String testCaseId, String in, Map<String, String> values) {
+        for (Map.Entry<String, String> entry : values.entrySet()) {
+            Row row = sheet.createRow(rowIndex++);
+            set(row, 0, testCaseId);
+            set(row, 1, in);
+            set(row, 2, entry.getKey());
+            set(row, 3, entry.getValue());
+        }
+        return rowIndex;
+    }
+
+    private String persistSpecContent(StoredSpec spec) {
+        String content = spec.getSourceContent();
+        if (StringUtils.isBlank(content)) {
+            return spec.getSourceContent();
+        }
+        try {
+            Path specDir = workbookPath.getParent() == null
+                    ? Path.of("specs")
+                    : workbookPath.getParent().resolve("specs");
+            Files.createDirectories(specDir);
+            Path file = specDir.resolve(spec.getSpecId() + ".openapi.txt");
+            Files.writeString(file, content, StandardCharsets.UTF_8);
+            return "file:" + file.getFileName();
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to store OpenAPI content for spec " + spec.getSpecId(), exception);
+        }
+    }
+
+    private String readSpecContent(String stored) {
+        if (stored == null || !stored.startsWith("file:")) {
+            return stored;
+        }
+        Path parent = workbookPath.getParent() == null ? Path.of(".") : workbookPath.getParent();
+        Path file = parent.resolve("specs").resolve(stored.substring("file:".length()));
+        try {
+            return Files.readString(file, StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to read stored OpenAPI content: " + file, exception);
+        }
+    }
+
+    private void writeHeader(Sheet sheet, String[] headers) {
+        Row header = sheet.createRow(0);
+        for (int index = 0; index < headers.length; index++) {
+            set(header, index, headers[index]);
+        }
+    }
+
+    private String cell(Row row, int index) {
+        Cell cell = row.getCell(index);
+        if (cell == null) {
+            return "";
+        }
+        return FORMATTER.formatCellValue(cell);
+    }
+
+    private void set(Row row, int index, String value) {
+        row.createCell(index).setCellValue(value == null ? "" : value);
+    }
+
+    private int parseInt(String value, int fallback) {
+        try {
+            return StringUtils.isBlank(value) ? fallback : Integer.parseInt(value.trim());
+        } catch (NumberFormatException exception) {
+            return fallback;
+        }
+    }
+
+    private long parseLong(String value, long fallback) {
+        try {
+            return StringUtils.isBlank(value) ? fallback : Long.parseLong(value.trim());
+        } catch (NumberFormatException exception) {
+            return fallback;
+        }
+    }
+
+    private Instant parseInstant(String value) {
+        if (StringUtils.isBlank(value)) {
+            return Instant.now();
+        }
+        try {
+            return Instant.parse(value.trim());
+        } catch (Exception exception) {
+            return Instant.now();
+        }
+    }
+
+    private String formatInstant(Instant instant) {
+        return instant == null ? Instant.now().toString() : instant.toString();
+    }
+
+    private static final class WorkbookState {
+        private final Map<String, StoredSpec> specs = new LinkedHashMap<>();
+        private final Map<String, StudioTestPlan> plans = new LinkedHashMap<>();
+        private final Map<String, StudioTestCase> cases = new LinkedHashMap<>();
+        private final Map<String, Instant> caseCreatedAt = new LinkedHashMap<>();
+        private final Map<String, Instant> caseUpdatedAt = new LinkedHashMap<>();
+    }
+}
