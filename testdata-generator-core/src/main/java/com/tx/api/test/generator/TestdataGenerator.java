@@ -2,6 +2,8 @@ package com.tx.api.test.generator;
 
 import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.config.GeneratorOptions;
+import com.tx.api.test.generator.generate.GeneratedTestCase;
+import com.tx.api.test.generator.generate.SchemaCaseGenerator;
 import com.tx.api.test.generator.openapi.OpenApiOperationInspector;
 import com.tx.api.test.generator.openapi.OpenApiSpecLoader;
 import com.tx.api.test.generator.service.SwaggerTestDataGenerator;
@@ -56,5 +58,9 @@ public final class TestdataGenerator {
 
     public static void generateExcel(GeneratorOptions options) {
         new SwaggerTestDataGenerator().generate(options);
+    }
+
+    public static List<GeneratedTestCase> generateCases(OperationPage operation) {
+        return new SchemaCaseGenerator().generate(operation);
     }
 }

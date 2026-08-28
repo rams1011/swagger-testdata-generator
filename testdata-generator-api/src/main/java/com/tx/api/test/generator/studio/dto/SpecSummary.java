@@ -9,6 +9,7 @@ public record SpecSummary(
         String description,
         String baseUrl,
         int operationCount,
-        List<String> tags
+        List<String> tags,
+        String sourceLocation
 ) {
 }

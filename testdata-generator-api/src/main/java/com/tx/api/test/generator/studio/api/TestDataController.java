@@ -2,6 +2,15 @@ package com.tx.api.test.generator.studio.api;
 
 import com.tx.api.test.generator.studio.dto.ExcelExport;
 import com.tx.api.test.generator.studio.dto.ExportRequest;
+import com.tx.api.test.generator.studio.dto.GeneratePlansRequest;
+import com.tx.api.test.generator.studio.dto.GeneratePlansResult;
+import com.tx.api.test.generator.studio.dto.GenerateTestDataRequest;
+import com.tx.api.test.generator.studio.dto.GenerateTestDataResult;
+import com.tx.api.test.generator.studio.dto.RunAuth;
+import com.tx.api.test.generator.studio.dto.RunPlanRequest;
+import com.tx.api.test.generator.studio.dto.RunPlanResult;
+import com.tx.api.test.generator.studio.dto.RunTestRequest;
+import com.tx.api.test.generator.studio.dto.RunTestResult;
 import com.tx.api.test.generator.studio.dto.SaveTestDataRequest;
 import com.tx.api.test.generator.studio.dto.TestCaseView;
 import com.tx.api.test.generator.studio.service.TestDataStudioService;
@@ -42,6 +51,32 @@ public class TestDataController {
     @ResponseStatus(HttpStatus.CREATED)
     public TestCaseView create(@RequestBody SaveTestDataRequest request) {
         return testDataStudioService.create(request);
+    }
+
+    @PostMapping("/generate")
+    public GenerateTestDataResult generate(@RequestBody GenerateTestDataRequest request) {
+        return testDataStudioService.generate(request);
+    }
+
+    @PostMapping("/generate-plans")
+    public GeneratePlansResult generatePlans(@RequestBody GeneratePlansRequest request) {
+        return testDataStudioService.generatePlans(request);
+    }
+
+    @PostMapping("/run")
+    public RunTestResult run(@RequestBody RunTestRequest request) {
+        return testDataStudioService.run(request);
+    }
+
+    @PostMapping("/run-plan")
+    public RunPlanResult runPlan(@RequestBody RunPlanRequest request) {
+        return testDataStudioService.runPlan(request);
+    }
+
+    @PostMapping("/{id}/run")
+    public RunTestResult runSaved(@PathVariable String id, @RequestBody(required = false) RunTestRequest request) {
+        RunAuth auth = request == null ? null : request.auth();
+        return testDataStudioService.run(new RunTestRequest(id, null, auth));
     }
 
     @PutMapping("/{id}")

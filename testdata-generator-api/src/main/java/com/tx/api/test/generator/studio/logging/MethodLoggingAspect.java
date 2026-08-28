@@ -76,6 +76,9 @@ public class MethodLoggingAspect {
                     + ", bytes=" + exported.content().length
                     + ", rows=" + exported.rowCount() + "]";
         }
+        if (value instanceof com.tx.api.test.generator.studio.dto.RunAuth auth) {
+            return auth.toString();
+        }
         if (value instanceof byte[] bytes) {
             return "byte[" + bytes.length + "]";
         }

@@ -72,6 +72,8 @@ API base: [http://localhost:8083](http://localhost:8083)
 |--------|------|---------|
 | `POST` | `/api/specs` | Load spec from `location` (URL/path) or `content` |
 | `POST` | `/api/specs/upload` | Upload a Swagger/OpenAPI file |
+| `POST` | `/api/specs/{specId}/reload` | Re-fetch the spec in place (same `specId`); optional `location`, `content`, `baseUrl` |
+| `POST` | `/api/specs/{specId}/reload/upload` | Replace the spec document from a file, keeping the same `specId` |
 | `GET` | `/api/specs/{specId}` | Spec summary |
 | `GET` | `/api/specs/{specId}/operations` | Operation list (dynamic pages) |
 | `GET` | `/api/specs/{specId}/operations/{key}` | JSON Schema, samples, and defaults for one operation |
@@ -80,10 +82,32 @@ API base: [http://localhost:8083](http://localhost:8083)
 | `PUT` | `/api/specs/{specId}/plans/{planId}` | Rename a test plan |
 | `DELETE` | `/api/specs/{specId}/plans/{planId}` | Delete a plan and its cases (the last plan cannot be deleted) |
 | `POST` | `/api/testdata` | Save a test case into a plan (`planId`) |
+| `POST` | `/api/testdata/generate` | Auto-generate positive and negative cases from the spec/operation schema into a plan |
+| `POST` | `/api/testdata/generate-plans` | Create/fill a **Smoke** plan (one happy path per operation) and an optional **Negative** plan |
 | `PUT` | `/api/testdata/{id}` | Update a test case |
 | `GET` | `/api/testdata?specId=&planId=&operationKey=` | List saved cases for a plan |
 | `DELETE` | `/api/testdata/{id}` | Delete a case |
 | `POST` | `/api/testdata/export` | Download Excel for one plan (`specId` + `planId`) |
+| `POST` | `/api/testdata/run` | Run the current (unsaved) case; body is `{ testCase, auth }` |
+| `POST` | `/api/testdata/{id}/run` | Run a saved case with optional `{ auth }` |
+| `POST` | `/api/testdata/run-plan` | Run all enabled cases in a plan (`specId`, `planId`, `auth`) |
+
+Auth is applied only for that run and is not stored with the case. `auth.type` is `NONE`, `BASIC` (credentials: `username` / `password`), `BEARER` (`token`), or `API_KEY` (`apiKey`, optional `apiKeyName`, `apiKeyIn` of `header` or `query`). The runner checks expected status, max response time, and JSONPath assertions against the live response.
+
+### Auto-generate cases
+
+`POST /api/testdata/generate` walks each selected operation schema and saves a bounded set of cases into the current plan:
+
+- Happy path with sample params/body and the first documented 2xx status
+- Missing required body, query, and header fields (up to five each)
+- Invalid enum and type on the first matching field
+- minLength / maxLength / minimum / maximum violations
+- Extra property when `additionalProperties: false`
+- Documented 404 (bogus path id) and 401/403 (invalid `Authorization`)
+
+Pass `operationKey` to generate for one operation, or omit it for every operation in the spec. Existing case names in the plan are skipped. The studio UI exposes this as **Generate cases** on an operation page and **Fill this plan** on the saved-cases page.
+
+`POST /api/testdata/generate-plans` find-or-creates a **Smoke** plan with one happy-path case per operation, and optionally a **Negative** plan with schema-derived negatives. Existing plan names are reused and duplicate case names are skipped. The studio UI exposes this as **Generate Smoke plan** (with **Also Negative plan**) in the sidebar and on the saved-cases page.
 
 ## Storage (Excel, H2, or PostgreSQL)
 
@@ -174,6 +198,10 @@ npm run dev
 Open [http://localhost:5173](http://localhost:5173). Vite proxies `/api` to the API at [http://localhost:8083](http://localhost:8083).
 
 Use the **Test plan** control in the sidebar to switch plans, add a plan, or delete a plan (the last plan is kept). Saved cases, the operation form, and **Download Excel** all apply to the selected plan only.
+
+**Reload spec** (home list or sidebar) replaces the OpenAPI document for that spec id. Plans and saved cases are not deleted. New and changed operations appear immediately. Cases whose `operationKey` disappeared stay in the plan as orphans (counted in the reload result) until you delete them. The stored base URL is kept unless you pass a new one. **Load spec** still creates a *new* spec id and leaves existing data untouched.
+
+**Run** on an operation page executes the current form (save is not required). **Run plan** on the saved-cases page runs every enabled case. Set **Run authentication** to credentials (HTTP Basic), a bearer token, or an API key; the values stay in browser `sessionStorage` for that spec and are not written to Excel or the studio database. Choose **None** when a case already sends `Authorization` (for example generated 401 tests).
 
 ## Output format
 

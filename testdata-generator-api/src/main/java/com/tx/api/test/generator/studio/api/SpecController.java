@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.api;
 import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.catalog.OperationSummary;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
+import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
 import com.tx.api.test.generator.studio.service.SpecCatalogService;
 import org.springframework.http.MediaType;
@@ -40,6 +41,21 @@ public class SpecController {
                               @RequestParam(value = "baseUrl", required = false) String baseUrl) throws IOException {
         String content = new String(file.getBytes(), StandardCharsets.UTF_8);
         return specCatalogService.load(new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl));
+    }
+
+    @PostMapping("/{specId}/reload")
+    public ReloadSpecResult reload(@PathVariable String specId,
+                                   @RequestBody(required = false) LoadSpecRequest request) {
+        return specCatalogService.reload(specId, request);
+    }
+
+    @PostMapping(value = "/{specId}/reload/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ReloadSpecResult reloadUpload(@PathVariable String specId,
+                                         @RequestPart("file") MultipartFile file,
+                                         @RequestParam(value = "baseUrl", required = false) String baseUrl)
+            throws IOException {
+        String content = new String(file.getBytes(), StandardCharsets.UTF_8);
+        return specCatalogService.reload(specId, new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl));
     }
 
     @GetMapping
