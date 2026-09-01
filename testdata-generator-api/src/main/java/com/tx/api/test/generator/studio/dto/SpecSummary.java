@@ -4,6 +4,7 @@ import java.util.List;
 
 public record SpecSummary(
         String specId,
+        String name,
         String title,
         String version,
         String description,

@@ -34,23 +34,23 @@ public class JdbcStudioStorage implements StudioStorage {
         if (existing.isPresent()) {
             jdbcTemplate.update("""
                             UPDATE td_spec
-                               SET title = ?, version = ?, description = ?, base_url = ?, source_location = ?,
+                               SET name = ?, title = ?, version = ?, description = ?, base_url = ?, source_location = ?,
                                    source_content = ?, operation_count = ?, updated_at = ?
                              WHERE spec_id = ?
                             """,
-                    spec.getTitle(), spec.getVersion(), spec.getDescription(), spec.getBaseUrl(),
+                    spec.getName(), spec.getTitle(), spec.getVersion(), spec.getDescription(), spec.getBaseUrl(),
                     spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
                     Timestamp.from(spec.getUpdatedAt()), spec.getSpecId());
             return;
         }
         jdbcTemplate.update("""
                         INSERT INTO td_spec (
-                            spec_id, title, version, description, base_url, source_location, source_content,
+                            spec_id, name, title, version, description, base_url, source_location, source_content,
                             operation_count, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                spec.getSpecId(), spec.getTitle(), spec.getVersion(), spec.getDescription(), spec.getBaseUrl(),
-                spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
+                spec.getSpecId(), spec.getName(), spec.getTitle(), spec.getVersion(), spec.getDescription(),
+                spec.getBaseUrl(), spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
                 Timestamp.from(spec.getCreatedAt()), Timestamp.from(spec.getUpdatedAt()));
     }
 
@@ -63,7 +63,29 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public List<StoredSpec> listSpecs() {
-        return jdbcTemplate.query("SELECT * FROM td_spec ORDER BY title", specMapper());
+        return jdbcTemplate.query("SELECT * FROM td_spec ORDER BY name, title", specMapper());
+    }
+
+    @Override
+    public void deleteSpec(String specId) {
+        jdbcTemplate.update(
+                "DELETE FROM td_test_case_param WHERE test_case_id IN (SELECT test_case_id FROM td_test_case WHERE spec_id = ?)",
+                specId);
+        jdbcTemplate.update("DELETE FROM td_test_case WHERE spec_id = ?", specId);
+        jdbcTemplate.update("DELETE FROM td_test_plan WHERE spec_id = ?", specId);
+        int deleted = jdbcTemplate.update("DELETE FROM td_spec WHERE spec_id = ?", specId);
+        if (deleted == 0) {
+            throw new NoSuchElementException("Spec not found: " + specId);
+        }
+    }
+
+    @Override
+    public void ensureSpecNameUniqueIndex() {
+        try {
+            jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_td_spec_name ON td_spec (LOWER(name))");
+        } catch (RuntimeException ignored) {
+            jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_td_spec_name ON td_spec (name)");
+        }
     }
 
     @Override
@@ -245,6 +267,7 @@ public class JdbcStudioStorage implements StudioStorage {
         return (rs, rowNum) -> {
             StoredSpec spec = new StoredSpec();
             spec.setSpecId(rs.getString("spec_id"));
+            spec.setName(rs.getString("name"));
             spec.setTitle(rs.getString("title"));
             spec.setVersion(rs.getString("version"));
             spec.setDescription(rs.getString("description"));

@@ -7,6 +7,7 @@
 
 CREATE TABLE IF NOT EXISTS td_spec (
     spec_id           VARCHAR(36)   PRIMARY KEY,
+    name              VARCHAR(255),
     title             VARCHAR(255)  NOT NULL,
     version           VARCHAR(64),
     description       TEXT,
@@ -20,6 +21,7 @@ CREATE TABLE IF NOT EXISTS td_spec (
 
 COMMENT ON TABLE td_spec IS 'Loaded OpenAPI/Swagger specifications used to generate dynamic test pages';
 COMMENT ON COLUMN td_spec.source_content IS 'Raw OpenAPI JSON or YAML so the spec can be reloaded after restart';
+COMMENT ON COLUMN td_spec.name IS 'Unique studio name for the loaded spec; independent of the OpenAPI info.title';
 
 CREATE TABLE IF NOT EXISTS td_test_case (
     test_case_id           VARCHAR(36)   PRIMARY KEY,
@@ -58,6 +60,12 @@ CREATE TABLE IF NOT EXISTS td_test_plan (
 COMMENT ON TABLE td_test_plan IS 'Named test plans for a loaded OpenAPI spec; cases and Excel export are scoped to a plan';
 
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS plan_id VARCHAR(36);
+
+ALTER TABLE td_spec ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+
+UPDATE td_spec
+   SET name = COALESCE(NULLIF(BTRIM(name), ''), NULLIF(BTRIM(title), ''), spec_id)
+ WHERE name IS NULL OR BTRIM(name) = '';
 
 CREATE TABLE IF NOT EXISTS td_test_case_param (
     test_case_id  VARCHAR(36)  NOT NULL REFERENCES td_test_case (test_case_id) ON DELETE CASCADE,

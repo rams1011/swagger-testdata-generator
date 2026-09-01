@@ -268,16 +268,18 @@ public final class SchemaCaseGenerator {
     private GeneratedTestCase happyCase(OperationPage operation, Draft draft) {
         ResponseSchema response = operation.response();
         String responseType = response == null ? "NONE" : StringUtils.defaultIfBlank(response.responseType(), "NONE");
-        String assertions = response == null ? NA : StringUtils.defaultIfBlank(response.jsonPathAssertions(), NA);
+        String assertions = NA;
         if (!"JSON".equalsIgnoreCase(responseType)) {
             assertions = NA;
         }
-        return toCase(operation, opLabel(operation) + " — happy path", true, draft, successStatus(operation),
+        int status = successStatus(operation);
+        return toCase(operation, opLabel(operation) + " — " + status, true, draft, status,
                 responseType, assertions);
     }
 
     private GeneratedTestCase negativeCase(OperationPage operation, String suffix, Draft draft) {
-        return toCase(operation, opLabel(operation) + " — " + suffix, false, draft, clientErrorStatus(operation),
+        int status = clientErrorStatus(operation);
+        return toCase(operation, opLabel(operation) + " — " + suffix + " — " + status, false, draft, status,
                 "NONE", NA);
     }
 

@@ -9,6 +9,7 @@
 
 CREATE TABLE IF NOT EXISTS td_spec (
     spec_id           VARCHAR(36)   NOT NULL,
+    name              VARCHAR(255),
     title             VARCHAR(255)  NOT NULL,
     version           VARCHAR(64),
     description       TEXT,
@@ -60,6 +61,12 @@ CREATE TABLE IF NOT EXISTS td_test_plan (
 );
 
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS plan_id VARCHAR(36);
+
+ALTER TABLE td_spec ADD COLUMN IF NOT EXISTS name VARCHAR(255);
+
+UPDATE td_spec
+   SET name = COALESCE(NULLIF(TRIM(name), ''), NULLIF(TRIM(title), ''), spec_id)
+ WHERE name IS NULL OR TRIM(name) = '';
 
 CREATE TABLE IF NOT EXISTS td_test_case_param (
     test_case_id  VARCHAR(36)  NOT NULL,

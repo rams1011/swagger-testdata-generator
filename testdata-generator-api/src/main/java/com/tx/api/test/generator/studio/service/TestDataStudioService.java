@@ -335,8 +335,7 @@ public class TestDataStudioService {
             testCase.setResponseJsonSchema(operation.response().jsonSchema());
             testCase.setStatusCode(request.statusCode() == null ? operation.response().statusCode() : request.statusCode());
             testCase.setResponseType(StringUtils.defaultIfBlank(request.responseType(), operation.response().responseType()));
-            testCase.setJsonPathAssertions(StringUtils.defaultIfBlank(request.jsonPathAssertions(),
-                    operation.response().jsonPathAssertions()));
+            testCase.setJsonPathAssertions(StringUtils.defaultIfBlank(request.jsonPathAssertions(), NA));
         } else if (creating) {
             testCase.setStatusCode(request.statusCode() == null ? 200 : request.statusCode());
             testCase.setResponseType(StringUtils.defaultIfBlank(request.responseType(), "NONE"));

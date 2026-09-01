@@ -70,10 +70,13 @@ API base: [http://localhost:8083](http://localhost:8083)
 
 | Method | Path | Purpose |
 |--------|------|---------|
-| `POST` | `/api/specs` | Load spec from `location` (URL/path) or `content` |
-| `POST` | `/api/specs/upload` | Upload a Swagger/OpenAPI file |
+| `POST` | `/api/specs` | Load spec from `location` or `content` (requires unique `name`) |
+| `POST` | `/api/specs/upload` | Upload a Swagger/OpenAPI file (requires unique `name`) |
+| `PUT` | `/api/specs/{specId}` | Rename a spec (`name` must stay unique) |
+| `DELETE` | `/api/specs/{specId}` | Delete a spec and its plans/cases |
 | `POST` | `/api/specs/{specId}/reload` | Re-fetch the spec in place (same `specId`); optional `location`, `content`, `baseUrl` |
 | `POST` | `/api/specs/{specId}/reload/upload` | Replace the spec document from a file, keeping the same `specId` |
+| `GET` | `/api/specs` | List loaded specs |
 | `GET` | `/api/specs/{specId}` | Spec summary |
 | `GET` | `/api/specs/{specId}/operations` | Operation list (dynamic pages) |
 | `GET` | `/api/specs/{specId}/operations/{key}` | JSON Schema, samples, and defaults for one operation |
@@ -172,7 +175,7 @@ On startup the API runs `classpath:ddl/schema.sql`. PostgreSQL-specific DDL (com
 
 | Table | Purpose |
 |-------|---------|
-| `td_spec` | Loaded OpenAPI specs (source URL/content, title, base URL) |
+| `td_spec` | Loaded OpenAPI specs (unique `name`, source URL/content, OpenAPI title, base URL) |
 | `td_test_plan` | Named test plans under a spec. A spec always has at least one plan (`Default` is created on first access) |
 | `td_test_case` | Test cases created from operation schemas (`plan_id` scopes a case to a plan) |
 | `td_test_case_param` | Path, query, and header values (`param_in` = `path` \| `query` \| `header`) |
@@ -199,7 +202,7 @@ Open [http://localhost:5173](http://localhost:5173). Vite proxies `/api` to the 
 
 Use the **Test plan** control in the sidebar to switch plans, add a plan, or delete a plan (the last plan is kept). Saved cases, the operation form, and **Download Excel** all apply to the selected plan only.
 
-**Reload spec** (home list or sidebar) replaces the OpenAPI document for that spec id. Plans and saved cases are not deleted. New and changed operations appear immediately. Cases whose `operationKey` disappeared stay in the plan as orphans (counted in the reload result) until you delete them. The stored base URL is kept unless you pass a new one. **Load spec** still creates a *new* spec id and leaves existing data untouched.
+**Reload spec** (home list or sidebar) replaces the OpenAPI document for that spec id. Plans and saved cases are not deleted. New and changed operations appear immediately. Cases whose `operationKey` disappeared stay in the plan as orphans (counted in the reload result) until you delete them. The stored base URL is kept unless you pass a new one. **Load spec** still creates a *new* spec id and leaves existing data untouched. Each spec has a unique **name** (required when loading); the OpenAPI `info.title` is stored separately and can stay the same across specs.
 
 **Run** on an operation page executes the current form (save is not required). **Run plan** on the saved-cases page runs every enabled case. Set **Run authentication** to credentials (HTTP Basic), a bearer token, or an API key; the values stay in browser `sessionStorage` for that spec and are not written to Excel or the studio database. Choose **None** when a case already sends `Authorization` (for example generated 401 tests).
 

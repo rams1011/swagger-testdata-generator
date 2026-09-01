@@ -4,6 +4,7 @@ public record LoadSpecRequest(
         String location,
         String content,
         String fileName,
-        String baseUrl
+        String baseUrl,
+        String name
 ) {
 }

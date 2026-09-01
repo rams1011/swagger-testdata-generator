@@ -35,7 +35,7 @@ public class ExcelStudioStorage implements StudioStorage {
     private static final String PARAMS = "Params";
     private static final String[] SPEC_HEADERS = {
             "spec_id", "title", "version", "description", "base_url", "source_location",
-            "source_content", "operation_count", "created_at", "updated_at"
+            "source_content", "operation_count", "created_at", "updated_at", "name"
     };
     private static final String[] PLAN_HEADERS = {
             "plan_id", "spec_id", "name", "description", "created_at", "updated_at"
@@ -93,6 +93,30 @@ public class ExcelStudioStorage implements StudioStorage {
     public List<StoredSpec> listSpecs() {
         synchronized (lock) {
             return new ArrayList<>(load().specs.values());
+        }
+    }
+
+    @Override
+    public void deleteSpec(String specId) {
+        synchronized (lock) {
+            WorkbookState state = load();
+            if (state.specs.remove(specId) == null) {
+                throw new NoSuchElementException("Spec not found: " + specId);
+            }
+            List<String> removedCases = new ArrayList<>();
+            state.plans.entrySet().removeIf(entry -> specId.equals(entry.getValue().getSpecId()));
+            state.cases.entrySet().removeIf(entry -> {
+                if (specId.equals(entry.getValue().getSpecId())) {
+                    removedCases.add(entry.getKey());
+                    return true;
+                }
+                return false;
+            });
+            removedCases.forEach(id -> {
+                state.caseCreatedAt.remove(id);
+                state.caseUpdatedAt.remove(id);
+            });
+            write(state);
         }
     }
 
@@ -260,6 +284,7 @@ public class ExcelStudioStorage implements StudioStorage {
             spec.setOperationCount(parseInt(cell(row, 7), 0));
             spec.setCreatedAt(parseInstant(cell(row, 8)));
             spec.setUpdatedAt(parseInstant(cell(row, 9)));
+            spec.setName(cell(row, 10));
             state.specs.put(spec.getSpecId(), spec);
         }
     }
@@ -360,6 +385,7 @@ public class ExcelStudioStorage implements StudioStorage {
             set(row, 7, String.valueOf(spec.getOperationCount()));
             set(row, 8, formatInstant(spec.getCreatedAt()));
             set(row, 9, formatInstant(spec.getUpdatedAt()));
+            set(row, 10, spec.getName());
         }
     }
 

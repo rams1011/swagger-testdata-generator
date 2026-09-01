@@ -6,6 +6,7 @@ import com.tx.api.test.generator.catalog.OperationSummary;
 import com.tx.api.test.generator.openapi.OpenApiOperationInspector;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
+import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
 import com.tx.api.test.generator.studio.model.LoadedSpec;
 import com.tx.api.test.generator.studio.model.StoredSpec;
@@ -14,9 +15,12 @@ import io.swagger.v3.oas.models.OpenAPI;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PostConstruct;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Set;
@@ -33,6 +37,20 @@ public class SpecCatalogService {
         this.studioStorage = studioStorage;
     }
 
+    @PostConstruct
+    void ensureUniqueSpecNames() {
+        Set<String> used = new HashSet<>();
+        for (StoredSpec spec : studioStorage.listSpecs()) {
+            String name = uniquifyName(fallbackName(spec.getName(), spec.getTitle(), spec.getSpecId()), used);
+            used.add(name.toLowerCase(Locale.ROOT));
+            if (!name.equals(spec.getName())) {
+                spec.setName(name);
+                studioStorage.saveSpec(spec);
+            }
+        }
+        studioStorage.ensureSpecNameUniqueIndex();
+    }
+
     public SpecSummary load(LoadSpecRequest request) {
         String content = resolveContent(request);
         OpenAPI openApi = parseSpec(request, content);
@@ -42,8 +60,10 @@ public class SpecCatalogService {
         }
 
         String specId = UUID.randomUUID().toString();
+        String name = requireUniqueName(request == null ? null : request.name(), null);
         LoadedSpec loadedSpec = new LoadedSpec(
                 specId,
+                name,
                 openApi,
                 operations,
                 TestdataGenerator.specTitle(openApi),
@@ -52,8 +72,38 @@ public class SpecCatalogService {
                 TestdataGenerator.resolveBaseUrl(openApi, request.baseUrl())
         );
         specs.put(specId, loadedSpec);
-        studioStorage.saveSpec(toStoredSpec(loadedSpec, request, content));
+        studioStorage.saveSpec(toStoredSpec(loadedSpec, request, content, name));
         return toSummary(loadedSpec, request == null ? null : request.location());
+    }
+
+    public SpecSummary rename(String specId, SaveSpecRequest request) {
+        StoredSpec stored = studioStorage.findSpec(specId)
+                .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
+        String name = requireUniqueName(request == null ? null : request.name(), specId);
+        stored.setName(name);
+        studioStorage.saveSpec(stored);
+        LoadedSpec loaded = specs.get(specId);
+        if (loaded != null) {
+            specs.put(specId, new LoadedSpec(
+                    loaded.getSpecId(),
+                    name,
+                    loaded.getOpenApi(),
+                    loaded.getOperations(),
+                    loaded.getTitle(),
+                    loaded.getVersion(),
+                    loaded.getDescription(),
+                    loaded.getBaseUrl()
+            ));
+            return toSummary(specs.get(specId), stored.getSourceLocation());
+        }
+        return toSummary(stored);
+    }
+
+    public void delete(String specId) {
+        studioStorage.findSpec(specId)
+                .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
+        studioStorage.deleteSpec(specId);
+        specs.remove(specId);
     }
 
     public ReloadSpecResult reload(String specId, LoadSpecRequest request) {
@@ -63,7 +113,7 @@ public class SpecCatalogService {
 
         String location = firstNonBlank(request == null ? null : request.location(), existing.getSourceLocation());
         String content = resolveReloadContent(request, existing, location);
-        OpenAPI openApi = parseSpec(new LoadSpecRequest(location, content, null, null), content);
+        OpenAPI openApi = parseSpec(new LoadSpecRequest(location, content, null, null, null), content);
         String baseUrl = firstNonBlank(request == null ? null : request.baseUrl(), existing.getBaseUrl());
         List<OperationPage> operations = TestdataGenerator.inspect(openApi, baseUrl);
         if (operations.isEmpty()) {
@@ -72,9 +122,17 @@ public class SpecCatalogService {
         if (StringUtils.isBlank(baseUrl)) {
             baseUrl = TestdataGenerator.resolveBaseUrl(openApi, null);
         }
+        String name = existing.getName();
+        if (request != null && StringUtils.isNotBlank(request.name())
+                && !request.name().trim().equalsIgnoreCase(StringUtils.defaultString(name))) {
+            name = requireUniqueName(request.name(), specId);
+        } else {
+            name = fallbackName(name, TestdataGenerator.specTitle(openApi), specId);
+        }
 
         LoadedSpec loadedSpec = new LoadedSpec(
                 specId,
+                name,
                 openApi,
                 operations,
                 TestdataGenerator.specTitle(openApi),
@@ -84,8 +142,8 @@ public class SpecCatalogService {
         );
         specs.put(specId, loadedSpec);
         studioStorage.saveSpec(toStoredSpec(loadedSpec,
-                new LoadSpecRequest(location, content, request == null ? null : request.fileName(), baseUrl),
-                content));
+                new LoadSpecRequest(location, content, request == null ? null : request.fileName(), baseUrl, name),
+                content, name));
 
         Set<String> nextKeys = new LinkedHashSet<>();
         operations.forEach(operation -> nextKeys.add(operation.key()));
@@ -102,7 +160,11 @@ public class SpecCatalogService {
         Map<String, SpecSummary> summaries = new LinkedHashMap<>();
         studioStorage.listSpecs().forEach(stored -> summaries.put(stored.getSpecId(), toSummary(stored)));
         specs.values().forEach(loaded -> summaries.put(loaded.getSpecId(), toSummary(loaded, sourceLocation(loaded.getSpecId()))));
-        return List.copyOf(summaries.values());
+        return summaries.values().stream()
+                .sorted((left, right) -> String.CASE_INSENSITIVE_ORDER.compare(
+                        StringUtils.defaultString(left.name(), left.title()),
+                        StringUtils.defaultString(right.name(), right.title())))
+                .toList();
     }
 
     public SpecSummary getSummary(String specId) {
@@ -153,6 +215,7 @@ public class SpecCatalogService {
         List<OperationPage> operations = TestdataGenerator.inspect(openApi, stored.getBaseUrl());
         return new LoadedSpec(
                 stored.getSpecId(),
+                fallbackName(stored.getName(), stored.getTitle(), stored.getSpecId()),
                 openApi,
                 operations,
                 stored.getTitle(),
@@ -162,9 +225,10 @@ public class SpecCatalogService {
         );
     }
 
-    private StoredSpec toStoredSpec(LoadedSpec loaded, LoadSpecRequest request, String content) {
+    private StoredSpec toStoredSpec(LoadedSpec loaded, LoadSpecRequest request, String content, String name) {
         StoredSpec stored = new StoredSpec();
         stored.setSpecId(loaded.getSpecId());
+        stored.setName(name);
         stored.setTitle(loaded.getTitle());
         stored.setVersion(loaded.getVersion());
         stored.setDescription(loaded.getDescription());
@@ -203,6 +267,7 @@ public class SpecCatalogService {
                 .toList();
         return new SpecSummary(
                 spec.getSpecId(),
+                spec.getName(),
                 spec.getTitle(),
                 spec.getVersion(),
                 spec.getDescription(),
@@ -220,6 +285,7 @@ public class SpecCatalogService {
     private SpecSummary toSummary(StoredSpec spec) {
         return new SpecSummary(
                 spec.getSpecId(),
+                spec.getName(),
                 spec.getTitle(),
                 spec.getVersion(),
                 spec.getDescription(),
@@ -261,5 +327,39 @@ public class SpecCatalogService {
 
     private String firstNonBlank(String primary, String fallback) {
         return StringUtils.isNotBlank(primary) ? primary.trim() : StringUtils.trimToNull(fallback);
+    }
+
+    private String requireUniqueName(String name, String excludeSpecId) {
+        String trimmed = StringUtils.trimToNull(name);
+        if (trimmed == null) {
+            throw new IllegalArgumentException("Spec name is required and must be unique");
+        }
+        boolean duplicate = studioStorage.listSpecs().stream()
+                .anyMatch(spec -> !spec.getSpecId().equals(excludeSpecId)
+                        && trimmed.equalsIgnoreCase(StringUtils.trimToEmpty(spec.getName())));
+        if (duplicate) {
+            throw new IllegalArgumentException("A spec named '" + trimmed + "' already exists");
+        }
+        return trimmed;
+    }
+
+    private String fallbackName(String name, String title, String specId) {
+        if (StringUtils.isNotBlank(name)) {
+            return name.trim();
+        }
+        if (StringUtils.isNotBlank(title)) {
+            return title.trim();
+        }
+        return specId;
+    }
+
+    private String uniquifyName(String desired, Set<String> used) {
+        String base = StringUtils.defaultIfBlank(desired, "spec").trim();
+        String candidate = base;
+        int suffix = 2;
+        while (used.contains(candidate.toLowerCase(Locale.ROOT))) {
+            candidate = base + "-" + suffix++;
+        }
+        return candidate;
     }
 }

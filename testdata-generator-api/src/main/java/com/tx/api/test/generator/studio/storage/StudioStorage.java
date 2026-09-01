@@ -15,6 +15,11 @@ public interface StudioStorage {
 
     List<StoredSpec> listSpecs();
 
+    void deleteSpec(String specId);
+
+    default void ensureSpecNameUniqueIndex() {
+    }
+
     void savePlan(StudioTestPlan plan);
 
     void deletePlan(String planId);

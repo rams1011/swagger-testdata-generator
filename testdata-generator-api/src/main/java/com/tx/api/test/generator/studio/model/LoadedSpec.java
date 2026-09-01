@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 public class LoadedSpec {
 
     private final String specId;
+    private final String name;
     private final OpenAPI openApi;
     private final List<OperationPage> operations;
     private final Map<String, OperationPage> operationsByKey;
@@ -19,9 +20,10 @@ public class LoadedSpec {
     private final String description;
     private final String baseUrl;
 
-    public LoadedSpec(String specId, OpenAPI openApi, List<OperationPage> operations,
+    public LoadedSpec(String specId, String name, OpenAPI openApi, List<OperationPage> operations,
                       String title, String version, String description, String baseUrl) {
         this.specId = specId;
+        this.name = name;
         this.openApi = openApi;
         this.operations = List.copyOf(operations);
         this.operationsByKey = operations.stream()
@@ -34,6 +36,10 @@ public class LoadedSpec {
 
     public String getSpecId() {
         return specId;
+    }
+
+    public String getName() {
+        return name;
     }
 
     public OpenAPI getOpenApi() {

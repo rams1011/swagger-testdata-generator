@@ -4,16 +4,21 @@ import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.catalog.OperationSummary;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
+import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
 import com.tx.api.test.generator.studio.service.SpecCatalogService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -38,9 +43,21 @@ public class SpecController {
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public SpecSummary upload(@RequestPart("file") MultipartFile file,
+                              @RequestParam(value = "name", required = false) String name,
                               @RequestParam(value = "baseUrl", required = false) String baseUrl) throws IOException {
         String content = new String(file.getBytes(), StandardCharsets.UTF_8);
-        return specCatalogService.load(new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl));
+        return specCatalogService.load(new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, name));
+    }
+
+    @PutMapping("/{specId}")
+    public SpecSummary rename(@PathVariable String specId, @RequestBody SaveSpecRequest request) {
+        return specCatalogService.rename(specId, request);
+    }
+
+    @DeleteMapping("/{specId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable String specId) {
+        specCatalogService.delete(specId);
     }
 
     @PostMapping("/{specId}/reload")
@@ -55,7 +72,7 @@ public class SpecController {
                                          @RequestParam(value = "baseUrl", required = false) String baseUrl)
             throws IOException {
         String content = new String(file.getBytes(), StandardCharsets.UTF_8);
-        return specCatalogService.reload(specId, new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl));
+        return specCatalogService.reload(specId, new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, null));
     }
 
     @GetMapping
