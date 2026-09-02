@@ -40,7 +40,7 @@ public class ExcelStudioStorage implements StudioStorage {
     private static final String PARAMS = "Params";
     private static final String[] SPEC_HEADERS = {
             "spec_id", "title", "version", "description", "base_url", "source_location",
-            "source_content", "operation_count", "created_at", "updated_at", "name"
+            "source_content", "operation_count", "created_at", "updated_at", "name", "label"
     };
     private static final String[] PLAN_HEADERS = {
             "plan_id", "spec_id", "name", "description", "created_at", "updated_at"
@@ -409,6 +409,7 @@ public class ExcelStudioStorage implements StudioStorage {
             spec.setCreatedAt(parseInstant(cell(row, 8)));
             spec.setUpdatedAt(parseInstant(cell(row, 9)));
             spec.setName(cell(row, 10));
+            spec.setLabel(StringUtils.defaultIfBlank(cell(row, 11), StoredSpec.DEFAULT_LABEL));
             state.specs.put(spec.getSpecId(), spec);
         }
     }
@@ -512,6 +513,7 @@ public class ExcelStudioStorage implements StudioStorage {
             set(row, 8, formatInstant(spec.getCreatedAt()));
             set(row, 9, formatInstant(spec.getUpdatedAt()));
             set(row, 10, spec.getName());
+            set(row, 11, StringUtils.defaultIfBlank(spec.getLabel(), StoredSpec.DEFAULT_LABEL));
         }
     }
 

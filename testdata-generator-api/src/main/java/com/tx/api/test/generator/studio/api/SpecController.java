@@ -44,9 +44,10 @@ public class SpecController {
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public SpecSummary upload(@RequestPart("file") MultipartFile file,
                               @RequestParam(value = "name", required = false) String name,
+                              @RequestParam(value = "label", required = false) String label,
                               @RequestParam(value = "baseUrl", required = false) String baseUrl) throws IOException {
         String content = new String(file.getBytes(), StandardCharsets.UTF_8);
-        return specCatalogService.load(new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, name));
+        return specCatalogService.load(new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, name, label));
     }
 
     @PutMapping("/{specId}")
@@ -72,7 +73,7 @@ public class SpecController {
                                          @RequestParam(value = "baseUrl", required = false) String baseUrl)
             throws IOException {
         String content = new String(file.getBytes(), StandardCharsets.UTF_8);
-        return specCatalogService.reload(specId, new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, null));
+        return specCatalogService.reload(specId, new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, null, null));
     }
 
     @GetMapping

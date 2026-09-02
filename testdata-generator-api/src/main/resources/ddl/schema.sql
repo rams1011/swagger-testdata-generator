@@ -63,6 +63,12 @@ UPDATE td_spec
    SET name = COALESCE(NULLIF(TRIM(name), ''), NULLIF(TRIM(title), ''), spec_id)
  WHERE name IS NULL OR TRIM(name) = '';
 
+ALTER TABLE td_spec ADD COLUMN IF NOT EXISTS label VARCHAR(255);
+
+UPDATE td_spec
+   SET label = 'General'
+ WHERE label IS NULL OR TRIM(label) = '';
+
 CREATE TABLE IF NOT EXISTS td_test_case_param (
     test_case_id  VARCHAR(36)  NOT NULL,
     param_in      VARCHAR(16)  NOT NULL,

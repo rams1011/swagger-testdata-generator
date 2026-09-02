@@ -67,6 +67,12 @@ UPDATE td_spec
    SET name = COALESCE(NULLIF(BTRIM(name), ''), NULLIF(BTRIM(title), ''), spec_id)
  WHERE name IS NULL OR BTRIM(name) = '';
 
+ALTER TABLE td_spec ADD COLUMN IF NOT EXISTS label VARCHAR(255);
+
+UPDATE td_spec
+   SET label = 'General'
+ WHERE label IS NULL OR BTRIM(label) = '';
+
 CREATE TABLE IF NOT EXISTS td_test_case_param (
     test_case_id  VARCHAR(36)  NOT NULL REFERENCES td_test_case (test_case_id) ON DELETE CASCADE,
     param_in      VARCHAR(16)  NOT NULL CHECK (param_in IN ('path', 'query', 'header', 'cookie')),

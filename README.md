@@ -2,6 +2,8 @@
 
 Maven multi-module project that turns a Swagger 2.0 or OpenAPI 3.x spec into api-automation test data.
 
+Requires **JDK 21**. The API module uses **Spring Boot 4.1.1**.
+
 | Module | What it is |
 |--------|------------|
 | `testdata-generator-core` | Library + CLI JAR. Parse OpenAPI, inspect operations, generate Excel/payloads/schemas. |

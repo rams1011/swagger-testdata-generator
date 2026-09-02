@@ -7,6 +7,7 @@ import java.util.List;
 public record SpecSummary(
         String specId,
         String name,
+        String label,
         String title,
         String version,
         String description,

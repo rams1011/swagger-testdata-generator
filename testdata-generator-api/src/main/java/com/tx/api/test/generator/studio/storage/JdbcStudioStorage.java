@@ -35,22 +35,22 @@ public class JdbcStudioStorage implements StudioStorage {
         if (existing.isPresent()) {
             jdbcTemplate.update("""
                             UPDATE td_spec
-                               SET name = ?, title = ?, version = ?, description = ?, base_url = ?, source_location = ?,
+                               SET name = ?, label = ?, title = ?, version = ?, description = ?, base_url = ?, source_location = ?,
                                    source_content = ?, operation_count = ?, updated_at = ?
                              WHERE spec_id = ?
                             """,
-                    spec.getName(), spec.getTitle(), spec.getVersion(), spec.getDescription(), spec.getBaseUrl(),
+                    spec.getName(), defaultLabel(spec.getLabel()), spec.getTitle(), spec.getVersion(), spec.getDescription(), spec.getBaseUrl(),
                     spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
                     Timestamp.from(spec.getUpdatedAt()), spec.getSpecId());
             return;
         }
         jdbcTemplate.update("""
                         INSERT INTO td_spec (
-                            spec_id, name, title, version, description, base_url, source_location, source_content,
+                            spec_id, name, label, title, version, description, base_url, source_location, source_content,
                             operation_count, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                spec.getSpecId(), spec.getName(), spec.getTitle(), spec.getVersion(), spec.getDescription(),
+                spec.getSpecId(), spec.getName(), defaultLabel(spec.getLabel()), spec.getTitle(), spec.getVersion(), spec.getDescription(),
                 spec.getBaseUrl(), spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
                 Timestamp.from(spec.getCreatedAt()), Timestamp.from(spec.getUpdatedAt()));
     }
@@ -349,6 +349,7 @@ public class JdbcStudioStorage implements StudioStorage {
             StoredSpec spec = new StoredSpec();
             spec.setSpecId(rs.getString("spec_id"));
             spec.setName(rs.getString("name"));
+            spec.setLabel(defaultLabel(rs.getString("label")));
             spec.setTitle(rs.getString("title"));
             spec.setVersion(rs.getString("version"));
             spec.setDescription(rs.getString("description"));
@@ -421,5 +422,12 @@ public class JdbcStudioStorage implements StudioStorage {
     private Instant toInstant(ResultSet rs, String column) throws SQLException {
         Timestamp timestamp = rs.getTimestamp(column);
         return timestamp == null ? Instant.now() : timestamp.toInstant();
+    }
+
+    private static String defaultLabel(String label) {
+        if (label == null || label.isBlank()) {
+            return StoredSpec.DEFAULT_LABEL;
+        }
+        return label.trim();
     }
 }
