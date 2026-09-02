@@ -378,7 +378,7 @@ public final class OpenApiOperationInspector {
         if (normalized.contains("urlencoded") || normalized.contains("form-urlencoded")) {
             return "FORM";
         }
-        if (normalized.contains("xml")) {
+        if (isXmlMediaType(normalized)) {
             return "XML";
         }
         if (normalized.contains("text/plain") || (normalized.startsWith("text/") && !normalized.contains("xml"))) {
@@ -390,6 +390,17 @@ public final class OpenApiOperationInspector {
             return "FILE";
         }
         return "JSON";
+    }
+
+    static boolean isXmlMediaType(String mediaType) {
+        if (mediaType == null) {
+            return false;
+        }
+        String value = mediaType.trim().toLowerCase(Locale.ROOT).split(";")[0].trim();
+        return "xml".equals(value)
+                || "application/xml".equals(value)
+                || "text/xml".equals(value)
+                || value.endsWith("+xml");
     }
 
     private List<Parameter> mergeParameters(PathItem pathItem, Operation operation) {

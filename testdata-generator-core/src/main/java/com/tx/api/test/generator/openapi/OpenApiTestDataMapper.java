@@ -102,7 +102,7 @@ public final class OpenApiTestDataMapper {
                 .requestBody(requestBodyInfo.bodyReference())
                 .statusCode(responseInfo.statusCode())
                 .responseType(responseInfo.responseType())
-                .expectedResponse(NA)
+                .expectedResponse(NA) // NA = no body assertion; api-automation skips it
                 .enabled(options.getEnabled())
                 .testGroup(resolveTestGroup(operation))
                 .jsonPathAssertions(responseInfo.jsonPathAssertions())

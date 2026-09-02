@@ -370,9 +370,15 @@ public class TestDataStudioService {
         testCase.setEndpoint(buildEndpoint(operation.rawPath(), pathParams));
         testCase.setBaseUrl(StringUtils.defaultIfBlank(request.baseUrl(), spec.getBaseUrl()));
         Object requestBody = request.requestBody();
-        testCase.setRequestBody(requestBody);
         String contentType = StringUtils.defaultIfBlank(request.contentType(),
                 operation.defaults() == null ? NA : operation.defaults().contentType());
+        if (XmlPayloadSupport.isXml(contentType) && requestBody != null) {
+            Map<String, Object> schema = operation.requestBody() == null || operation.requestBody().jsonSchema() == null
+                    ? Map.of()
+                    : operation.requestBody().jsonSchema();
+            requestBody = XmlPayloadSupport.toXml(requestBody, schema);
+        }
+        testCase.setRequestBody(requestBody);
         if (RequestFileSupport.hasFileRefs(requestBody)
                 && (StringUtils.isBlank(contentType)
                 || NA.equalsIgnoreCase(contentType)
@@ -445,6 +451,10 @@ public class TestDataStudioService {
             String encoded = HttpPayloadSupport.formUrlEncoded(testCase.getRequestBody());
             return StringUtils.isBlank(encoded) ? NA : encoded;
         }
+        if (XmlPayloadSupport.isXml(testCase.getContentType())) {
+            String xml = XmlPayloadSupport.toXml(testCase.getRequestBody(), Map.of());
+            return StringUtils.isBlank(xml) ? NA : xml;
+        }
         return inlineJson(testCase.getRequestBody());
     }
 
@@ -454,6 +464,8 @@ public class TestDataStudioService {
             String contentType = blankToNa(testCase.getContentType());
             if (HttpPayloadSupport.isFormUrlEncoded(testCase.getContentType())) {
                 contentType = "application/x-www-form-urlencoded";
+            } else if (XmlPayloadSupport.isXml(testCase.getContentType()) && !contentType.contains("/")) {
+                contentType = "application/xml";
             }
             return new ExportPayload(contentType, inlineRequestBody(testCase), NA);
         }

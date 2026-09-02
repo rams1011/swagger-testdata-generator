@@ -275,7 +275,9 @@ public class TestRunService {
             return null;
         }
         String actual = StringUtils.defaultString(body);
-        boolean match = jsonEquals(expected, actual) || expected.trim().equals(actual.trim());
+        boolean match = jsonEquals(expected, actual)
+                || XmlPayloadSupport.xmlEquals(expected, actual, testCase.getResponseJsonSchema())
+                || expected.trim().equals(actual.trim());
         return new AssertionCheck("expectedResponse", null, truncate(expected.trim()), truncate(actual), match);
     }
 
@@ -394,6 +396,9 @@ public class TestRunService {
         }
         if (HttpPayloadSupport.isFormUrlEncoded(testCase.getContentType())) {
             return HttpPayloadSupport.formUrlEncoded(testCase.getRequestBody());
+        }
+        if (XmlPayloadSupport.isXml(testCase.getContentType())) {
+            return XmlPayloadSupport.toXml(testCase.getRequestBody(), Map.of());
         }
         if (testCase.getRequestBody() instanceof String text) {
             return StringUtils.isBlank(text) || NA.equalsIgnoreCase(text.trim()) ? null : text;
