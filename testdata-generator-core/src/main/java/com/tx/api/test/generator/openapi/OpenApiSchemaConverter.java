@@ -54,6 +54,18 @@ public final class OpenApiSchemaConverter {
         return "array".equals(type) || "object".equals(type);
     }
 
+    public static boolean isBinarySchema(Schema<?> schema) {
+        if (schema == null) {
+            return false;
+        }
+        String format = StringUtils.defaultString(schema.getFormat()).toLowerCase();
+        if ("binary".equals(format) || "byte".equals(format)) {
+            return true;
+        }
+        String type = schema.getType();
+        return "file".equalsIgnoreCase(type);
+    }
+
     private static JsonElement toJsonSchemaNode(Schema<?> schema) {
         if (schema == null) {
             JsonObject empty = new JsonObject();

@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.storage;
 
 import com.tx.api.test.generator.studio.model.StoredSpec;
+import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -68,8 +69,10 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void deleteSpec(String specId) {
+        jdbcTemplate.update("DELETE FROM td_test_case_param WHERE test_case_id IN (SELECT test_case_id FROM td_test_case WHERE spec_id = ?)",
+                specId);
         jdbcTemplate.update(
-                "DELETE FROM td_test_case_param WHERE test_case_id IN (SELECT test_case_id FROM td_test_case WHERE spec_id = ?)",
+                "DELETE FROM td_request_file WHERE test_case_id IN (SELECT test_case_id FROM td_test_case WHERE spec_id = ?)",
                 specId);
         jdbcTemplate.update("DELETE FROM td_test_case WHERE spec_id = ?", specId);
         jdbcTemplate.update("DELETE FROM td_test_plan WHERE spec_id = ?", specId);
@@ -114,6 +117,9 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void deletePlan(String planId) {
+        jdbcTemplate.update(
+                "DELETE FROM td_request_file WHERE test_case_id IN (SELECT test_case_id FROM td_test_case WHERE plan_id = ?)",
+                planId);
         jdbcTemplate.update("DELETE FROM td_test_case WHERE plan_id = ?", planId);
         int deleted = jdbcTemplate.update("DELETE FROM td_test_plan WHERE plan_id = ?", planId);
         if (deleted == 0) {
@@ -179,6 +185,7 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void deleteTestCase(String testCaseId) {
+        jdbcTemplate.update("DELETE FROM td_request_file WHERE test_case_id = ?", testCaseId);
         int deleted = jdbcTemplate.update("DELETE FROM td_test_case WHERE test_case_id = ?", testCaseId);
         if (deleted == 0) {
             throw new NoSuchElementException("Test case not found: " + testCaseId);
@@ -219,10 +226,82 @@ public class JdbcStudioStorage implements StudioStorage {
         return cases;
     }
 
+    @Override
+    public void saveRequestFile(StudioRequestFile file) {
+        Instant now = Instant.now();
+        file.setCreatedAt(file.getCreatedAt() == null ? now : file.getCreatedAt());
+        jdbcTemplate.update("""
+                        INSERT INTO td_request_file (
+                            file_id, test_case_id, file_name, content_type, size_bytes, content, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                file.getFileId(), file.getTestCaseId(), file.getFileName(), file.getContentType(),
+                file.getSizeBytes(), file.getContent(), Timestamp.from(file.getCreatedAt()));
+    }
+
+    @Override
+    public Optional<StudioRequestFile> findRequestFile(String testCaseId, String fileId) {
+        List<StudioRequestFile> files = jdbcTemplate.query(
+                "SELECT * FROM td_request_file WHERE test_case_id = ? AND file_id = ?",
+                requestFileMapper(true), testCaseId, fileId);
+        return files.stream().findFirst();
+    }
+
+    @Override
+    public void deleteRequestFile(String testCaseId, String fileId) {
+        int deleted = jdbcTemplate.update(
+                "DELETE FROM td_request_file WHERE test_case_id = ? AND file_id = ?", testCaseId, fileId);
+        if (deleted == 0) {
+            throw new NoSuchElementException("Request file not found: " + fileId);
+        }
+    }
+
+    @Override
+    public List<StudioRequestFile> listRequestFiles(String testCaseId) {
+        return jdbcTemplate.query(
+                """
+                SELECT file_id, test_case_id, file_name, content_type, size_bytes, created_at
+                  FROM td_request_file
+                 WHERE test_case_id = ?
+                 ORDER BY created_at
+                """,
+                requestFileMapper(false), testCaseId);
+    }
+
+    @Override
+    public void assignRequestFiles(String testCaseId, List<String> fileIds) {
+        List<String> ids = fileIds == null ? List.of() : fileIds.stream()
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        for (String fileId : ids) {
+            jdbcTemplate.update(
+                    "UPDATE td_request_file SET test_case_id = ? WHERE file_id = ?",
+                    testCaseId, fileId);
+        }
+        if (ids.isEmpty()) {
+            jdbcTemplate.update("DELETE FROM td_request_file WHERE test_case_id = ?", testCaseId);
+            return;
+        }
+        String placeholders = String.join(",", ids.stream().map(id -> "?").toList());
+        List<Object> args = new ArrayList<>();
+        args.add(testCaseId);
+        args.addAll(ids);
+        jdbcTemplate.update(
+                "DELETE FROM td_request_file WHERE test_case_id = ? AND file_id NOT IN (" + placeholders + ")",
+                args.toArray());
+    }
+
+    @Override
+    public void deleteRequestFilesForCase(String testCaseId) {
+        jdbcTemplate.update("DELETE FROM td_request_file WHERE test_case_id = ?", testCaseId);
+    }
+
     private void insertParams(StudioTestCase testCase) {
         insertParamGroup(testCase.getId(), "path", testCase.getPathParams());
         insertParamGroup(testCase.getId(), "query", testCase.getQueryParams());
         insertParamGroup(testCase.getId(), "header", testCase.getHeaders());
+        insertParamGroup(testCase.getId(), "cookie", testCase.getCookieParams());
     }
 
     private void insertParamGroup(String testCaseId, String in, Map<String, String> values) {
@@ -256,6 +335,8 @@ public class JdbcStudioStorage implements StudioStorage {
                         testCase.getPathParams().put(name, value);
                     } else if ("header".equalsIgnoreCase(in)) {
                         testCase.getHeaders().put(name, value);
+                    } else if ("cookie".equalsIgnoreCase(in)) {
+                        testCase.getCookieParams().put(name, value);
                     } else {
                         testCase.getQueryParams().put(name, value);
                     }
@@ -318,6 +399,22 @@ public class JdbcStudioStorage implements StudioStorage {
             plan.setCreatedAt(toInstant(rs, "created_at"));
             plan.setUpdatedAt(toInstant(rs, "updated_at"));
             return plan;
+        };
+    }
+
+    private RowMapper<StudioRequestFile> requestFileMapper(boolean includeContent) {
+        return (rs, rowNum) -> {
+            StudioRequestFile file = new StudioRequestFile();
+            file.setFileId(rs.getString("file_id"));
+            file.setTestCaseId(rs.getString("test_case_id"));
+            file.setFileName(rs.getString("file_name"));
+            file.setContentType(rs.getString("content_type"));
+            file.setSizeBytes(rs.getLong("size_bytes"));
+            file.setCreatedAt(toInstant(rs, "created_at"));
+            if (includeContent) {
+                file.setContent(rs.getBytes("content"));
+            }
+            return file;
         };
     }
 

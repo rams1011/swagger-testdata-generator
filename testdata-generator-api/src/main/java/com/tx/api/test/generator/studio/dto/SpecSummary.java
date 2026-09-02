@@ -1,5 +1,7 @@
 package com.tx.api.test.generator.studio.dto;
 
+import com.tx.api.test.generator.catalog.SpecServer;
+
 import java.util.List;
 
 public record SpecSummary(
@@ -11,6 +13,7 @@ public record SpecSummary(
         String baseUrl,
         int operationCount,
         List<String> tags,
-        String sourceLocation
+        String sourceLocation,
+        List<SpecServer> servers
 ) {
 }

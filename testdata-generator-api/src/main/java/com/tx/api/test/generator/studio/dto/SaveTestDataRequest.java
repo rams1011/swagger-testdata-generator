@@ -11,6 +11,7 @@ public record SaveTestDataRequest(
         Map<String, String> pathParams,
         Map<String, String> queryParams,
         Map<String, String> headers,
+        Map<String, String> cookieParams,
         Object requestBody,
         Integer statusCode,
         String responseType,

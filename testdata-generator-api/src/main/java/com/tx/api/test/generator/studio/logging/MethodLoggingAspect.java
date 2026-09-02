@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.logging;
 
 import com.tx.api.test.generator.studio.dto.ExcelExport;
+import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -75,6 +76,12 @@ public class MethodLoggingAspect {
             return "ExcelExport[fileName=" + exported.fileName()
                     + ", bytes=" + exported.content().length
                     + ", rows=" + exported.rowCount() + "]";
+        }
+        if (value instanceof StudioRequestFile file) {
+            return "StudioRequestFile[id=" + file.getFileId()
+                    + ", case=" + file.getTestCaseId()
+                    + ", name=" + file.getFileName()
+                    + ", bytes=" + file.getSizeBytes() + "]";
         }
         if (value instanceof com.tx.api.test.generator.studio.dto.RunAuth auth) {
             return auth.toString();

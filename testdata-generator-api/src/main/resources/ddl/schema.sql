@@ -71,8 +71,12 @@ CREATE TABLE IF NOT EXISTS td_test_case_param (
     CONSTRAINT pk_td_test_case_param PRIMARY KEY (test_case_id, param_in, param_name),
     CONSTRAINT fk_td_test_case_param_case FOREIGN KEY (test_case_id)
         REFERENCES td_test_case (test_case_id) ON DELETE CASCADE,
-    CONSTRAINT ck_td_test_case_param_in CHECK (param_in IN ('path', 'query', 'header'))
+    CONSTRAINT ck_td_test_case_param_in CHECK (param_in IN ('path', 'query', 'header', 'cookie'))
 );
+
+ALTER TABLE td_test_case_param DROP CONSTRAINT IF EXISTS ck_td_test_case_param_in;
+ALTER TABLE td_test_case_param ADD CONSTRAINT ck_td_test_case_param_in
+    CHECK (param_in IN ('path', 'query', 'header', 'cookie'));
 
 CREATE INDEX IF NOT EXISTS ix_td_test_case_spec
     ON td_test_case (spec_id);
@@ -88,3 +92,26 @@ CREATE INDEX IF NOT EXISTS ix_td_test_case_plan
 
 CREATE INDEX IF NOT EXISTS ix_td_test_case_param_in
     ON td_test_case_param (param_in);
+
+CREATE TABLE IF NOT EXISTS td_request_file (
+    file_id       VARCHAR(36)   NOT NULL,
+    test_case_id  VARCHAR(36)   NOT NULL,
+    file_name     VARCHAR(512)  NOT NULL,
+    content_type  VARCHAR(255),
+    size_bytes    BIGINT        NOT NULL,
+    content       BYTEA         NOT NULL,
+    created_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_request_file PRIMARY KEY (file_id),
+    CONSTRAINT fk_td_request_file_case FOREIGN KEY (test_case_id)
+        REFERENCES td_test_case (test_case_id) ON DELETE CASCADE
+);
+
+ALTER TABLE td_request_file ADD COLUMN IF NOT EXISTS test_case_id VARCHAR(36);
+DELETE FROM td_request_file WHERE test_case_id IS NULL;
+ALTER TABLE td_request_file DROP CONSTRAINT IF EXISTS fk_td_request_file_spec;
+DROP INDEX IF EXISTS ix_td_request_file_spec;
+ALTER TABLE td_request_file DROP COLUMN IF EXISTS spec_id;
+ALTER TABLE td_request_file ALTER COLUMN test_case_id SET NOT NULL;
+
+CREATE INDEX IF NOT EXISTS ix_td_request_file_case
+    ON td_request_file (test_case_id);

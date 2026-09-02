@@ -69,13 +69,17 @@ UPDATE td_spec
 
 CREATE TABLE IF NOT EXISTS td_test_case_param (
     test_case_id  VARCHAR(36)  NOT NULL REFERENCES td_test_case (test_case_id) ON DELETE CASCADE,
-    param_in      VARCHAR(16)  NOT NULL CHECK (param_in IN ('path', 'query', 'header')),
+    param_in      VARCHAR(16)  NOT NULL CHECK (param_in IN ('path', 'query', 'header', 'cookie')),
     param_name    VARCHAR(255) NOT NULL,
     param_value   TEXT,
     PRIMARY KEY (test_case_id, param_in, param_name)
 );
 
-COMMENT ON TABLE td_test_case_param IS 'Path, query, and header values for a test case';
+COMMENT ON TABLE td_test_case_param IS 'Path, query, header, and cookie values for a test case';
+
+ALTER TABLE td_test_case_param DROP CONSTRAINT IF EXISTS td_test_case_param_param_in_check;
+ALTER TABLE td_test_case_param ADD CONSTRAINT td_test_case_param_param_in_check
+    CHECK (param_in IN ('path', 'query', 'header', 'cookie'));
 
 CREATE INDEX IF NOT EXISTS ix_td_test_case_spec
     ON td_test_case (spec_id);
@@ -91,3 +95,27 @@ CREATE INDEX IF NOT EXISTS ix_td_test_case_plan
 
 CREATE INDEX IF NOT EXISTS ix_td_test_case_param_in
     ON td_test_case_param (param_in);
+
+CREATE TABLE IF NOT EXISTS td_request_file (
+    file_id       VARCHAR(36)   NOT NULL,
+    test_case_id  VARCHAR(36)   NOT NULL REFERENCES td_test_case (test_case_id) ON DELETE CASCADE,
+    file_name     VARCHAR(512)  NOT NULL,
+    content_type  VARCHAR(255),
+    size_bytes    BIGINT        NOT NULL,
+    content       BYTEA         NOT NULL,
+    created_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (file_id)
+);
+
+ALTER TABLE td_request_file ADD COLUMN IF NOT EXISTS test_case_id VARCHAR(36);
+DELETE FROM td_request_file WHERE test_case_id IS NULL;
+ALTER TABLE td_request_file DROP CONSTRAINT IF EXISTS fk_td_request_file_spec;
+ALTER TABLE td_request_file DROP CONSTRAINT IF EXISTS td_request_file_spec_id_fkey;
+DROP INDEX IF EXISTS ix_td_request_file_spec;
+ALTER TABLE td_request_file DROP COLUMN IF EXISTS spec_id;
+ALTER TABLE td_request_file ALTER COLUMN test_case_id SET NOT NULL;
+
+COMMENT ON TABLE td_request_file IS 'Uploaded multipart request files owned by a test case';
+
+CREATE INDEX IF NOT EXISTS ix_td_request_file_case
+    ON td_request_file (test_case_id);

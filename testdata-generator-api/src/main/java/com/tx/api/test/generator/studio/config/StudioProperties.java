@@ -12,6 +12,8 @@ public class StudioProperties {
     private String defaultExcelFileName = "TestData.xlsx";
     private String payloadPathPrefix = "src/test/data/payloads";
     private String schemaPathPrefix = "src/test/data/schemas";
+    private String filesPathPrefix = "src/test/data/files";
+    private String downloadsPathPrefix = "src/test/data/downloads";
 
     public Storage getStorage() {
         return storage;
@@ -67,6 +69,22 @@ public class StudioProperties {
 
     public void setSchemaPathPrefix(String schemaPathPrefix) {
         this.schemaPathPrefix = schemaPathPrefix;
+    }
+
+    public String getFilesPathPrefix() {
+        return filesPathPrefix;
+    }
+
+    public void setFilesPathPrefix(String filesPathPrefix) {
+        this.filesPathPrefix = filesPathPrefix;
+    }
+
+    public String getDownloadsPathPrefix() {
+        return downloadsPathPrefix;
+    }
+
+    public void setDownloadsPathPrefix(String downloadsPathPrefix) {
+        this.downloadsPathPrefix = downloadsPathPrefix;
     }
 
     public boolean isH2Storage() {

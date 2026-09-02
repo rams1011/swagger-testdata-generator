@@ -39,6 +39,7 @@ testdata:
   default-excel-file-name: TestData.xlsx
   payload-path-prefix: src/test/data/payloads
   schema-path-prefix: src/test/data/schemas
+  files-path-prefix: src/test/data/files
 
 logging:
   level:

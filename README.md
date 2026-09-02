@@ -76,6 +76,8 @@ API base: [http://localhost:8083](http://localhost:8083)
 | `DELETE` | `/api/specs/{specId}` | Delete a spec and its plans/cases |
 | `POST` | `/api/specs/{specId}/reload` | Re-fetch the spec in place (same `specId`); optional `location`, `content`, `baseUrl` |
 | `POST` | `/api/specs/{specId}/reload/upload` | Replace the spec document from a file, keeping the same `specId` |
+| `POST` | `/api/testdata/{id}/files` | Upload a multipart request file owned by that test case |
+| `GET` | `/api/testdata/{id}/files/{fileId}` | Download a stored request file |
 | `GET` | `/api/specs` | List loaded specs |
 | `GET` | `/api/specs/{specId}` | Spec summary |
 | `GET` | `/api/specs/{specId}/operations` | Operation list (dynamic pages) |
@@ -124,7 +126,7 @@ testdata:
 
 ### Excel
 
-Default. Specs, test plans, test cases, and path/query/header params are written to sheets `Specs`, `Plans`, `TestCases`, and `Params` in `testdata.excel.file` (default `./studio-output/studio-testdata.xlsx`). OpenAPI documents are stored next to the workbook under `specs/`.
+Default. Specs, test plans, test cases, and path/query/header params are written to sheets `Specs`, `Plans`, `TestCases`, and `Params` in `testdata.excel.file` (default `./studio-output/studio-testdata.xlsx`). OpenAPI documents are stored next to the workbook under `specs/`. Multipart request files are stored under `studio-files/{testCaseId}/`.
 
 ### H2
 
@@ -142,7 +144,7 @@ testdata:
     in-memory: false
 ```
 
-On startup the API runs `classpath:ddl/schema.sql` (PostgreSQL-compatible H2 mode). Data is stored as `./studio-output/testdata.mv.db`. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`.
+On startup the API runs `classpath:ddl/schema.sql` (PostgreSQL-compatible H2 mode). Data is stored as `./studio-output/testdata.mv.db`. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file` keyed by `test_case_id` (the case already belongs to a spec) and written to `testdata.default-output-dir/files` on Excel export (`UploadFiles` column uses `testdata.files-path-prefix`).
 
 H2 console: [http://localhost:8083/h2-console](http://localhost:8083/h2-console)
 

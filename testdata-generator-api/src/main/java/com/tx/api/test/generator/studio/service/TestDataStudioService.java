@@ -12,6 +12,7 @@ import com.tx.api.test.generator.studio.dto.GeneratePlansRequest;
 import com.tx.api.test.generator.studio.dto.GeneratePlansResult;
 import com.tx.api.test.generator.studio.dto.GenerateTestDataRequest;
 import com.tx.api.test.generator.studio.dto.GenerateTestDataResult;
+import com.tx.api.test.generator.studio.dto.RequestFileView;
 import com.tx.api.test.generator.studio.dto.RunPlanRequest;
 import com.tx.api.test.generator.studio.dto.RunPlanResult;
 import com.tx.api.test.generator.studio.dto.RunTestRequest;
@@ -21,6 +22,7 @@ import com.tx.api.test.generator.studio.dto.SaveTestPlanRequest;
 import com.tx.api.test.generator.studio.dto.TestCaseView;
 import com.tx.api.test.generator.studio.dto.TestPlanView;
 import com.tx.api.test.generator.studio.model.LoadedSpec;
+import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
@@ -30,8 +32,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -48,6 +55,7 @@ public class TestDataStudioService {
     private static final String NA = "NA";
     private static final String DEFAULT_SMOKE_PLAN = "Smoke";
     private static final String DEFAULT_NEGATIVE_PLAN = "Negative";
+    private static final long MAX_REQUEST_FILE_BYTES = 20L * 1024 * 1024;
     private static final Gson JSON = new Gson();
     private static final Logger log = LoggerFactory.getLogger(TestDataStudioService.class);
 
@@ -110,14 +118,18 @@ public class TestDataStudioService {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setId(UUID.randomUUID().toString());
         apply(testCase, request, true);
+        RequestFileSupport.stampTestCaseId(testCase.getRequestBody(), testCase.getId());
         studioStorage.saveTestCase(testCase);
+        bindCaseFiles(testCase);
         return toView(testCase);
     }
 
     public TestCaseView update(String id, SaveTestDataRequest request) {
         StudioTestCase testCase = requireCase(id);
         apply(testCase, request, false);
+        RequestFileSupport.stampTestCaseId(testCase.getRequestBody(), testCase.getId());
         studioStorage.saveTestCase(testCase);
+        bindCaseFiles(testCase);
         return toView(testCase);
     }
 
@@ -202,6 +214,7 @@ public class TestDataStudioService {
     }
 
     public void delete(String id) {
+        studioStorage.deleteRequestFilesForCase(id);
         studioStorage.deleteTestCase(id);
     }
 
@@ -276,7 +289,9 @@ public class TestDataStudioService {
         List<TestDataRow> rows = new ArrayList<>();
         int testCaseNo = 1;
         for (StudioTestCase testCase : cases) {
-            rows.add(toExcelRow(testCaseNo++, testCase, inlineRequestBody(testCase), NA));
+            ExportPayload payload = exportPayload(testCase);
+            rows.add(toExcelRow(testCaseNo++, testCase, payload.requestBody(), NA, payload.uploadFiles(),
+                    payload.contentType()));
         }
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         excelWriter.write(output, rows);
@@ -300,7 +315,35 @@ public class TestDataStudioService {
                 config.put("h2Console", "http://localhost:" + serverPort + "/h2-console");
             }
         }
+        config.put("filesDir", Path.of(properties.getDefaultOutputDir()).resolve("files").toString());
         return config;
+    }
+
+    public RequestFileView saveRequestFile(String caseId, MultipartFile upload) throws IOException {
+        if (upload == null || upload.isEmpty()) {
+            throw new IllegalArgumentException("A file is required");
+        }
+        if (upload.getSize() > MAX_REQUEST_FILE_BYTES) {
+            throw new IllegalArgumentException("File is larger than 20MB");
+        }
+        StudioTestCase testCase = requireCase(caseId);
+        StudioRequestFile file = new StudioRequestFile();
+        file.setFileId(UUID.randomUUID().toString());
+        file.setTestCaseId(testCase.getId());
+        file.setFileName(originalFileName(upload.getOriginalFilename()));
+        file.setContentType(StringUtils.defaultIfBlank(upload.getContentType(), "application/octet-stream"));
+        byte[] content = upload.getBytes();
+        file.setContent(content);
+        file.setSizeBytes(content.length);
+        file.setCreatedAt(Instant.now());
+        studioStorage.saveRequestFile(file);
+        return toFileView(file);
+    }
+
+    public StudioRequestFile requireRequestFile(String caseId, String fileId) {
+        requireCase(caseId);
+        return studioStorage.findRequestFile(caseId, fileId)
+                .orElseThrow(() -> new NoSuchElementException("Request file not found: " + fileId));
     }
 
     private void apply(StudioTestCase testCase, SaveTestDataRequest request, boolean creating) {
@@ -316,6 +359,7 @@ public class TestDataStudioService {
         Map<String, String> pathParams = copyMap(request.pathParams());
         Map<String, String> queryParams = copyMap(request.queryParams());
         Map<String, String> headers = copyMap(request.headers());
+        Map<String, String> cookieParams = copyMap(request.cookieParams());
 
         testCase.setSpecId(request.specId());
         testCase.setPlanId(resolvePlanId(request.specId(), request.planId()));
@@ -325,12 +369,21 @@ public class TestDataStudioService {
         testCase.setRawPath(operation.rawPath());
         testCase.setEndpoint(buildEndpoint(operation.rawPath(), pathParams));
         testCase.setBaseUrl(StringUtils.defaultIfBlank(request.baseUrl(), spec.getBaseUrl()));
-        testCase.setContentType(StringUtils.defaultIfBlank(request.contentType(),
-                operation.defaults() == null ? NA : operation.defaults().contentType()));
+        Object requestBody = request.requestBody();
+        testCase.setRequestBody(requestBody);
+        String contentType = StringUtils.defaultIfBlank(request.contentType(),
+                operation.defaults() == null ? NA : operation.defaults().contentType());
+        if (RequestFileSupport.hasFileRefs(requestBody)
+                && (StringUtils.isBlank(contentType)
+                || NA.equalsIgnoreCase(contentType)
+                || "JSON".equalsIgnoreCase(contentType))) {
+            contentType = "MULTIPART";
+        }
+        testCase.setContentType(contentType);
         testCase.setPathParams(pathParams);
         testCase.setQueryParams(queryParams);
         testCase.setHeaders(headers);
-        testCase.setRequestBody(request.requestBody());
+        testCase.setCookieParams(cookieParams);
         if (operation.response() != null) {
             testCase.setResponseJsonSchema(operation.response().jsonSchema());
             testCase.setStatusCode(request.statusCode() == null ? operation.response().statusCode() : request.statusCode());
@@ -366,6 +419,7 @@ public class TestDataStudioService {
                 generated.pathParams(),
                 generated.queryParams(),
                 generated.headers(),
+                generated.cookieParams(),
                 generated.requestBody(),
                 generated.statusCode(),
                 generated.responseType(),
@@ -387,10 +441,60 @@ public class TestDataStudioService {
         if (testCase.getRequestBody() == null || NA.equalsIgnoreCase(String.valueOf(testCase.getContentType()))) {
             return NA;
         }
-        if (testCase.getRequestBody() instanceof String text) {
-            return StringUtils.isBlank(text) ? NA : text;
+        if (HttpPayloadSupport.isFormUrlEncoded(testCase.getContentType())) {
+            String encoded = HttpPayloadSupport.formUrlEncoded(testCase.getRequestBody());
+            return StringUtils.isBlank(encoded) ? NA : encoded;
         }
-        return JSON.toJson(testCase.getRequestBody());
+        return inlineJson(testCase.getRequestBody());
+    }
+
+    private ExportPayload exportPayload(StudioTestCase testCase) {
+        List<RequestFileSupport.FilePart> files = RequestFileSupport.collectFileParts(testCase.getRequestBody());
+        if (files.isEmpty()) {
+            String contentType = blankToNa(testCase.getContentType());
+            if (HttpPayloadSupport.isFormUrlEncoded(testCase.getContentType())) {
+                contentType = "application/x-www-form-urlencoded";
+            }
+            return new ExportPayload(contentType, inlineRequestBody(testCase), NA);
+        }
+        String requestBody = inlineJson(RequestFileSupport.stripFileRefs(testCase.getRequestBody()));
+        Path dir = Path.of(properties.getDefaultOutputDir()).resolve("files");
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to create upload files directory: " + dir, exception);
+        }
+        String prefix = StringUtils.defaultIfBlank(properties.getFilesPathPrefix(), "src/test/data/files")
+                .replace('\\', '/')
+                .replaceAll("/+$", "");
+        List<String> entries = new ArrayList<>();
+        for (RequestFileSupport.FilePart part : files) {
+            StudioRequestFile stored = studioStorage.findRequestFile(testCase.getId(), part.fileId())
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Saved file for field '" + part.fieldName() + "' is missing. Re-upload it before export."));
+            String outputName = stored.getFileId() + "-" + RequestFileSupport.sanitizeFileName(stored.getFileName());
+            try {
+                Files.write(dir.resolve(outputName), stored.getContent() == null ? new byte[0] : stored.getContent());
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to write upload file " + outputName, exception);
+            }
+            entries.add(part.fieldName() + "=file:" + prefix + "/" + outputName);
+        }
+        return new ExportPayload("MULTIPART", requestBody, String.join("|", entries));
+    }
+
+    private String inlineJson(Object body) {
+        if (body == null) {
+            return NA;
+        }
+        if (body instanceof Map<?, ?> map && map.isEmpty()) {
+            return NA;
+        }
+        if (body instanceof String text) {
+            return StringUtils.isBlank(text) || NA.equalsIgnoreCase(text.trim()) ? NA : text;
+        }
+        String json = JSON.toJson(body);
+        return StringUtils.isBlank(json) || "{}".equals(json) ? NA : json;
     }
 
     private String exportFileName(ExportRequest request, StudioTestPlan plan) {
@@ -414,18 +518,28 @@ public class TestDataStudioService {
         return name;
     }
 
-    private TestDataRow toExcelRow(int testCaseNo, StudioTestCase testCase, String payloadReference, String schemaReference) {
+    private TestDataRow toExcelRow(int testCaseNo, StudioTestCase testCase, String payloadReference,
+                                  String schemaReference, String uploadFiles, String contentType) {
+        Map<String, String> headers = new LinkedHashMap<>(copyMap(testCase.getHeaders()));
+        String cookie = HttpPayloadSupport.cookieHeader(testCase.getCookieParams());
+        if (StringUtils.isNotBlank(cookie) && headers.keySet().stream().noneMatch(name -> name.equalsIgnoreCase("Cookie"))) {
+            headers.put("Cookie", cookie);
+        }
+        String downloadPath = "FILE".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getResponseType()))
+                ? StringUtils.defaultIfBlank(properties.getDownloadsPathPrefix(), "src/test/data/downloads")
+                .replace('\\', '/') + "/" + testCase.getId()
+                : NA;
         return TestDataRow.builder()
                 .testCaseNo(testCaseNo)
                 .serviceName(testCase.getTestName())
                 .serviceBaseUrl(testCase.getBaseUrl())
                 .requestType(testCase.getMethod())
                 .endpoint(testCase.getEndpoint())
-                .contentType(blankToNa(testCase.getContentType()))
-                .queryParamKey(joinKeys(testCase.getQueryParams()))
-                .queryParamValue(joinValues(testCase.getQueryParams()))
-                .headerName(joinKeys(testCase.getHeaders()))
-                .headerValue(joinValues(testCase.getHeaders()))
+                .contentType(blankToNa(contentType))
+                .queryParamKey(HttpPayloadSupport.joinKeys(testCase.getQueryParams()))
+                .queryParamValue(HttpPayloadSupport.joinValues(testCase.getQueryParams()))
+                .headerName(HttpPayloadSupport.joinKeys(headers))
+                .headerValue(HttpPayloadSupport.joinValues(headers))
                 .requestBody(payloadReference)
                 .statusCode(testCase.getStatusCode())
                 .responseType(blankToNa(testCase.getResponseType()))
@@ -435,6 +549,8 @@ public class TestDataStudioService {
                 .jsonPathAssertions(blankToNa(testCase.getJsonPathAssertions()))
                 .jsonSchemaPath(schemaReference)
                 .maxResponseTimeMs(testCase.getMaxResponseTimeMs())
+                .uploadFiles(blankToNa(uploadFiles))
+                .downloadFilePath(blankToNa(downloadPath))
                 .build();
     }
 
@@ -453,6 +569,7 @@ public class TestDataStudioService {
                 testCase.getPathParams(),
                 testCase.getQueryParams(),
                 testCase.getHeaders(),
+                testCase.getCookieParams(),
                 testCase.getRequestBody(),
                 testCase.getStatusCode(),
                 testCase.getResponseType(),
@@ -570,15 +687,36 @@ public class TestDataStudioService {
         return copy;
     }
 
-    private String joinKeys(Map<String, String> values) {
-        return values == null || values.isEmpty() ? NA : String.join("|", values.keySet());
-    }
-
-    private String joinValues(Map<String, String> values) {
-        return values == null || values.isEmpty() ? NA : String.join("|", values.values());
-    }
-
     private String blankToNa(String value) {
         return StringUtils.isBlank(value) ? NA : value;
+    }
+
+    private RequestFileView toFileView(StudioRequestFile file) {
+        return new RequestFileView(
+                file.getFileId(),
+                file.getTestCaseId(),
+                file.getFileName(),
+                file.getContentType(),
+                file.getSizeBytes(),
+                file.getCreatedAt()
+        );
+    }
+
+    private void bindCaseFiles(StudioTestCase testCase) {
+        studioStorage.assignRequestFiles(
+                testCase.getId(),
+                RequestFileSupport.fileIds(testCase.getRequestBody()));
+    }
+
+    private String originalFileName(String name) {
+        String base = StringUtils.defaultIfBlank(name, "upload.bin").replace('\\', '/');
+        int slash = base.lastIndexOf('/');
+        if (slash >= 0) {
+            base = base.substring(slash + 1);
+        }
+        return StringUtils.defaultIfBlank(base, "upload.bin");
+    }
+
+    private record ExportPayload(String contentType, String requestBody, String uploadFiles) {
     }
 }

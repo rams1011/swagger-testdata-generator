@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.service;
 import com.tx.api.test.generator.TestdataGenerator;
 import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.catalog.OperationSummary;
+import com.tx.api.test.generator.catalog.SpecServer;
 import com.tx.api.test.generator.openapi.OpenApiOperationInspector;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
@@ -265,6 +266,9 @@ public class SpecCatalogService {
                 .filter(StringUtils::isNotBlank)
                 .distinct()
                 .toList();
+        List<SpecServer> servers = spec.getOperations().isEmpty() || spec.getOperations().get(0).servers() == null
+                ? List.of()
+                : spec.getOperations().get(0).servers();
         return new SpecSummary(
                 spec.getSpecId(),
                 spec.getName(),
@@ -274,7 +278,8 @@ public class SpecCatalogService {
                 spec.getBaseUrl(),
                 spec.getOperations().size(),
                 tags,
-                sourceLocation
+                sourceLocation,
+                servers
         );
     }
 
@@ -292,7 +297,8 @@ public class SpecCatalogService {
                 spec.getBaseUrl(),
                 spec.getOperationCount(),
                 List.of(),
-                spec.getSourceLocation()
+                spec.getSourceLocation(),
+                List.of()
         );
     }
 
