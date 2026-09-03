@@ -98,6 +98,10 @@ API base: [http://localhost:8083](http://localhost:8083)
 | `POST` | `/api/testdata/run` | Run the current (unsaved) case; body is `{ testCase, auth }` |
 | `POST` | `/api/testdata/{id}/run` | Run a saved case with optional `{ auth }` |
 | `POST` | `/api/testdata/run-plan` | Run all enabled cases in a plan (`specId`, `planId`, `auth`) |
+| `GET` | `/api/runs?specId=&planId=&caseId=&outcome=&trigger=&limit=` | List persisted run batches (H2/Postgres). Newest first |
+| `GET` | `/api/runs/{runId}` | One run plus request/response snapshots |
+| `GET` | `/api/runs/{runId}/results/{resultId}` | One HTTP snapshot (body still available after the case is edited) |
+| `DELETE` | `/api/runs/{runId}` | Delete a run batch and its snapshots |
 
 Auth is applied only for that run and is not stored with the case. `auth.type` is `NONE`, `BASIC` (credentials: `username` / `password`), `BEARER` (`token`), or `API_KEY` (`apiKey`, optional `apiKeyName`, `apiKeyIn` of `header` or `query`). The runner checks expected status, max response time, and JSONPath assertions against the live response.
 
@@ -183,6 +187,8 @@ On startup the API runs `classpath:ddl/schema.sql`. PostgreSQL-specific DDL (com
 | `td_test_plan` | Named test plans under a spec. A spec always has at least one plan (`Default` is created on first access) |
 | `td_test_case` | Test cases created from operation schemas (`plan_id` scopes a case to a plan) |
 | `td_test_case_param` | Path, query, and header values (`param_in` = `path` \| `query` \| `header`) |
+| `td_run` | One Try / Run / Run plan click (`run_trigger` = `try` \| `case` \| `plan`) |
+| `td_run_result` | Snapshot of one HTTP call (redacted headers, truncated body). Not stored in Excel mode |
 
 One OpenAPI spec can have many test plans. Saved cases and Excel export are scoped to a single plan. Existing cases without `plan_id` are attached to **Default** the first time plans are loaded.
 

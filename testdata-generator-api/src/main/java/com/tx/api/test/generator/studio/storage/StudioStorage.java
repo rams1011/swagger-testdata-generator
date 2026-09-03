@@ -2,6 +2,8 @@ package com.tx.api.test.generator.studio.storage;
 
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
+import com.tx.api.test.generator.studio.model.StudioRun;
+import com.tx.api.test.generator.studio.model.StudioRunResult;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 
@@ -48,4 +50,14 @@ public interface StudioStorage {
     void assignRequestFiles(String testCaseId, List<String> fileIds);
 
     void deleteRequestFilesForCase(String testCaseId);
+
+    void saveRun(StudioRun run);
+
+    Optional<StudioRun> findRun(String runId);
+
+    Optional<StudioRunResult> findRunResult(String runId, String resultId);
+
+    List<StudioRun> listRuns(RunHistoryFilter filter);
+
+    void deleteRun(String runId);
 }

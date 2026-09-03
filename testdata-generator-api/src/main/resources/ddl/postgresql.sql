@@ -125,3 +125,47 @@ COMMENT ON TABLE td_request_file IS 'Uploaded multipart request files owned by a
 
 CREATE INDEX IF NOT EXISTS ix_td_request_file_case
     ON td_request_file (test_case_id);
+
+CREATE TABLE IF NOT EXISTS td_run (
+    run_id      VARCHAR(36)  PRIMARY KEY,
+    spec_id     VARCHAR(36)  NOT NULL REFERENCES td_spec (spec_id) ON DELETE CASCADE,
+    plan_id     VARCHAR(36),
+    run_trigger VARCHAR(16)  NOT NULL,
+    passed      INTEGER      NOT NULL DEFAULT 0,
+    failed      INTEGER      NOT NULL DEFAULT 0,
+    skipped     INTEGER      NOT NULL DEFAULT 0,
+    started_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS td_run_result (
+    result_id              VARCHAR(36)   PRIMARY KEY,
+    run_id                 VARCHAR(36)   NOT NULL REFERENCES td_run (run_id) ON DELETE CASCADE,
+    spec_id                VARCHAR(36)   NOT NULL REFERENCES td_spec (spec_id) ON DELETE CASCADE,
+    plan_id                VARCHAR(36),
+    case_id                VARCHAR(36)   REFERENCES td_test_case (test_case_id) ON DELETE SET NULL,
+    operation_key          VARCHAR(255),
+    test_name              VARCHAR(255),
+    run_trigger            VARCHAR(16)   NOT NULL,
+    outcome                VARCHAR(16)   NOT NULL,
+    method                 VARCHAR(16),
+    url                    VARCHAR(2048),
+    expected_status        INTEGER,
+    actual_status          INTEGER,
+    status_matched         BOOLEAN,
+    elapsed_ms             BIGINT,
+    max_response_time_ms   BIGINT,
+    timed_out              BOOLEAN,
+    error                  TEXT,
+    request_headers        TEXT,
+    request_body           TEXT,
+    request_content_type   VARCHAR(64),
+    request_params         TEXT,
+    response_headers       TEXT,
+    response_body          TEXT,
+    assertions_json        TEXT,
+    download_path          VARCHAR(2048),
+    created_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE td_run IS 'One Try / Run / Run plan click';
+COMMENT ON TABLE td_run_result IS 'One HTTP call snapshot for troubleshooting';

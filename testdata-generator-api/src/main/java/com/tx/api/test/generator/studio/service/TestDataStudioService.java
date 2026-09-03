@@ -63,16 +63,19 @@ public class TestDataStudioService {
     private final StudioProperties properties;
     private final StudioStorage studioStorage;
     private final TestRunService testRunService;
+    private final RunHistoryService runHistoryService;
     private final TestDataExcelWriter excelWriter = new TestDataExcelWriter();
     private final String serverPort;
 
     public TestDataStudioService(SpecCatalogService specCatalogService, StudioProperties properties,
                                  StudioStorage studioStorage, TestRunService testRunService,
+                                 RunHistoryService runHistoryService,
                                  @Value("${server.port:8083}") String serverPort) {
         this.specCatalogService = specCatalogService;
         this.properties = properties;
         this.studioStorage = studioStorage;
         this.testRunService = testRunService;
+        this.runHistoryService = runHistoryService;
         this.serverPort = serverPort;
     }
 
@@ -244,7 +247,12 @@ public class TestDataStudioService {
         } else {
             throw new IllegalArgumentException("caseId or testCase is required");
         }
-        return testRunService.execute(testCase, request.auth());
+        String trigger = StringUtils.isNotBlank(request.caseId())
+                ? RunHistoryService.TRIGGER_CASE
+                : RunHistoryService.TRIGGER_TRY;
+        RunTestResult result = testRunService.execute(testCase, request.auth());
+        runHistoryService.recordSingle(trigger, testCase, result);
+        return result;
     }
 
     public RunPlanResult runPlan(RunPlanRequest request) {
@@ -271,6 +279,7 @@ public class TestDataStudioService {
                 failed++;
             }
         }
+        runHistoryService.recordPlan(request.specId(), request.planId(), results, cases);
         return new RunPlanResult(request.specId(), request.planId(), passed, failed, skipped,
                 failed == 0 && passed > 0, results);
     }

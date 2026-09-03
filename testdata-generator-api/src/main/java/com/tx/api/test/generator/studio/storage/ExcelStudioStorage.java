@@ -3,6 +3,8 @@ package com.tx.api.test.generator.studio.storage;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
+import com.tx.api.test.generator.studio.model.StudioRun;
+import com.tx.api.test.generator.studio.model.StudioRunResult;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import org.apache.commons.lang3.StringUtils;
@@ -349,6 +351,31 @@ public class ExcelStudioStorage implements StudioStorage {
         synchronized (lock) {
             deleteRequestFilesForCaseUnlocked(testCaseId);
         }
+    }
+
+    @Override
+    public void saveRun(StudioRun run) {
+        // History is JDBC-only. Excel storage does not persist runs.
+    }
+
+    @Override
+    public Optional<StudioRun> findRun(String runId) {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<StudioRunResult> findRunResult(String runId, String resultId) {
+        return Optional.empty();
+    }
+
+    @Override
+    public List<StudioRun> listRuns(RunHistoryFilter filter) {
+        return List.of();
+    }
+
+    @Override
+    public void deleteRun(String runId) {
+        throw new NoSuchElementException("Run not found: " + runId);
     }
 
     private WorkbookState load() {

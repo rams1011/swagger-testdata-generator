@@ -121,3 +121,66 @@ ALTER TABLE td_request_file ALTER COLUMN test_case_id SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS ix_td_request_file_case
     ON td_request_file (test_case_id);
+
+CREATE TABLE IF NOT EXISTS td_run (
+    run_id      VARCHAR(36)  NOT NULL,
+    spec_id     VARCHAR(36)  NOT NULL,
+    plan_id     VARCHAR(36),
+    run_trigger VARCHAR(16)  NOT NULL,
+    passed      INTEGER      NOT NULL DEFAULT 0,
+    failed      INTEGER      NOT NULL DEFAULT 0,
+    skipped     INTEGER      NOT NULL DEFAULT 0,
+    started_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_run PRIMARY KEY (run_id),
+    CONSTRAINT fk_td_run_spec FOREIGN KEY (spec_id)
+        REFERENCES td_spec (spec_id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS td_run_result (
+    result_id              VARCHAR(36)   NOT NULL,
+    run_id                 VARCHAR(36)   NOT NULL,
+    spec_id                VARCHAR(36)   NOT NULL,
+    plan_id                VARCHAR(36),
+    case_id                VARCHAR(36),
+    operation_key          VARCHAR(255),
+    test_name              VARCHAR(255),
+    run_trigger            VARCHAR(16)   NOT NULL,
+    outcome                VARCHAR(16)   NOT NULL,
+    method                 VARCHAR(16),
+    url                    VARCHAR(2048),
+    expected_status        INTEGER,
+    actual_status          INTEGER,
+    status_matched         BOOLEAN,
+    elapsed_ms             BIGINT,
+    max_response_time_ms   BIGINT,
+    timed_out              BOOLEAN,
+    error                  TEXT,
+    request_headers        TEXT,
+    request_body           TEXT,
+    request_content_type   VARCHAR(64),
+    request_params         TEXT,
+    response_headers       TEXT,
+    response_body          TEXT,
+    assertions_json        TEXT,
+    download_path          VARCHAR(2048),
+    created_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_run_result PRIMARY KEY (result_id),
+    CONSTRAINT fk_td_run_result_run FOREIGN KEY (run_id)
+        REFERENCES td_run (run_id) ON DELETE CASCADE,
+    CONSTRAINT fk_td_run_result_spec FOREIGN KEY (spec_id)
+        REFERENCES td_spec (spec_id) ON DELETE CASCADE,
+    CONSTRAINT fk_td_run_result_case FOREIGN KEY (case_id)
+        REFERENCES td_test_case (test_case_id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_td_run_spec
+    ON td_run (spec_id, started_at);
+
+CREATE INDEX IF NOT EXISTS ix_td_run_result_run
+    ON td_run_result (run_id);
+
+CREATE INDEX IF NOT EXISTS ix_td_run_result_spec
+    ON td_run_result (spec_id, created_at);
+
+CREATE INDEX IF NOT EXISTS ix_td_run_result_case
+    ON td_run_result (case_id);

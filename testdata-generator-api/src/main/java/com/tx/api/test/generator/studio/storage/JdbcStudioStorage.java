@@ -2,6 +2,8 @@ package com.tx.api.test.generator.studio.storage;
 
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
+import com.tx.api.test.generator.studio.model.StudioRun;
+import com.tx.api.test.generator.studio.model.StudioRunResult;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -69,6 +71,8 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void deleteSpec(String specId) {
+        jdbcTemplate.update("DELETE FROM td_run_result WHERE spec_id = ?", specId);
+        jdbcTemplate.update("DELETE FROM td_run WHERE spec_id = ?", specId);
         jdbcTemplate.update("DELETE FROM td_test_case_param WHERE test_case_id IN (SELECT test_case_id FROM td_test_case WHERE spec_id = ?)",
                 specId);
         jdbcTemplate.update(
@@ -400,6 +404,150 @@ public class JdbcStudioStorage implements StudioStorage {
             plan.setCreatedAt(toInstant(rs, "created_at"));
             plan.setUpdatedAt(toInstant(rs, "updated_at"));
             return plan;
+        };
+    }
+
+    @Override
+    public void saveRun(StudioRun run) {
+        jdbcTemplate.update("""
+                        INSERT INTO td_run (run_id, spec_id, plan_id, run_trigger, passed, failed, skipped, started_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                run.getId(), run.getSpecId(), run.getPlanId(), run.getTrigger(),
+                run.getPassed(), run.getFailed(), run.getSkipped(), Timestamp.from(run.getStartedAt()));
+        for (StudioRunResult result : run.getResults()) {
+            jdbcTemplate.update("""
+                            INSERT INTO td_run_result (
+                                result_id, run_id, spec_id, plan_id, case_id, operation_key, test_name, run_trigger, outcome,
+                                method, url, expected_status, actual_status, status_matched, elapsed_ms,
+                                max_response_time_ms, timed_out, error, request_headers, request_body,
+                                request_content_type, request_params, response_headers, response_body,
+                                assertions_json, download_path, created_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            """,
+                    result.getId(), result.getRunId(), result.getSpecId(), result.getPlanId(), result.getCaseId(),
+                    result.getOperationKey(), result.getTestName(), result.getTrigger(), result.getOutcome(),
+                    result.getMethod(), result.getUrl(), result.getExpectedStatus(), result.getActualStatus(),
+                    result.getStatusMatched(), result.getElapsedMs(), result.getMaxResponseTimeMs(),
+                    result.getTimedOut(), result.getError(), JsonMaps.toJson(result.getRequestHeaders()),
+                    result.getRequestBody(), result.getRequestContentType(), JsonMaps.toJson(result.getRequestParams()),
+                    JsonMaps.toJson(result.getResponseHeaders()), result.getResponseBody(),
+                    result.getAssertionsJson(), result.getDownloadPath(), Timestamp.from(result.getCreatedAt()));
+        }
+    }
+
+    @Override
+    public Optional<StudioRun> findRun(String runId) {
+        List<StudioRun> runs = jdbcTemplate.query(
+                "SELECT * FROM td_run WHERE run_id = ?", runMapper(), runId);
+        if (runs.isEmpty()) {
+            return Optional.empty();
+        }
+        StudioRun run = runs.get(0);
+        run.setResults(jdbcTemplate.query(
+                "SELECT * FROM td_run_result WHERE run_id = ? ORDER BY created_at", runResultMapper(), runId));
+        return Optional.of(run);
+    }
+
+    @Override
+    public Optional<StudioRunResult> findRunResult(String runId, String resultId) {
+        List<StudioRunResult> results = jdbcTemplate.query(
+                "SELECT * FROM td_run_result WHERE run_id = ? AND result_id = ?",
+                runResultMapper(), runId, resultId);
+        return results.stream().findFirst();
+    }
+
+    @Override
+    public List<StudioRun> listRuns(RunHistoryFilter filter) {
+        StringBuilder sql = new StringBuilder("SELECT * FROM td_run r WHERE r.spec_id = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(filter.specId());
+        if (hasText(filter.planId())) {
+            sql.append(" AND r.plan_id = ?");
+            args.add(filter.planId());
+        }
+        if (hasText(filter.trigger())) {
+            sql.append(" AND r.run_trigger = ?");
+            args.add(filter.trigger());
+        }
+        if (hasText(filter.caseId())) {
+            sql.append(" AND EXISTS (SELECT 1 FROM td_run_result rr WHERE rr.run_id = r.run_id AND rr.case_id = ?)");
+            args.add(filter.caseId());
+        }
+        if (hasText(filter.outcome())) {
+            sql.append(" AND EXISTS (SELECT 1 FROM td_run_result rr WHERE rr.run_id = r.run_id AND rr.outcome = ?)");
+            args.add(filter.outcome());
+        }
+        sql.append(" ORDER BY r.started_at DESC LIMIT ?");
+        args.add(filter.limit());
+        return jdbcTemplate.query(sql.toString(), runMapper(), args.toArray());
+    }
+
+    @Override
+    public void deleteRun(String runId) {
+        jdbcTemplate.update("DELETE FROM td_run_result WHERE run_id = ?", runId);
+        int deleted = jdbcTemplate.update("DELETE FROM td_run WHERE run_id = ?", runId);
+        if (deleted == 0) {
+            throw new NoSuchElementException("Run not found: " + runId);
+        }
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    private RowMapper<StudioRun> runMapper() {
+        return (rs, rowNum) -> {
+            StudioRun run = new StudioRun();
+            run.setId(rs.getString("run_id"));
+            run.setSpecId(rs.getString("spec_id"));
+            run.setPlanId(rs.getString("plan_id"));
+            run.setTrigger(rs.getString("run_trigger"));
+            run.setPassed(rs.getInt("passed"));
+            run.setFailed(rs.getInt("failed"));
+            run.setSkipped(rs.getInt("skipped"));
+            run.setStartedAt(toInstant(rs, "started_at"));
+            return run;
+        };
+    }
+
+    private RowMapper<StudioRunResult> runResultMapper() {
+        return (rs, rowNum) -> {
+            StudioRunResult result = new StudioRunResult();
+            result.setId(rs.getString("result_id"));
+            result.setRunId(rs.getString("run_id"));
+            result.setSpecId(rs.getString("spec_id"));
+            result.setPlanId(rs.getString("plan_id"));
+            result.setCaseId(rs.getString("case_id"));
+            result.setOperationKey(rs.getString("operation_key"));
+            result.setTestName(rs.getString("test_name"));
+            result.setTrigger(rs.getString("run_trigger"));
+            result.setOutcome(rs.getString("outcome"));
+            result.setMethod(rs.getString("method"));
+            result.setUrl(rs.getString("url"));
+            int expectedStatus = rs.getInt("expected_status");
+            result.setExpectedStatus(rs.wasNull() ? null : expectedStatus);
+            int actualStatus = rs.getInt("actual_status");
+            result.setActualStatus(rs.wasNull() ? null : actualStatus);
+            boolean statusMatched = rs.getBoolean("status_matched");
+            result.setStatusMatched(rs.wasNull() ? null : statusMatched);
+            long elapsed = rs.getLong("elapsed_ms");
+            result.setElapsedMs(rs.wasNull() ? null : elapsed);
+            long maxMs = rs.getLong("max_response_time_ms");
+            result.setMaxResponseTimeMs(rs.wasNull() ? null : maxMs);
+            boolean timedOut = rs.getBoolean("timed_out");
+            result.setTimedOut(rs.wasNull() ? null : timedOut);
+            result.setError(rs.getString("error"));
+            result.setRequestHeaders(JsonMaps.toStringMap(rs.getString("request_headers")));
+            result.setRequestBody(rs.getString("request_body"));
+            result.setRequestContentType(rs.getString("request_content_type"));
+            result.setRequestParams(JsonMaps.toStringMap(rs.getString("request_params")));
+            result.setResponseHeaders(JsonMaps.toStringMap(rs.getString("response_headers")));
+            result.setResponseBody(rs.getString("response_body"));
+            result.setAssertionsJson(rs.getString("assertions_json"));
+            result.setDownloadPath(rs.getString("download_path"));
+            result.setCreatedAt(toInstant(rs, "created_at"));
+            return result;
         };
     }
 
