@@ -8,6 +8,7 @@ public class StudioProperties {
     private Storage storage = new Storage();
     private Excel excel = new Excel();
     private H2 h2 = new H2();
+    private RunHistory runHistory = new RunHistory();
     private String defaultOutputDir = "D:/code/api-automation/src/test/data";
     private String defaultExcelFileName = "TestData.xlsx";
     private String filesPathPrefix = "src/test/data/files";
@@ -35,6 +36,14 @@ public class StudioProperties {
 
     public void setH2(H2 h2) {
         this.h2 = h2;
+    }
+
+    public RunHistory getRunHistory() {
+        return runHistory;
+    }
+
+    public void setRunHistory(RunHistory runHistory) {
+        this.runHistory = runHistory;
     }
 
     public String getDefaultOutputDir() {
@@ -161,6 +170,29 @@ public class StudioProperties {
 
         public String jdbcUrl() {
             return H2Database.jdbcUrl(file, inMemory);
+        }
+    }
+
+    public static class RunHistory {
+        /**
+         * Oldest runs for a spec are deleted after a new write exceeds this count.
+         * {@code 0} disables pruning.
+         */
+        private int maxPerSpec = 100;
+
+        public int getMaxPerSpec() {
+            return maxPerSpec;
+        }
+
+        public void setMaxPerSpec(int maxPerSpec) {
+            this.maxPerSpec = maxPerSpec;
+        }
+
+        public int resolvedMaxPerSpec() {
+            if (maxPerSpec < 0) {
+                return 100;
+            }
+            return maxPerSpec;
         }
     }
 }

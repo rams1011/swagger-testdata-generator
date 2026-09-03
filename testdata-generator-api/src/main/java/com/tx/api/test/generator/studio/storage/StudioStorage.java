@@ -60,4 +60,8 @@ public interface StudioStorage {
     List<StudioRun> listRuns(RunHistoryFilter filter);
 
     void deleteRun(String runId);
+
+    default int pruneOldestRuns(String specId, int keep) {
+        return 0;
+    }
 }

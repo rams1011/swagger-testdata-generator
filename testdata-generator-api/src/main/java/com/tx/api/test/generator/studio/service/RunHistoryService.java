@@ -1,8 +1,12 @@
 package com.tx.api.test.generator.studio.service;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
+import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AssertionCheck;
+import com.tx.api.test.generator.studio.dto.RunCompareField;
+import com.tx.api.test.generator.studio.dto.RunCompareView;
 import com.tx.api.test.generator.studio.dto.RunResultView;
 import com.tx.api.test.generator.studio.dto.RunTestResult;
 import com.tx.api.test.generator.studio.dto.RunView;
@@ -47,9 +51,11 @@ public class RunHistoryService {
     private static final Logger log = LoggerFactory.getLogger(RunHistoryService.class);
 
     private final StudioStorage studioStorage;
+    private final StudioProperties properties;
 
-    public RunHistoryService(StudioStorage studioStorage) {
+    public RunHistoryService(StudioStorage studioStorage, StudioProperties properties) {
         this.studioStorage = studioStorage;
+        this.properties = properties;
     }
 
     public void recordSingle(String trigger, StudioTestCase testCase, RunTestResult result) {
@@ -114,6 +120,12 @@ public class RunHistoryService {
         studioStorage.deleteRun(runId);
     }
 
+    public RunCompareView compare(String leftRunId, String leftResultId, String rightRunId, String rightResultId) {
+        RunResultView left = getResult(leftRunId, leftResultId);
+        RunResultView right = getResult(rightRunId, rightResultId);
+        return new RunCompareView(left, right, diff(left, right));
+    }
+
     private void persist(StudioRun run) {
         if (run.getResults().isEmpty()) {
             return;
@@ -122,6 +134,23 @@ public class RunHistoryService {
             studioStorage.saveRun(run);
         } catch (RuntimeException exception) {
             log.warn("Failed to persist run history for spec {}", run.getSpecId(), exception);
+            return;
+        }
+        prune(run.getSpecId());
+    }
+
+    private void prune(String specId) {
+        int keep = properties.getRunHistory().resolvedMaxPerSpec();
+        if (keep <= 0) {
+            return;
+        }
+        try {
+            int removed = studioStorage.pruneOldestRuns(specId, keep);
+            if (removed > 0) {
+                log.info("Pruned {} oldest run(s) for spec {} (keeping {})", removed, specId, keep);
+            }
+        } catch (RuntimeException exception) {
+            log.warn("Failed to prune run history for spec {}", specId, exception);
         }
     }
 
@@ -321,5 +350,49 @@ public class RunHistoryService {
                 assertions,
                 result.getDownloadPath(),
                 result.getCreatedAt());
+    }
+
+    private List<RunCompareField> diff(RunResultView left, RunResultView right) {
+        List<RunCompareField> fields = new ArrayList<>();
+        addDiff(fields, "outcome", left.outcome(), right.outcome());
+        addDiff(fields, "testName", left.testName(), right.testName());
+        addDiff(fields, "operationKey", left.operationKey(), right.operationKey());
+        addDiff(fields, "caseId", left.caseId(), right.caseId());
+        addDiff(fields, "method", left.method(), right.method());
+        addDiff(fields, "url", left.url(), right.url());
+        addDiff(fields, "expectedStatus", left.expectedStatus(), right.expectedStatus());
+        addDiff(fields, "actualStatus", left.actualStatus(), right.actualStatus());
+        addDiff(fields, "statusMatched", left.statusMatched(), right.statusMatched());
+        addDiff(fields, "elapsedMs", left.elapsedMs(), right.elapsedMs());
+        addDiff(fields, "timedOut", left.timedOut(), right.timedOut());
+        addDiff(fields, "error", left.error(), right.error());
+        addDiff(fields, "requestContentType", left.requestContentType(), right.requestContentType());
+        addDiff(fields, "requestParams", JSON.toJson(left.requestParams()), JSON.toJson(right.requestParams()));
+        addDiff(fields, "requestBody", normalizeBody(left.requestBody()), normalizeBody(right.requestBody()));
+        addDiff(fields, "responseBody", normalizeBody(left.responseBody()), normalizeBody(right.responseBody()));
+        addDiff(fields, "assertions", JSON.toJson(left.assertions()), JSON.toJson(right.assertions()));
+        addDiff(fields, "downloadPath", left.downloadPath(), right.downloadPath());
+        return fields;
+    }
+
+    private static void addDiff(List<RunCompareField> fields, String name, Object left, Object right) {
+        String leftText = stringify(left);
+        String rightText = stringify(right);
+        fields.add(new RunCompareField(name, leftText, rightText, leftText.equals(rightText)));
+    }
+
+    private static String stringify(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static String normalizeBody(String body) {
+        if (StringUtils.isBlank(body)) {
+            return "";
+        }
+        try {
+            return JSON.toJson(JsonParser.parseString(body));
+        } catch (RuntimeException ignored) {
+            return body;
+        }
     }
 }

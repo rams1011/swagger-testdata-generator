@@ -316,6 +316,7 @@ public class TestDataStudioService {
     public Map<String, String> runtimeConfig() {
         Map<String, String> config = new LinkedHashMap<>();
         config.put("storageType", storageType());
+        config.put("runHistoryMaxPerSpec", String.valueOf(properties.getRunHistory().resolvedMaxPerSpec()));
         if (properties.isH2Storage()) {
             config.put("h2JdbcUrl", properties.getH2().jdbcUrl());
             config.put("h2Username", properties.getH2().getUsername());

@@ -101,6 +101,7 @@ API base: [http://localhost:8083](http://localhost:8083)
 | `GET` | `/api/runs?specId=&planId=&caseId=&outcome=&trigger=&limit=` | List persisted run batches (H2/Postgres). Newest first |
 | `GET` | `/api/runs/{runId}` | One run plus request/response snapshots |
 | `GET` | `/api/runs/{runId}/results/{resultId}` | One HTTP snapshot (body still available after the case is edited) |
+| `GET` | `/api/runs/compare?leftRunId=&leftResultId=&rightRunId=&rightResultId=` | Field-level diff of two snapshots |
 | `DELETE` | `/api/runs/{runId}` | Delete a run batch and its snapshots |
 
 Auth is applied only for that run and is not stored with the case. `auth.type` is `NONE`, `BASIC` (credentials: `username` / `password`), `BEARER` (`token`), or `API_KEY` (`apiKey`, optional `apiKeyName`, `apiKeyIn` of `header` or `query`). The runner checks expected status, max response time, and JSONPath assertions against the live response.
@@ -148,9 +149,13 @@ testdata:
     password: ""
     console: true
     in-memory: false
+  run-history:
+    max-per-spec: 100
 ```
 
 On startup the API runs `classpath:ddl/schema.sql` (PostgreSQL-compatible H2 mode). Data is stored as `./studio-output/testdata.mv.db`. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file` keyed by `test_case_id` (the case already belongs to a spec) and written to `testdata.default-output-dir/files` on Excel export (`UploadFiles` column uses `testdata.files-path-prefix`).
+
+After each Try / Run / Run plan, the oldest batches for that spec are deleted once the spec has more than `testdata.run-history.max-per-spec` runs (default `100`). Set `0` to keep history unbounded.
 
 H2 console: [http://localhost:8083/h2-console](http://localhost:8083/h2-console)
 
@@ -190,6 +195,8 @@ On startup the API runs `classpath:ddl/schema.sql`. PostgreSQL-specific DDL (com
 | `td_run` | One Try / Run / Run plan click (`run_trigger` = `try` \| `case` \| `plan`) |
 | `td_run_result` | Snapshot of one HTTP call (redacted headers, truncated body). Not stored in Excel mode |
 
+Oldest `td_run` rows for a spec are deleted after each write when the count exceeds `testdata.run-history.max-per-spec` (default `100`; `0` keeps history unbounded).
+
 One OpenAPI spec can have many test plans. Saved cases and Excel export are scoped to a single plan. Existing cases without `plan_id` are attached to **Default** the first time plans are loaded.
 
 `POST /api/testdata/export` maps saved cases for one plan from storage (H2, PostgreSQL, or the internal studio workbook) into a downloaded api-automation workbook:
@@ -215,6 +222,8 @@ Use the **Test plan** control in the sidebar to switch plans, add a plan, or del
 **Reload spec** (home list or sidebar) replaces the OpenAPI document for that spec id. Plans and saved cases are not deleted. New and changed operations appear immediately. Cases whose `operationKey` disappeared stay in the plan as orphans (counted in the reload result) until you delete them. The stored base URL is kept unless you pass a new one. **Load spec** still creates a *new* spec id and leaves existing data untouched. Each spec has a unique **name** (required when loading); the OpenAPI `info.title` is stored separately and can stay the same across specs.
 
 **Run** on an operation page executes the current form (save is not required). **Run plan** on the saved-cases page runs every enabled case. Set **Run authentication** to credentials (HTTP Basic), a bearer token, or an API key; the values stay in browser `sessionStorage` for that spec and are not written to Excel or the studio database. Choose **None** when a case already sends `Authorization` (for example generated 401 tests).
+
+**History** lists saved Try / Run / Run plan snapshots (H2 or PostgreSQL). Oldest runs are pruned when a spec exceeds `testdata.run-history.max-per-spec` (default 100). Assign two snapshots as left and right to compare status, timing, assertions, and bodies.
 
 ## Output format
 

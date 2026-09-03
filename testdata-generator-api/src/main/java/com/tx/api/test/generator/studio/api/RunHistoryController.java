@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.api;
 
+import com.tx.api.test.generator.studio.dto.RunCompareView;
 import com.tx.api.test.generator.studio.dto.RunResultView;
 import com.tx.api.test.generator.studio.dto.RunView;
 import com.tx.api.test.generator.studio.service.RunHistoryService;
@@ -22,6 +23,14 @@ public class RunHistoryController {
 
     public RunHistoryController(RunHistoryService runHistoryService) {
         this.runHistoryService = runHistoryService;
+    }
+
+    @GetMapping("/compare")
+    public RunCompareView compare(@RequestParam String leftRunId,
+                                  @RequestParam String leftResultId,
+                                  @RequestParam String rightRunId,
+                                  @RequestParam String rightResultId) {
+        return runHistoryService.compare(leftRunId, leftResultId, rightRunId, rightResultId);
     }
 
     @GetMapping

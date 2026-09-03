@@ -492,6 +492,30 @@ public class JdbcStudioStorage implements StudioStorage {
         }
     }
 
+    @Override
+    public int pruneOldestRuns(String specId, int keep) {
+        if (!hasText(specId) || keep < 1) {
+            return 0;
+        }
+        List<String> extra = jdbcTemplate.query("""
+                        SELECT run_id FROM (
+                            SELECT run_id, ROW_NUMBER() OVER (ORDER BY started_at DESC) AS rn
+                            FROM td_run
+                            WHERE spec_id = ?
+                        ) ranked
+                        WHERE rn > ?
+                        """,
+                (rs, rowNum) -> rs.getString("run_id"), specId, keep);
+        if (extra.isEmpty()) {
+            return 0;
+        }
+        for (String runId : extra) {
+            jdbcTemplate.update("DELETE FROM td_run_result WHERE run_id = ?", runId);
+            jdbcTemplate.update("DELETE FROM td_run WHERE run_id = ?", runId);
+        }
+        return extra.size();
+    }
+
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
     }
