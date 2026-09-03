@@ -227,15 +227,22 @@ public class TestRunService {
         List<AssertionCheck> checks = new ArrayList<>();
         JsonElement root = JsonPathEvaluator.parseJson(body);
         for (Map.Entry<String, String> entry : expected.entrySet()) {
+            String want = StringUtils.defaultString(entry.getValue());
             String actual;
+            boolean match;
             if (root == null) {
                 actual = "(not JSON)";
+                match = false;
             } else {
                 JsonElement value = JsonPathEvaluator.read(root, entry.getKey());
-                actual = value == null ? "(missing)" : JsonPathEvaluator.formatValue(value);
+                if (value == null) {
+                    actual = "(missing)";
+                    match = false;
+                } else {
+                    actual = JsonPathEvaluator.formatValue(value);
+                    match = JsonPathEvaluator.matches(want, value);
+                }
             }
-            String want = StringUtils.defaultString(entry.getValue());
-            boolean match = want.equals(actual);
             checks.add(new AssertionCheck("jsonPath", entry.getKey(), want, actual, match));
         }
         return checks;

@@ -8,6 +8,7 @@ import com.google.gson.JsonPrimitive;
 import com.google.gson.JsonSyntaxException;
 import org.apache.commons.lang3.StringUtils;
 
+import java.math.BigDecimal;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -47,15 +48,67 @@ final class JsonPathEvaluator {
         return result;
     }
 
+    static boolean matches(String expected, JsonElement actual) {
+        String want = StringUtils.defaultString(expected);
+        if (actual == null || actual.isJsonNull()) {
+            return want.isEmpty() || "null".equalsIgnoreCase(want);
+        }
+        if (actual.isJsonPrimitive()) {
+            JsonPrimitive primitive = actual.getAsJsonPrimitive();
+            if (primitive.isNumber() && isNumeric(want)) {
+                return numbersEqual(want, primitive.getAsNumber());
+            }
+        }
+        return want.equals(formatValue(actual));
+    }
+
     static String formatValue(JsonElement element) {
         if (element == null || element.isJsonNull()) {
             return "";
         }
         if (element.isJsonPrimitive()) {
             JsonPrimitive primitive = element.getAsJsonPrimitive();
+            if (primitive.isNumber()) {
+                return formatNumber(primitive.getAsNumber());
+            }
             return primitive.getAsString();
         }
         return element.toString();
+    }
+
+    static boolean isNumeric(String value) {
+        if (StringUtils.isBlank(value)) {
+            return false;
+        }
+        try {
+            new BigDecimal(value.trim());
+            return true;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    static boolean numbersEqual(String expected, Number actual) {
+        try {
+            return toBigDecimal(actual).compareTo(new BigDecimal(expected.trim())) == 0;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
+    private static String formatNumber(Number number) {
+        return toBigDecimal(number).stripTrailingZeros().toPlainString();
+    }
+
+    private static BigDecimal toBigDecimal(Number number) {
+        if (number instanceof BigDecimal decimal) {
+            return decimal;
+        }
+        try {
+            return new BigDecimal(number.toString());
+        } catch (NumberFormatException ignored) {
+            return BigDecimal.valueOf(number.doubleValue());
+        }
     }
 
     static JsonElement parseJson(String json) {

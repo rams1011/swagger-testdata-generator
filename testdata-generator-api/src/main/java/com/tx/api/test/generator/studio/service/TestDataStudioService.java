@@ -306,7 +306,6 @@ public class TestDataStudioService {
 
     public Map<String, String> runtimeConfig() {
         Map<String, String> config = new LinkedHashMap<>();
-        config.put("excelFileName", properties.getDefaultExcelFileName());
         config.put("storageType", storageType());
         if (properties.isH2Storage()) {
             config.put("h2JdbcUrl", properties.getH2().jdbcUrl());
@@ -315,7 +314,6 @@ public class TestDataStudioService {
                 config.put("h2Console", "http://localhost:" + serverPort + "/h2-console");
             }
         }
-        config.put("filesDir", Path.of(properties.getDefaultOutputDir()).resolve("files").toString());
         return config;
     }
 

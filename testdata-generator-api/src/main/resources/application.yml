@@ -37,8 +37,6 @@ testdata:
     in-memory: false
   default-output-dir: D:/code/api-automation/src/test/data
   default-excel-file-name: TestData.xlsx
-  payload-path-prefix: src/test/data/payloads
-  schema-path-prefix: src/test/data/schemas
   files-path-prefix: src/test/data/files
 
 logging:

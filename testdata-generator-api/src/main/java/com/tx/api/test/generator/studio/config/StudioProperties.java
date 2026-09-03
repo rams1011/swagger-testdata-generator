@@ -10,8 +10,6 @@ public class StudioProperties {
     private H2 h2 = new H2();
     private String defaultOutputDir = "D:/code/api-automation/src/test/data";
     private String defaultExcelFileName = "TestData.xlsx";
-    private String payloadPathPrefix = "src/test/data/payloads";
-    private String schemaPathPrefix = "src/test/data/schemas";
     private String filesPathPrefix = "src/test/data/files";
     private String downloadsPathPrefix = "src/test/data/downloads";
 
@@ -55,22 +53,6 @@ public class StudioProperties {
         this.defaultExcelFileName = defaultExcelFileName;
     }
 
-    public String getPayloadPathPrefix() {
-        return payloadPathPrefix;
-    }
-
-    public void setPayloadPathPrefix(String payloadPathPrefix) {
-        this.payloadPathPrefix = payloadPathPrefix;
-    }
-
-    public String getSchemaPathPrefix() {
-        return schemaPathPrefix;
-    }
-
-    public void setSchemaPathPrefix(String schemaPathPrefix) {
-        this.schemaPathPrefix = schemaPathPrefix;
-    }
-
     public String getFilesPathPrefix() {
         return filesPathPrefix;
     }
@@ -89,10 +71,6 @@ public class StudioProperties {
 
     public boolean isH2Storage() {
         return storage != null && storage.isH2();
-    }
-
-    public boolean isDatabaseStorage() {
-        return storage != null && storage.isJdbc();
     }
 
     public static class Storage {
