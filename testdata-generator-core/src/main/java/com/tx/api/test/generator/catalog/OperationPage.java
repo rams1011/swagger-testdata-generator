@@ -14,6 +14,9 @@ public record OperationPage(
         RequestBodySchema requestBody,
         ResponseSchema response,
         List<Integer> statusCodes,
-        OperationDefaults defaults
+        OperationDefaults defaults,
+        List<String> requestContentTypes,
+        OperationAuth auth,
+        List<SpecServer> servers
 ) {
 }

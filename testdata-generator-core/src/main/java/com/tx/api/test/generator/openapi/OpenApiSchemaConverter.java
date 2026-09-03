@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import io.swagger.v3.oas.models.media.Schema;
+import io.swagger.v3.oas.models.media.XML;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -52,6 +53,18 @@ public final class OpenApiSchemaConverter {
             type = schema.getTypes().iterator().next();
         }
         return "array".equals(type) || "object".equals(type);
+    }
+
+    public static boolean isBinarySchema(Schema<?> schema) {
+        if (schema == null) {
+            return false;
+        }
+        String format = StringUtils.defaultString(schema.getFormat()).toLowerCase();
+        if ("binary".equals(format) || "byte".equals(format)) {
+            return true;
+        }
+        String type = schema.getType();
+        return "file".equalsIgnoreCase(type);
     }
 
     private static JsonElement toJsonSchemaNode(Schema<?> schema) {
@@ -150,6 +163,10 @@ public final class OpenApiSchemaConverter {
             jsonSchema.add("anyOf", anyOf);
         }
 
+        if (schema.getXml() != null) {
+            jsonSchema.add("xml", toXmlObject(schema.getXml()));
+        }
+
         return jsonSchema;
     }
 
@@ -246,5 +263,25 @@ public final class OpenApiSchemaConverter {
             case "float", "double" -> "number";
             default -> "string";
         };
+    }
+
+    private static JsonObject toXmlObject(XML xml) {
+        JsonObject object = new JsonObject();
+        if (xml.getName() != null) {
+            object.addProperty("name", xml.getName());
+        }
+        if (xml.getNamespace() != null) {
+            object.addProperty("namespace", xml.getNamespace());
+        }
+        if (xml.getPrefix() != null) {
+            object.addProperty("prefix", xml.getPrefix());
+        }
+        if (xml.getAttribute() != null) {
+            object.addProperty("attribute", xml.getAttribute());
+        }
+        if (xml.getWrapped() != null) {
+            object.addProperty("wrapped", xml.getWrapped());
+        }
+        return object;
     }
 }

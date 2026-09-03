@@ -2,6 +2,9 @@ package com.tx.api.test.generator.studio.storage;
 
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.model.StoredSpec;
+import com.tx.api.test.generator.studio.model.StudioRequestFile;
+import com.tx.api.test.generator.studio.model.StudioRun;
+import com.tx.api.test.generator.studio.model.StudioRunResult;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import org.apache.commons.lang3.StringUtils;
@@ -20,11 +23,15 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Stream;
 
 public class ExcelStudioStorage implements StudioStorage {
 
@@ -35,7 +42,7 @@ public class ExcelStudioStorage implements StudioStorage {
     private static final String PARAMS = "Params";
     private static final String[] SPEC_HEADERS = {
             "spec_id", "title", "version", "description", "base_url", "source_location",
-            "source_content", "operation_count", "created_at", "updated_at", "name"
+            "source_content", "operation_count", "created_at", "updated_at", "name", "label"
     };
     private static final String[] PLAN_HEADERS = {
             "plan_id", "spec_id", "name", "description", "created_at", "updated_at"
@@ -117,6 +124,7 @@ public class ExcelStudioStorage implements StudioStorage {
                 state.caseUpdatedAt.remove(id);
             });
             write(state);
+            removedCases.forEach(this::deleteRequestFilesForCaseUnlocked);
         }
     }
 
@@ -156,6 +164,7 @@ public class ExcelStudioStorage implements StudioStorage {
                 state.caseUpdatedAt.remove(id);
             });
             write(state);
+            removed.forEach(this::deleteRequestFilesForCaseUnlocked);
         }
     }
 
@@ -204,6 +213,7 @@ public class ExcelStudioStorage implements StudioStorage {
             state.caseCreatedAt.remove(testCaseId);
             state.caseUpdatedAt.remove(testCaseId);
             write(state);
+            deleteRequestFilesForCaseUnlocked(testCaseId);
         }
     }
 
@@ -225,6 +235,147 @@ public class ExcelStudioStorage implements StudioStorage {
                             .compareToIgnoreCase(StringUtils.defaultString(right.getTestName())))
                     .toList();
         }
+    }
+
+    @Override
+    public void saveRequestFile(StudioRequestFile file) {
+        synchronized (lock) {
+            try {
+                Path dir = requestFileDir(file.getTestCaseId());
+                Files.createDirectories(dir);
+                Files.write(dir.resolve(file.getFileId() + ".bin"), file.getContent() == null ? new byte[0] : file.getContent());
+                Map<String, Object> meta = new LinkedHashMap<>();
+                meta.put("fileId", file.getFileId());
+                meta.put("testCaseId", file.getTestCaseId());
+                meta.put("fileName", file.getFileName());
+                meta.put("contentType", file.getContentType());
+                meta.put("sizeBytes", file.getSizeBytes());
+                meta.put("createdAt", formatInstant(file.getCreatedAt()));
+                Files.writeString(dir.resolve(file.getFileId() + ".meta.json"), JsonMaps.toJson(meta), StandardCharsets.UTF_8);
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to store request file " + file.getFileName(), exception);
+            }
+        }
+    }
+
+    @Override
+    public Optional<StudioRequestFile> findRequestFile(String testCaseId, String fileId) {
+        synchronized (lock) {
+            Path metaFile = requestFileDir(testCaseId).resolve(fileId + ".meta.json");
+            Path binFile = requestFileDir(testCaseId).resolve(fileId + ".bin");
+            if (!Files.exists(metaFile) || !Files.exists(binFile)) {
+                return Optional.empty();
+            }
+            try {
+                StudioRequestFile file = fromMeta(JsonMaps.toObjectMap(Files.readString(metaFile, StandardCharsets.UTF_8)));
+                file.setContent(Files.readAllBytes(binFile));
+                return Optional.of(file);
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to read request file " + fileId, exception);
+            }
+        }
+    }
+
+    @Override
+    public void deleteRequestFile(String testCaseId, String fileId) {
+        synchronized (lock) {
+            Path dir = requestFileDir(testCaseId);
+            boolean deleted = false;
+            try {
+                deleted |= Files.deleteIfExists(dir.resolve(fileId + ".bin"));
+                deleted |= Files.deleteIfExists(dir.resolve(fileId + ".meta.json"));
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to delete request file " + fileId, exception);
+            }
+            if (!deleted) {
+                throw new NoSuchElementException("Request file not found: " + fileId);
+            }
+        }
+    }
+
+    @Override
+    public List<StudioRequestFile> listRequestFiles(String testCaseId) {
+        synchronized (lock) {
+            Path dir = requestFileDir(testCaseId);
+            if (!Files.isDirectory(dir)) {
+                return List.of();
+            }
+            try (Stream<Path> files = Files.list(dir)) {
+                return files
+                        .filter(path -> path.getFileName().toString().endsWith(".meta.json"))
+                        .map(path -> {
+                            try {
+                                return fromMeta(JsonMaps.toObjectMap(Files.readString(path, StandardCharsets.UTF_8)));
+                            } catch (IOException exception) {
+                                throw new IllegalStateException("Failed to read request file metadata: " + path, exception);
+                            }
+                        })
+                        .toList();
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to list request files for case " + testCaseId, exception);
+            }
+        }
+    }
+
+    @Override
+    public void assignRequestFiles(String testCaseId, List<String> fileIds) {
+        synchronized (lock) {
+            Set<String> keep = new HashSet<>();
+            if (fileIds != null) {
+                fileIds.stream().filter(id -> id != null && !id.isBlank()).forEach(keep::add);
+            }
+            Path dir = requestFileDir(testCaseId);
+            if (!Files.isDirectory(dir)) {
+                return;
+            }
+            try (Stream<Path> files = Files.list(dir)) {
+                for (Path metaPath : files.filter(path -> path.getFileName().toString().endsWith(".meta.json")).toList()) {
+                    StudioRequestFile stored = fromMeta(JsonMaps.toObjectMap(
+                            Files.readString(metaPath, StandardCharsets.UTF_8)));
+                    if (keep.contains(stored.getFileId())) {
+                        stored.setTestCaseId(testCaseId);
+                        writeRequestFileMeta(dir, stored);
+                    } else {
+                        Files.deleteIfExists(dir.resolve(stored.getFileId() + ".bin"));
+                        Files.deleteIfExists(metaPath);
+                    }
+                }
+            } catch (IOException exception) {
+                throw new IllegalStateException("Failed to assign request files for case " + testCaseId, exception);
+            }
+        }
+    }
+
+    @Override
+    public void deleteRequestFilesForCase(String testCaseId) {
+        synchronized (lock) {
+            deleteRequestFilesForCaseUnlocked(testCaseId);
+        }
+    }
+
+    @Override
+    public void saveRun(StudioRun run) {
+        // History is JDBC-only. Excel storage does not persist runs.
+    }
+
+    @Override
+    public Optional<StudioRun> findRun(String runId) {
+        return Optional.empty();
+    }
+
+    @Override
+    public Optional<StudioRunResult> findRunResult(String runId, String resultId) {
+        return Optional.empty();
+    }
+
+    @Override
+    public List<StudioRun> listRuns(RunHistoryFilter filter) {
+        return List.of();
+    }
+
+    @Override
+    public void deleteRun(String runId) {
+        throw new NoSuchElementException("Run not found: " + runId);
     }
 
     private WorkbookState load() {
@@ -285,6 +436,7 @@ public class ExcelStudioStorage implements StudioStorage {
             spec.setCreatedAt(parseInstant(cell(row, 8)));
             spec.setUpdatedAt(parseInstant(cell(row, 9)));
             spec.setName(cell(row, 10));
+            spec.setLabel(StringUtils.defaultIfBlank(cell(row, 11), StoredSpec.DEFAULT_LABEL));
             state.specs.put(spec.getSpecId(), spec);
         }
     }
@@ -364,6 +516,8 @@ public class ExcelStudioStorage implements StudioStorage {
                 testCase.getPathParams().put(name, value);
             } else if ("header".equalsIgnoreCase(in)) {
                 testCase.getHeaders().put(name, value);
+            } else if ("cookie".equalsIgnoreCase(in)) {
+                testCase.getCookieParams().put(name, value);
             } else {
                 testCase.getQueryParams().put(name, value);
             }
@@ -386,6 +540,7 @@ public class ExcelStudioStorage implements StudioStorage {
             set(row, 8, formatInstant(spec.getCreatedAt()));
             set(row, 9, formatInstant(spec.getUpdatedAt()));
             set(row, 10, spec.getName());
+            set(row, 11, StringUtils.defaultIfBlank(spec.getLabel(), StoredSpec.DEFAULT_LABEL));
         }
     }
 
@@ -439,6 +594,7 @@ public class ExcelStudioStorage implements StudioStorage {
             rowIndex = writeParamGroup(sheet, rowIndex, testCase.getId(), "path", testCase.getPathParams());
             rowIndex = writeParamGroup(sheet, rowIndex, testCase.getId(), "query", testCase.getQueryParams());
             rowIndex = writeParamGroup(sheet, rowIndex, testCase.getId(), "header", testCase.getHeaders());
+            rowIndex = writeParamGroup(sheet, rowIndex, testCase.getId(), "cookie", testCase.getCookieParams());
         }
     }
 
@@ -451,6 +607,76 @@ public class ExcelStudioStorage implements StudioStorage {
             set(row, 3, entry.getValue());
         }
         return rowIndex;
+    }
+
+    private void deleteRequestFilesForCaseUnlocked(String testCaseId) {
+        if (StringUtils.isBlank(testCaseId)) {
+            return;
+        }
+        Path dir = requestFileDir(testCaseId);
+        if (!Files.exists(dir)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ignored) {
+                    // best-effort cleanup next to the Excel workbook
+                }
+            });
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to delete request files for case " + testCaseId, exception);
+        }
+    }
+
+    private void writeRequestFileMeta(Path dir, StudioRequestFile file) throws IOException {
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("fileId", file.getFileId());
+        meta.put("testCaseId", file.getTestCaseId());
+        meta.put("fileName", file.getFileName());
+        meta.put("contentType", file.getContentType());
+        meta.put("sizeBytes", file.getSizeBytes());
+        meta.put("createdAt", formatInstant(file.getCreatedAt()));
+        Files.writeString(dir.resolve(file.getFileId() + ".meta.json"), JsonMaps.toJson(meta), StandardCharsets.UTF_8);
+    }
+
+    private Path requestFilesRoot() {
+        Path parent = workbookPath.getParent() == null ? Path.of(".") : workbookPath.getParent();
+        return parent.resolve("studio-files");
+    }
+
+    private Path requestFileDir(String testCaseId) {
+        return requestFilesRoot().resolve(testCaseId);
+    }
+
+    private StudioRequestFile fromMeta(Map<String, Object> meta) {
+        StudioRequestFile file = new StudioRequestFile();
+        file.setFileId(asString(meta.get("fileId")));
+        file.setTestCaseId(asString(meta.get("testCaseId")));
+        file.setFileName(asString(meta.get("fileName")));
+        file.setContentType(asString(meta.get("contentType")));
+        file.setSizeBytes(asLong(meta.get("sizeBytes")));
+        file.setCreatedAt(parseInstant(asString(meta.get("createdAt"))));
+        return file;
+    }
+
+    private String asString(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private long asLong(Object value) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String text && StringUtils.isNotBlank(text)) {
+            try {
+                return Long.parseLong(text.trim());
+            } catch (NumberFormatException ignored) {
+                return 0L;
+            }
+        }
+        return 0L;
     }
 
     private String persistSpecContent(StoredSpec spec) {

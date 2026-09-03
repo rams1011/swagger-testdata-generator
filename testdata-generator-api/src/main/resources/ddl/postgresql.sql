@@ -67,15 +67,25 @@ UPDATE td_spec
    SET name = COALESCE(NULLIF(BTRIM(name), ''), NULLIF(BTRIM(title), ''), spec_id)
  WHERE name IS NULL OR BTRIM(name) = '';
 
+ALTER TABLE td_spec ADD COLUMN IF NOT EXISTS label VARCHAR(255);
+
+UPDATE td_spec
+   SET label = 'General'
+ WHERE label IS NULL OR BTRIM(label) = '';
+
 CREATE TABLE IF NOT EXISTS td_test_case_param (
     test_case_id  VARCHAR(36)  NOT NULL REFERENCES td_test_case (test_case_id) ON DELETE CASCADE,
-    param_in      VARCHAR(16)  NOT NULL CHECK (param_in IN ('path', 'query', 'header')),
+    param_in      VARCHAR(16)  NOT NULL CHECK (param_in IN ('path', 'query', 'header', 'cookie')),
     param_name    VARCHAR(255) NOT NULL,
     param_value   TEXT,
     PRIMARY KEY (test_case_id, param_in, param_name)
 );
 
-COMMENT ON TABLE td_test_case_param IS 'Path, query, and header values for a test case';
+COMMENT ON TABLE td_test_case_param IS 'Path, query, header, and cookie values for a test case';
+
+ALTER TABLE td_test_case_param DROP CONSTRAINT IF EXISTS td_test_case_param_param_in_check;
+ALTER TABLE td_test_case_param ADD CONSTRAINT td_test_case_param_param_in_check
+    CHECK (param_in IN ('path', 'query', 'header', 'cookie'));
 
 CREATE INDEX IF NOT EXISTS ix_td_test_case_spec
     ON td_test_case (spec_id);
@@ -91,3 +101,71 @@ CREATE INDEX IF NOT EXISTS ix_td_test_case_plan
 
 CREATE INDEX IF NOT EXISTS ix_td_test_case_param_in
     ON td_test_case_param (param_in);
+
+CREATE TABLE IF NOT EXISTS td_request_file (
+    file_id       VARCHAR(36)   NOT NULL,
+    test_case_id  VARCHAR(36)   NOT NULL REFERENCES td_test_case (test_case_id) ON DELETE CASCADE,
+    file_name     VARCHAR(512)  NOT NULL,
+    content_type  VARCHAR(255),
+    size_bytes    BIGINT        NOT NULL,
+    content       BYTEA         NOT NULL,
+    created_at    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (file_id)
+);
+
+ALTER TABLE td_request_file ADD COLUMN IF NOT EXISTS test_case_id VARCHAR(36);
+DELETE FROM td_request_file WHERE test_case_id IS NULL;
+ALTER TABLE td_request_file DROP CONSTRAINT IF EXISTS fk_td_request_file_spec;
+ALTER TABLE td_request_file DROP CONSTRAINT IF EXISTS td_request_file_spec_id_fkey;
+DROP INDEX IF EXISTS ix_td_request_file_spec;
+ALTER TABLE td_request_file DROP COLUMN IF EXISTS spec_id;
+ALTER TABLE td_request_file ALTER COLUMN test_case_id SET NOT NULL;
+
+COMMENT ON TABLE td_request_file IS 'Uploaded multipart request files owned by a test case';
+
+CREATE INDEX IF NOT EXISTS ix_td_request_file_case
+    ON td_request_file (test_case_id);
+
+CREATE TABLE IF NOT EXISTS td_run (
+    run_id      VARCHAR(36)  PRIMARY KEY,
+    spec_id     VARCHAR(36)  NOT NULL REFERENCES td_spec (spec_id) ON DELETE CASCADE,
+    plan_id     VARCHAR(36),
+    run_trigger VARCHAR(16)  NOT NULL,
+    passed      INTEGER      NOT NULL DEFAULT 0,
+    failed      INTEGER      NOT NULL DEFAULT 0,
+    skipped     INTEGER      NOT NULL DEFAULT 0,
+    started_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS td_run_result (
+    result_id              VARCHAR(36)   PRIMARY KEY,
+    run_id                 VARCHAR(36)   NOT NULL REFERENCES td_run (run_id) ON DELETE CASCADE,
+    spec_id                VARCHAR(36)   NOT NULL REFERENCES td_spec (spec_id) ON DELETE CASCADE,
+    plan_id                VARCHAR(36),
+    case_id                VARCHAR(36)   REFERENCES td_test_case (test_case_id) ON DELETE SET NULL,
+    operation_key          VARCHAR(255),
+    test_name              VARCHAR(255),
+    run_trigger            VARCHAR(16)   NOT NULL,
+    outcome                VARCHAR(16)   NOT NULL,
+    method                 VARCHAR(16),
+    url                    VARCHAR(2048),
+    expected_status        INTEGER,
+    actual_status          INTEGER,
+    status_matched         BOOLEAN,
+    elapsed_ms             BIGINT,
+    max_response_time_ms   BIGINT,
+    timed_out              BOOLEAN,
+    error                  TEXT,
+    request_headers        TEXT,
+    request_body           TEXT,
+    request_content_type   VARCHAR(64),
+    request_params         TEXT,
+    response_headers       TEXT,
+    response_body          TEXT,
+    assertions_json        TEXT,
+    download_path          VARCHAR(2048),
+    created_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+COMMENT ON TABLE td_run IS 'One Try / Run / Run plan click';
+COMMENT ON TABLE td_run_result IS 'One HTTP call snapshot for troubleshooting';

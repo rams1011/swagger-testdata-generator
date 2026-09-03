@@ -16,6 +16,7 @@ public record TestCaseView(
         Map<String, String> pathParams,
         Map<String, String> queryParams,
         Map<String, String> headers,
+        Map<String, String> cookieParams,
         Object requestBody,
         int statusCode,
         String responseType,

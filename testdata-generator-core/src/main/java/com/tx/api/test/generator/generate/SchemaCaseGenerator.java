@@ -295,6 +295,7 @@ public final class SchemaCaseGenerator {
                 copyStrings(draft.path),
                 copyStrings(draft.query),
                 copyStrings(draft.headers),
+                copyStrings(draft.cookies),
                 operation.requestBody() == null ? null : JsonSchemaMaps.copy(draft.body),
                 contentType(operation),
                 statusCode,
@@ -377,6 +378,9 @@ public final class SchemaCaseGenerator {
         if ("header".equalsIgnoreCase(in)) {
             return draft.headers;
         }
+        if ("cookie".equalsIgnoreCase(in)) {
+            return draft.cookies;
+        }
         return null;
     }
 
@@ -411,12 +415,15 @@ public final class SchemaCaseGenerator {
         private final Map<String, String> path;
         private final Map<String, String> query;
         private final Map<String, String> headers;
+        private final Map<String, String> cookies;
         private Object body;
 
-        private Draft(Map<String, String> path, Map<String, String> query, Map<String, String> headers, Object body) {
+        private Draft(Map<String, String> path, Map<String, String> query, Map<String, String> headers,
+                      Map<String, String> cookies, Object body) {
             this.path = path;
             this.query = query;
             this.headers = headers;
+            this.cookies = cookies;
             this.body = body;
         }
 
@@ -424,6 +431,7 @@ public final class SchemaCaseGenerator {
             Map<String, String> path = new LinkedHashMap<>();
             Map<String, String> query = new LinkedHashMap<>();
             Map<String, String> headers = new LinkedHashMap<>();
+            Map<String, String> cookies = new LinkedHashMap<>();
             if (operation.parameters() != null) {
                 for (ParameterField parameter : operation.parameters()) {
                     if (parameter == null || StringUtils.isBlank(parameter.name())) {
@@ -436,6 +444,8 @@ public final class SchemaCaseGenerator {
                         query.put(parameter.name(), sample);
                     } else if ("header".equalsIgnoreCase(parameter.in())) {
                         headers.put(parameter.name(), sample);
+                    } else if ("cookie".equalsIgnoreCase(parameter.in())) {
+                        cookies.put(parameter.name(), sample);
                     }
                 }
             }
@@ -446,12 +456,12 @@ public final class SchemaCaseGenerator {
                     body = new LinkedHashMap<String, Object>();
                 }
             }
-            return new Draft(path, query, headers, body);
+            return new Draft(path, query, headers, cookies, body);
         }
 
         Draft copy() {
             return new Draft(new LinkedHashMap<>(path), new LinkedHashMap<>(query), new LinkedHashMap<>(headers),
-                    JsonSchemaMaps.copy(body));
+                    new LinkedHashMap<>(cookies), JsonSchemaMaps.copy(body));
         }
     }
 

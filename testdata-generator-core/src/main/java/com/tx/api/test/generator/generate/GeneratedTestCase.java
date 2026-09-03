@@ -13,6 +13,7 @@ public record GeneratedTestCase(
         Map<String, String> pathParams,
         Map<String, String> queryParams,
         Map<String, String> headers,
+        Map<String, String> cookieParams,
         Object requestBody,
         String contentType,
         int statusCode,

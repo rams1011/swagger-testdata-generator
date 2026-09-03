@@ -3,12 +3,14 @@ package com.tx.api.test.generator.openapi;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
+import com.tx.api.test.generator.catalog.OperationAuth;
 import com.tx.api.test.generator.catalog.OperationDefaults;
 import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.catalog.OperationSummary;
 import com.tx.api.test.generator.catalog.ParameterField;
 import com.tx.api.test.generator.catalog.RequestBodySchema;
 import com.tx.api.test.generator.catalog.ResponseSchema;
+import com.tx.api.test.generator.catalog.SpecServer;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.Operation;
 import io.swagger.v3.oas.models.PathItem;
@@ -45,7 +47,11 @@ public final class OpenApiOperationInspector {
         this.schemaResolver = new SchemaResolver(openApi);
         List<OperationPage> pages = new ArrayList<>();
         Set<String> usedKeys = new LinkedHashSet<>();
+        List<SpecServer> servers = OpenApiServerInspector.inspect(openApi);
         String baseUrl = resolveBaseUrl(openApi);
+        if (servers.isEmpty() && StringUtils.isNotBlank(baseUrl)) {
+            servers = List.of(new SpecServer(baseUrl, "", baseUrl, Map.of()));
+        }
 
         if (openApi.getPaths() == null) {
             return pages;
@@ -63,7 +69,7 @@ public final class OpenApiOperationInspector {
                 if (operation == null) {
                     continue;
                 }
-                pages.add(buildPage(baseUrl, rawPath, pathItem, httpMethod, operation, usedKeys));
+                pages.add(buildPage(openApi, servers, baseUrl, rawPath, pathItem, httpMethod, operation, usedKeys));
             }
         }
         return pages;
@@ -98,16 +104,21 @@ public final class OpenApiOperationInspector {
             return trimTrailingSlash(baseUrlOverride.trim());
         }
         if (openApi.getServers() != null && !openApi.getServers().isEmpty()) {
+            List<SpecServer> servers = OpenApiServerInspector.inspect(openApi);
+            if (!servers.isEmpty() && StringUtils.isNotBlank(servers.get(0).resolvedUrl())) {
+                return servers.get(0).resolvedUrl();
+            }
             Server server = openApi.getServers().get(0);
             if (server != null && StringUtils.isNotBlank(server.getUrl())) {
-                return trimTrailingSlash(server.getUrl().trim());
+                return trimTrailingSlash(OpenApiServerInspector.resolve(server.getUrl().trim(), Map.of()));
             }
         }
         return "http://localhost:8080";
     }
 
-    private OperationPage buildPage(String baseUrl, String rawPath, PathItem pathItem,
-                                    PathItem.HttpMethod httpMethod, Operation operation, Set<String> usedKeys) {
+    private OperationPage buildPage(OpenAPI openApi, List<SpecServer> servers, String baseUrl, String rawPath,
+                                    PathItem pathItem, PathItem.HttpMethod httpMethod, Operation operation,
+                                    Set<String> usedKeys) {
         String key = uniqueKey(httpMethod, rawPath, operation, usedKeys);
         List<Parameter> parameters = mergeParameters(pathItem, operation);
         List<ParameterField> parameterFields = parameters.stream()
@@ -144,7 +155,10 @@ public final class OpenApiOperationInspector {
                 requestBody,
                 response,
                 statusCodes,
-                defaults
+                defaults,
+                requestContentTypes(operation),
+                OpenApiSecurityInspector.inspect(openApi, operation),
+                servers
         );
     }
 
@@ -174,7 +188,9 @@ public final class OpenApiOperationInspector {
                 required,
                 StringUtils.defaultString(parameter.getDescription()),
                 schemaMap,
-                sample
+                sample,
+                parameter.getStyle() == null ? null : parameter.getStyle().toString(),
+                parameter.getExplode()
         );
     }
 
@@ -218,7 +234,7 @@ public final class OpenApiOperationInspector {
         JsonElement schemaJson = OpenApiSchemaConverter.toJsonSchema(resolvedSchema);
         JsonElement sample = SchemaSampleGenerator.generateSample(resolvedSchema);
         String assertions = buildJsonPathAssertions(resolvedSchema);
-        String responseType = OpenApiSchemaConverter.isJsonStructuredSchema(resolvedSchema) ? "JSON" : "NONE";
+        String responseType = responseType(selected.getKey(), resolvedSchema);
         return new ResponseSchema(
                 statusCode,
                 selected.getKey(),
@@ -309,13 +325,43 @@ public final class OpenApiOperationInspector {
         if (content.containsKey("application/json")) {
             return Map.entry("application/json", content.get("application/json"));
         }
-        if (content.containsKey("application/*+json")) {
-            return Map.entry("application/*+json", content.get("application/*+json"));
+        for (String key : content.keySet()) {
+            if (key != null && key.toLowerCase(Locale.ROOT).contains("json")) {
+                return Map.entry(key, content.get(key));
+            }
         }
         if (content.containsKey("multipart/form-data")) {
             return Map.entry("multipart/form-data", content.get("multipart/form-data"));
         }
+        if (content.containsKey("application/x-www-form-urlencoded")) {
+            return Map.entry("application/x-www-form-urlencoded", content.get("application/x-www-form-urlencoded"));
+        }
+        if (content.containsKey("application/xml") || content.containsKey("text/xml")) {
+            String key = content.containsKey("application/xml") ? "application/xml" : "text/xml";
+            return Map.entry(key, content.get(key));
+        }
         return content.isEmpty() ? null : content.entrySet().iterator().next();
+    }
+
+    private List<String> requestContentTypes(Operation operation) {
+        if (operation.getRequestBody() == null || operation.getRequestBody().getContent() == null) {
+            return List.of();
+        }
+        return new ArrayList<>(operation.getRequestBody().getContent().keySet());
+    }
+
+    private String responseType(String mediaType, Schema<?> schema) {
+        String mapped = mapContentType(mediaType);
+        if ("FILE".equals(mapped) || OpenApiSchemaConverter.isBinarySchema(schema)) {
+            return "FILE";
+        }
+        if ("JSON".equals(mapped) || OpenApiSchemaConverter.isJsonStructuredSchema(schema)) {
+            return "JSON";
+        }
+        if ("XML".equals(mapped) || "TEXT".equals(mapped)) {
+            return "STRING";
+        }
+        return "NONE";
     }
 
     private String mapContentType(String mediaType) {
@@ -329,13 +375,32 @@ public final class OpenApiOperationInspector {
         if (normalized.contains("multipart")) {
             return "MULTIPART";
         }
-        if (normalized.contains("xml")) {
+        if (normalized.contains("urlencoded") || normalized.contains("form-urlencoded")) {
+            return "FORM";
+        }
+        if (isXmlMediaType(normalized)) {
             return "XML";
         }
-        if (normalized.contains("text")) {
+        if (normalized.contains("text/plain") || (normalized.startsWith("text/") && !normalized.contains("xml"))) {
             return "TEXT";
         }
+        if (normalized.contains("octet-stream") || normalized.startsWith("image/")
+                || normalized.startsWith("audio/") || normalized.startsWith("video/")
+                || normalized.contains("pdf") || normalized.contains("zip")) {
+            return "FILE";
+        }
         return "JSON";
+    }
+
+    static boolean isXmlMediaType(String mediaType) {
+        if (mediaType == null) {
+            return false;
+        }
+        String value = mediaType.trim().toLowerCase(Locale.ROOT).split(";")[0].trim();
+        return "xml".equals(value)
+                || "application/xml".equals(value)
+                || "text/xml".equals(value)
+                || value.endsWith("+xml");
     }
 
     private List<Parameter> mergeParameters(PathItem pathItem, Operation operation) {

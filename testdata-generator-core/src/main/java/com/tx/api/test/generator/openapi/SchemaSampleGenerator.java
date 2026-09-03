@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.openapi;
 
 import com.google.gson.JsonElement;
+import com.google.gson.JsonNull;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import io.swagger.v3.oas.models.media.Schema;
@@ -53,6 +54,9 @@ public final class SchemaSampleGenerator {
         if (sample.isJsonPrimitive()) {
             return jsonElementToAssertionValue(sample);
         }
+        if (sample.isJsonArray()) {
+            return sample.toString();
+        }
         return fallbackParameterValue(parameter);
     }
 
@@ -85,6 +89,9 @@ public final class SchemaSampleGenerator {
         if (schema.getEnum() != null && !schema.getEnum().isEmpty()) {
             return toJsonElement(schema.getEnum().get(0));
         }
+        if (isBinarySchema(schema)) {
+            return JsonNull.INSTANCE;
+        }
 
         String type = schema.getType();
         if (StringUtils.isBlank(type) && schema.getProperties() != null && !schema.getProperties().isEmpty()) {
@@ -94,11 +101,15 @@ public final class SchemaSampleGenerator {
             type = "array";
         }
         if (StringUtils.isBlank(type)) {
-            return new JsonPrimitive(sampleString(schema));
+            String sample = sampleString(schema);
+            return sample == null ? JsonNull.INSTANCE : new JsonPrimitive(sample);
         }
 
         return switch (type) {
-            case "string" -> new JsonPrimitive(sampleString(schema));
+            case "string" -> {
+                String sample = sampleString(schema);
+                yield sample == null ? JsonNull.INSTANCE : new JsonPrimitive(sample);
+            }
             case "integer", "number" -> new JsonPrimitive(sampleNumber(schema));
             case "boolean" -> new JsonPrimitive(true);
             case "array" -> generateArraySample(schema);
@@ -176,6 +187,9 @@ public final class SchemaSampleGenerator {
         }
 
         schema.getProperties().forEach((propertyName, propertySchema) -> {
+            if (isBinarySchema(propertySchema)) {
+                return;
+            }
             JsonElement value = generateSample(propertySchema);
             if (value != null) {
                 object.add(propertyName, value);
@@ -195,6 +209,20 @@ public final class SchemaSampleGenerator {
         return array;
     }
 
+    private static boolean isBinarySchema(Schema<?> schema) {
+        if (schema == null) {
+            return false;
+        }
+        if ("file".equalsIgnoreCase(schema.getType())) {
+            return true;
+        }
+        if (schema.getFormat() == null) {
+            return false;
+        }
+        String format = schema.getFormat().toLowerCase(Locale.ROOT);
+        return "binary".equals(format) || "byte".equals(format);
+    }
+
     private static String sampleString(Schema<?> schema) {
         if (schema.getFormat() != null) {
             return switch (schema.getFormat()) {
@@ -202,6 +230,7 @@ public final class SchemaSampleGenerator {
                 case "date-time" -> LocalDate.now() + "T10:15:30Z";
                 case "email" -> "user@example.com";
                 case "uuid" -> "00000000-0000-0000-0000-000000000001";
+                case "binary", "byte" -> null;
                 default -> "sample-" + STRING_COUNTER.getAndIncrement();
             };
         }

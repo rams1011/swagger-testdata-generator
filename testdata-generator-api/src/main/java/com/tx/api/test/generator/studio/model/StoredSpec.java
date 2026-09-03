@@ -4,8 +4,11 @@ import java.time.Instant;
 
 public class StoredSpec {
 
+    public static final String DEFAULT_LABEL = "General";
+
     private String specId;
     private String name;
+    private String label;
     private String title;
     private String version;
     private String description;
@@ -30,6 +33,14 @@ public class StoredSpec {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
     }
 
     public String getTitle() {

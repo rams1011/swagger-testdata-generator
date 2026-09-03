@@ -8,10 +8,11 @@ public class StudioProperties {
     private Storage storage = new Storage();
     private Excel excel = new Excel();
     private H2 h2 = new H2();
+    private RunHistory runHistory = new RunHistory();
     private String defaultOutputDir = "D:/code/api-automation/src/test/data";
     private String defaultExcelFileName = "TestData.xlsx";
-    private String payloadPathPrefix = "src/test/data/payloads";
-    private String schemaPathPrefix = "src/test/data/schemas";
+    private String filesPathPrefix = "src/test/data/files";
+    private String downloadsPathPrefix = "src/test/data/downloads";
 
     public Storage getStorage() {
         return storage;
@@ -37,6 +38,14 @@ public class StudioProperties {
         this.h2 = h2;
     }
 
+    public RunHistory getRunHistory() {
+        return runHistory;
+    }
+
+    public void setRunHistory(RunHistory runHistory) {
+        this.runHistory = runHistory;
+    }
+
     public String getDefaultOutputDir() {
         return defaultOutputDir;
     }
@@ -53,28 +62,24 @@ public class StudioProperties {
         this.defaultExcelFileName = defaultExcelFileName;
     }
 
-    public String getPayloadPathPrefix() {
-        return payloadPathPrefix;
+    public String getFilesPathPrefix() {
+        return filesPathPrefix;
     }
 
-    public void setPayloadPathPrefix(String payloadPathPrefix) {
-        this.payloadPathPrefix = payloadPathPrefix;
+    public void setFilesPathPrefix(String filesPathPrefix) {
+        this.filesPathPrefix = filesPathPrefix;
     }
 
-    public String getSchemaPathPrefix() {
-        return schemaPathPrefix;
+    public String getDownloadsPathPrefix() {
+        return downloadsPathPrefix;
     }
 
-    public void setSchemaPathPrefix(String schemaPathPrefix) {
-        this.schemaPathPrefix = schemaPathPrefix;
+    public void setDownloadsPathPrefix(String downloadsPathPrefix) {
+        this.downloadsPathPrefix = downloadsPathPrefix;
     }
 
     public boolean isH2Storage() {
         return storage != null && storage.isH2();
-    }
-
-    public boolean isDatabaseStorage() {
-        return storage != null && storage.isJdbc();
     }
 
     public static class Storage {
@@ -165,6 +170,29 @@ public class StudioProperties {
 
         public String jdbcUrl() {
             return H2Database.jdbcUrl(file, inMemory);
+        }
+    }
+
+    public static class RunHistory {
+        /**
+         * Oldest runs for a spec are deleted after a new write exceeds this count.
+         * {@code 0} disables pruning.
+         */
+        private int maxPerSpec = 100;
+
+        public int getMaxPerSpec() {
+            return maxPerSpec;
+        }
+
+        public void setMaxPerSpec(int maxPerSpec) {
+            this.maxPerSpec = maxPerSpec;
+        }
+
+        public int resolvedMaxPerSpec() {
+            if (maxPerSpec < 0) {
+                return 100;
+            }
+            return maxPerSpec;
         }
     }
 }

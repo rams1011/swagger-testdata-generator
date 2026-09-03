@@ -18,6 +18,7 @@ public class StudioTestCase {
     private Map<String, String> pathParams = new LinkedHashMap<>();
     private Map<String, String> queryParams = new LinkedHashMap<>();
     private Map<String, String> headers = new LinkedHashMap<>();
+    private Map<String, String> cookieParams = new LinkedHashMap<>();
     private Object requestBody;
     private Map<String, Object> responseJsonSchema;
     private int statusCode;
@@ -130,6 +131,14 @@ public class StudioTestCase {
 
     public void setHeaders(Map<String, String> headers) {
         this.headers = headers == null ? new LinkedHashMap<>() : new LinkedHashMap<>(headers);
+    }
+
+    public Map<String, String> getCookieParams() {
+        return cookieParams;
+    }
+
+    public void setCookieParams(Map<String, String> cookieParams) {
+        this.cookieParams = cookieParams == null ? new LinkedHashMap<>() : new LinkedHashMap<>(cookieParams);
     }
 
     public Object getRequestBody() {

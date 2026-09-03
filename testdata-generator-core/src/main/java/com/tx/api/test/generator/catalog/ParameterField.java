@@ -8,6 +8,8 @@ public record ParameterField(
         boolean required,
         String description,
         Map<String, Object> schema,
-        String sample
+        String sample,
+        String style,
+        Boolean explode
 ) {
 }

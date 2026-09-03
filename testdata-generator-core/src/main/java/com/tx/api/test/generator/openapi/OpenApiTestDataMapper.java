@@ -71,16 +71,16 @@ public final class OpenApiTestDataMapper {
                     continue;
                 }
 
-                rows.add(buildRow(testCaseNo++, baseUrl, rawPath, httpMethod, operation));
+                rows.add(buildRow(testCaseNo++, baseUrl, rawPath, pathItem, httpMethod, operation));
             }
         }
 
         return rows;
     }
 
-    private TestDataRow buildRow(int testCaseNo, String baseUrl, String rawPath,
+    private TestDataRow buildRow(int testCaseNo, String baseUrl, String rawPath, PathItem pathItem,
                                  PathItem.HttpMethod httpMethod, Operation operation) {
-        List<Parameter> parameters = mergeParameters(operation);
+        List<Parameter> parameters = mergeParameters(pathItem, operation);
         Map<String, String> queryParams = extractQueryParams(parameters);
         Map<String, String> headerParams = extractHeaderParams(parameters);
         String endpoint = buildEndpoint(rawPath, parameters);
@@ -102,7 +102,7 @@ public final class OpenApiTestDataMapper {
                 .requestBody(requestBodyInfo.bodyReference())
                 .statusCode(responseInfo.statusCode())
                 .responseType(responseInfo.responseType())
-                .expectedResponse(NA)
+                .expectedResponse(NA) // NA = no body assertion; api-automation skips it
                 .enabled(options.getEnabled())
                 .testGroup(resolveTestGroup(operation))
                 .jsonPathAssertions(responseInfo.jsonPathAssertions())
@@ -124,12 +124,23 @@ public final class OpenApiTestDataMapper {
         return "http://localhost:8080";
     }
 
-    private List<Parameter> mergeParameters(Operation operation) {
-        List<Parameter> parameters = new ArrayList<>();
-        if (operation.getParameters() != null) {
-            parameters.addAll(operation.getParameters());
+    private List<Parameter> mergeParameters(PathItem pathItem, Operation operation) {
+        Map<String, Parameter> merged = new LinkedHashMap<>();
+        addParameters(merged, pathItem == null ? null : pathItem.getParameters());
+        addParameters(merged, operation == null ? null : operation.getParameters());
+        return new ArrayList<>(merged.values());
+    }
+
+    private void addParameters(Map<String, Parameter> merged, List<Parameter> parameters) {
+        if (parameters == null) {
+            return;
         }
-        return parameters;
+        for (Parameter parameter : parameters) {
+            if (parameter == null || StringUtils.isBlank(parameter.getName())) {
+                continue;
+            }
+            merged.put(StringUtils.defaultString(parameter.getIn()) + ":" + parameter.getName(), parameter);
+        }
     }
 
     private Map<String, String> extractQueryParams(List<Parameter> parameters) {
