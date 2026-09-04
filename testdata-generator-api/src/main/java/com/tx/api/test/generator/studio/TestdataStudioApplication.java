@@ -30,6 +30,7 @@ public class TestdataStudioApplication {
             log.info("Test Data API is running at http://localhost:{} (storage={})", port, type);
             if (properties.isH2Storage()) {
                 log.info("H2 JDBC URL: {}", properties.getH2().jdbcUrl());
+                log.info("File H2 is opened with AUTO_SERVER=TRUE so api-automation can read the same database while Studio is running");
                 if (properties.getH2().isConsole()) {
                     log.info("H2 console: http://localhost:{}/h2-console", port);
                     log.info("H2 console login: driver={} user={} password=<empty unless testdata.h2.password is set>",

@@ -11,6 +11,7 @@ import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
 import com.tx.api.test.generator.studio.model.LoadedSpec;
 import com.tx.api.test.generator.studio.model.StoredSpec;
+import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 import io.swagger.v3.oas.models.OpenAPI;
 import org.apache.commons.lang3.StringUtils;
@@ -30,8 +31,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 public class SpecCatalogService {
-
-    static final String DEFAULT_LABEL = StoredSpec.DEFAULT_LABEL;
 
     private final StudioStorage studioStorage;
     private final ConcurrentHashMap<String, LoadedSpec> specs = new ConcurrentHashMap<>();
@@ -75,40 +74,36 @@ public class SpecCatalogService {
                 TestdataGenerator.resolveBaseUrl(openApi, request.baseUrl())
         );
         specs.put(specId, loadedSpec);
-        studioStorage.saveSpec(toStoredSpec(loadedSpec, request, content, name, normalizeLabel(request == null ? null : request.label())));
+        studioStorage.saveSpec(toStoredSpec(loadedSpec, request, content, name));
         return toSummary(loadedSpec, request == null ? null : request.location(),
-                normalizeLabel(request == null ? null : request.label()));
+                request == null ? null : request.label());
     }
 
     public SpecSummary rename(String specId, SaveSpecRequest request) {
         StoredSpec stored = studioStorage.findSpec(specId)
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
-        String name = stored.getName();
-        if (request != null && StringUtils.isNotBlank(request.name())) {
-            name = requireUniqueName(request.name(), specId);
-            stored.setName(name);
+        boolean rename = request != null && StringUtils.isNotBlank(request.name());
+        boolean updateLabel = request != null && request.label() != null;
+        boolean updateBaseUrl = request != null && request.baseUrl() != null;
+        if (!rename && !updateLabel && !updateBaseUrl) {
+            throw new IllegalArgumentException("Name, label, or base URL is required");
         }
-        if (request != null && request.label() != null) {
+        if (rename) {
+            stored.setName(requireUniqueName(request.name(), specId));
+        }
+        if (updateLabel) {
             stored.setLabel(normalizeLabel(request.label()));
-        } else {
-            stored.setLabel(normalizeLabel(stored.getLabel()));
+        }
+        String previousBaseUrl = stored.getBaseUrl();
+        if (updateBaseUrl) {
+            stored.setBaseUrl(resolveUpdatedBaseUrl(stored, request.baseUrl()));
         }
         studioStorage.saveSpec(stored);
-        LoadedSpec loaded = specs.get(specId);
-        if (loaded != null) {
-            specs.put(specId, new LoadedSpec(
-                    loaded.getSpecId(),
-                    stored.getName(),
-                    loaded.getOpenApi(),
-                    loaded.getOperations(),
-                    loaded.getTitle(),
-                    loaded.getVersion(),
-                    loaded.getDescription(),
-                    loaded.getBaseUrl()
-            ));
-            return toSummary(specs.get(specId), stored.getSourceLocation(), stored.getLabel());
+        refreshLoaded(stored, updateBaseUrl);
+        if (updateBaseUrl) {
+            propagateCaseBaseUrls(specId, previousBaseUrl, stored.getBaseUrl());
         }
-        return toSummary(stored);
+        return getSummary(specId);
     }
 
     public void delete(String specId) {
@@ -152,11 +147,11 @@ public class SpecCatalogService {
                 TestdataGenerator.specDescription(openApi),
                 baseUrl
         );
+        String label = firstNonBlank(request == null ? null : request.label(), existing.getLabel());
         specs.put(specId, loadedSpec);
         studioStorage.saveSpec(toStoredSpec(loadedSpec,
-                new LoadSpecRequest(location, content, request == null ? null : request.fileName(), baseUrl, name,
-                        existing.getLabel()),
-                content, name, normalizeLabel(existing.getLabel())));
+                new LoadSpecRequest(location, content, request == null ? null : request.fileName(), baseUrl, name, label),
+                content, name));
 
         Set<String> nextKeys = new LinkedHashSet<>();
         operations.forEach(operation -> nextKeys.add(operation.key()));
@@ -172,27 +167,18 @@ public class SpecCatalogService {
     public List<SpecSummary> list() {
         Map<String, SpecSummary> summaries = new LinkedHashMap<>();
         studioStorage.listSpecs().forEach(stored -> summaries.put(stored.getSpecId(), toSummary(stored)));
-        specs.values().forEach(loaded -> summaries.put(loaded.getSpecId(),
-                toSummary(loaded, sourceLocation(loaded.getSpecId()), labelOf(loaded.getSpecId()))));
+        specs.values().forEach(loaded -> summaries.put(loaded.getSpecId(), toSummary(loaded, sourceLocation(loaded.getSpecId()))));
         return summaries.values().stream()
-                .sorted((left, right) -> {
-                    int labels = String.CASE_INSENSITIVE_ORDER.compare(
-                            StringUtils.defaultString(left.label(), DEFAULT_LABEL),
-                            StringUtils.defaultString(right.label(), DEFAULT_LABEL));
-                    if (labels != 0) {
-                        return labels;
-                    }
-                    return String.CASE_INSENSITIVE_ORDER.compare(
-                            StringUtils.defaultString(left.name(), left.title()),
-                            StringUtils.defaultString(right.name(), right.title()));
-                })
+                .sorted((left, right) -> String.CASE_INSENSITIVE_ORDER.compare(
+                        StringUtils.defaultString(left.name(), left.title()),
+                        StringUtils.defaultString(right.name(), right.title())))
                 .toList();
     }
 
     public SpecSummary getSummary(String specId) {
         LoadedSpec loaded = specs.get(specId);
         if (loaded != null) {
-            return toSummary(loaded, sourceLocation(specId), labelOf(specId));
+            return toSummary(loaded, sourceLocation(specId));
         }
         return studioStorage.findSpec(specId)
                 .map(this::toSummary)
@@ -247,11 +233,11 @@ public class SpecCatalogService {
         );
     }
 
-    private StoredSpec toStoredSpec(LoadedSpec loaded, LoadSpecRequest request, String content, String name, String label) {
+    private StoredSpec toStoredSpec(LoadedSpec loaded, LoadSpecRequest request, String content, String name) {
         StoredSpec stored = new StoredSpec();
         stored.setSpecId(loaded.getSpecId());
         stored.setName(name);
-        stored.setLabel(normalizeLabel(label));
+        stored.setLabel(normalizeLabel(request == null ? null : request.label()));
         stored.setTitle(loaded.getTitle());
         stored.setVersion(loaded.getVersion());
         stored.setDescription(loaded.getDescription());
@@ -292,9 +278,6 @@ public class SpecCatalogService {
                 .filter(StringUtils::isNotBlank)
                 .distinct()
                 .toList();
-        List<SpecServer> servers = spec.getOperations().isEmpty() || spec.getOperations().get(0).servers() == null
-                ? List.of()
-                : spec.getOperations().get(0).servers();
         return new SpecSummary(
                 spec.getSpecId(),
                 spec.getName(),
@@ -306,7 +289,7 @@ public class SpecCatalogService {
                 spec.getOperations().size(),
                 tags,
                 sourceLocation,
-                servers
+                serversOf(spec)
         );
     }
 
@@ -363,6 +346,85 @@ public class SpecCatalogService {
         return StringUtils.isNotBlank(primary) ? primary.trim() : StringUtils.trimToNull(fallback);
     }
 
+    private String resolveUpdatedBaseUrl(StoredSpec stored, String requested) {
+        String override = StringUtils.trimToNull(requested);
+        try {
+            LoadedSpec loaded = requireSpec(stored.getSpecId());
+            return TestdataGenerator.resolveBaseUrl(loaded.getOpenApi(), override);
+        } catch (RuntimeException exception) {
+            return override;
+        }
+    }
+
+    private void refreshLoaded(StoredSpec stored, boolean reinspect) {
+        LoadedSpec loaded = specs.get(stored.getSpecId());
+        if (loaded == null && !reinspect) {
+            return;
+        }
+        try {
+            LoadedSpec current = loaded != null ? loaded : restore(stored);
+            List<OperationPage> operations = reinspect
+                    ? TestdataGenerator.inspect(current.getOpenApi(), stored.getBaseUrl())
+                    : current.getOperations();
+            specs.put(stored.getSpecId(), new LoadedSpec(
+                    stored.getSpecId(),
+                    stored.getName(),
+                    current.getOpenApi(),
+                    operations,
+                    current.getTitle(),
+                    current.getVersion(),
+                    current.getDescription(),
+                    stored.getBaseUrl()
+            ));
+        } catch (RuntimeException exception) {
+            specs.remove(stored.getSpecId());
+        }
+    }
+
+    private void propagateCaseBaseUrls(String specId, String previousBaseUrl, String nextBaseUrl) {
+        String previous = normalizeBaseUrl(previousBaseUrl);
+        String next = StringUtils.trimToNull(nextBaseUrl);
+        if (previous.equals(normalizeBaseUrl(next))) {
+            return;
+        }
+        for (StudioTestCase testCase : studioStorage.listTestCases(specId, null, null)) {
+            String current = testCase.getBaseUrl();
+            if (StringUtils.isNotBlank(current) && !previous.equals(normalizeBaseUrl(current))) {
+                continue;
+            }
+            testCase.setBaseUrl(next);
+            studioStorage.saveTestCase(testCase);
+        }
+    }
+
+    private static String normalizeBaseUrl(String value) {
+        if (StringUtils.isBlank(value)) {
+            return "";
+        }
+        return value.trim().replaceAll("/+$", "");
+    }
+
+    private String labelOf(String specId) {
+        return studioStorage.findSpec(specId)
+                .map(StoredSpec::getLabel)
+                .map(SpecCatalogService::normalizeLabel)
+                .orElse(StoredSpec.DEFAULT_LABEL);
+    }
+
+    private static String normalizeLabel(String label) {
+        if (StringUtils.isBlank(label)) {
+            return StoredSpec.DEFAULT_LABEL;
+        }
+        return label.trim();
+    }
+
+    private static List<SpecServer> serversOf(LoadedSpec spec) {
+        if (spec.getOperations().isEmpty() || spec.getOperations().get(0).servers() == null) {
+            return List.of();
+        }
+        return spec.getOperations().get(0).servers();
+    }
+
     private String requireUniqueName(String name, String excludeSpecId) {
         String trimmed = StringUtils.trimToNull(name);
         if (trimmed == null) {
@@ -395,17 +457,5 @@ public class SpecCatalogService {
             candidate = base + "-" + suffix++;
         }
         return candidate;
-    }
-
-    private String labelOf(String specId) {
-        return studioStorage.findSpec(specId)
-                .map(StoredSpec::getLabel)
-                .map(SpecCatalogService::normalizeLabel)
-                .orElse(DEFAULT_LABEL);
-    }
-
-    static String normalizeLabel(String label) {
-        String trimmed = StringUtils.trimToNull(label);
-        return trimmed == null ? DEFAULT_LABEL : trimmed;
     }
 }

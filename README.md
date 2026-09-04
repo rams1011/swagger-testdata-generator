@@ -74,7 +74,7 @@ API base: [http://localhost:8083](http://localhost:8083)
 |--------|------|---------|
 | `POST` | `/api/specs` | Load spec from `location` or `content` (requires unique `name`) |
 | `POST` | `/api/specs/upload` | Upload a Swagger/OpenAPI file (requires unique `name`) |
-| `PUT` | `/api/specs/{specId}` | Rename a spec (`name` must stay unique) |
+| `PUT` | `/api/specs/{specId}` | Update spec `name` (must stay unique) and/or `baseUrl`. Saved cases that still used the previous spec URL are updated |
 | `DELETE` | `/api/specs/{specId}` | Delete a spec and its plans/cases |
 | `POST` | `/api/specs/{specId}/reload` | Re-fetch the spec in place (same `specId`); optional `location`, `content`, `baseUrl` |
 | `POST` | `/api/specs/{specId}/reload/upload` | Replace the spec document from a file, keeping the same `specId` |
@@ -153,7 +153,7 @@ testdata:
     max-per-spec: 100
 ```
 
-On startup the API runs `classpath:ddl/schema.sql` (PostgreSQL-compatible H2 mode). Data is stored as `./studio-output/testdata.mv.db`. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file` keyed by `test_case_id` (the case already belongs to a spec) and written to `testdata.default-output-dir/files` on Excel export (`UploadFiles` column uses `testdata.files-path-prefix`).
+On startup the API runs `classpath:ddl/schema.sql` (PostgreSQL-compatible H2 mode). Data is stored as `./studio-output/testdata.mv.db`. File H2 is opened with `AUTO_SERVER=TRUE` so api-automation can connect while Studio is running; restart Studio after upgrading for that to take effect. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file` keyed by `test_case_id` (the case already belongs to a spec) and written to `testdata.default-output-dir/files` on Excel export (`UploadFiles` column uses `testdata.files-path-prefix`).
 
 After each Try / Run / Run plan, the oldest batches for that spec are deleted once the spec has more than `testdata.run-history.max-per-spec` runs (default `100`). Set `0` to keep history unbounded.
 
@@ -219,11 +219,11 @@ Open [http://localhost:5173](http://localhost:5173). Vite proxies `/api` to the 
 
 Use the **Test plan** control in the sidebar to switch plans, add a plan, or delete a plan (the last plan is kept). Saved cases, the operation form, and **Download Excel** all apply to the selected plan only.
 
-**Reload spec** (home list or sidebar) replaces the OpenAPI document for that spec id. Plans and saved cases are not deleted. New and changed operations appear immediately. Cases whose `operationKey` disappeared stay in the plan as orphans (counted in the reload result) until you delete them. The stored base URL is kept unless you pass a new one. **Load spec** still creates a *new* spec id and leaves existing data untouched. Each spec has a unique **name** (required when loading); the OpenAPI `info.title` is stored separately and can stay the same across specs.
+**Reload spec** (home list or sidebar) replaces the OpenAPI document for that spec id. Plans and saved cases are not deleted. New and changed operations appear immediately. Cases whose `operationKey` disappeared stay in the plan as orphans (counted in the reload result) until you delete them. The stored base URL is kept unless you pass a new one. Change the spec **Base URL** in the workspace bar without reloading the document; saved cases that still used the previous spec URL are updated. **Load spec** still creates a *new* spec id and leaves existing data untouched. Each spec has a unique **name** (required when loading); the OpenAPI `info.title` is stored separately and can stay the same across specs.
 
 **Run** on an operation page executes the current form (save is not required). **Run plan** on the saved-cases page runs every enabled case. Set **Run authentication** to credentials (HTTP Basic), a bearer token, or an API key; the values stay in browser `sessionStorage` for that spec and are not written to Excel or the studio database. Choose **None** when a case already sends `Authorization` (for example generated 401 tests).
 
-**History** lists saved Try / Run / Run plan snapshots (H2 or PostgreSQL). Oldest runs are pruned when a spec exceeds `testdata.run-history.max-per-spec` (default 100). Assign two snapshots as left and right to compare status, timing, assertions, and bodies.
+**History** lists saved Try / Run / Run plan snapshots (H2 or PostgreSQL). Oldest runs are pruned when a spec exceeds `testdata.run-history.max-per-spec` (default 100). Tick two runs to compare status, timing, assertions, and bodies (older vs newer).
 
 ## Output format
 

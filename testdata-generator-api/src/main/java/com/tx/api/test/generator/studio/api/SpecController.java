@@ -51,7 +51,7 @@ public class SpecController {
     }
 
     @PutMapping("/{specId}")
-    public SpecSummary rename(@PathVariable String specId, @RequestBody SaveSpecRequest request) {
+    public SpecSummary update(@PathVariable String specId, @RequestBody SaveSpecRequest request) {
         return specCatalogService.rename(specId, request);
     }
 
