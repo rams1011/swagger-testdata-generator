@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.NoSuchElementException;
 
@@ -19,6 +20,12 @@ public class RestExceptionHandler {
     public ResponseEntity<ApiError> badRequest(IllegalArgumentException exception) {
         log.warn("Bad request: {}", exception.getMessage());
         return ResponseEntity.badRequest().body(new ApiError(exception.getMessage()));
+    }
+
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Void> missingStatic(NoResourceFoundException exception) {
+        log.debug("No static resource: {}", exception.getResourcePath());
+        return ResponseEntity.notFound().build();
     }
 
     @ExceptionHandler(NoSuchElementException.class)
