@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS td_test_case (
     enabled                VARCHAR(8)    NOT NULL DEFAULT 'Y',
     test_group             VARCHAR(128),
     json_path_assertions   TEXT,
+    extracts               TEXT,
     max_response_time_ms   BIGINT,
     created_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -56,6 +57,8 @@ CREATE TABLE IF NOT EXISTS td_test_plan (
 );
 
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS plan_id VARCHAR(36);
+
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS extracts TEXT;
 
 ALTER TABLE td_spec ADD COLUMN IF NOT EXISTS name VARCHAR(255);
 

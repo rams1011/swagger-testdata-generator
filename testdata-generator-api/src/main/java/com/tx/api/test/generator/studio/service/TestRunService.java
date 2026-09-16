@@ -55,12 +55,23 @@ public class TestRunService {
     }
 
     public RunTestResult execute(StudioTestCase testCase, RunAuth auth) {
+        return execute(testCase, auth, new LinkedHashMap<>());
+    }
+
+    public RunTestResult execute(StudioTestCase testCase, RunAuth auth, Map<String, String> variables) {
         if (testCase == null) {
             throw new IllegalArgumentException("Test case is required");
         }
-        Map<String, String> headers = copyMap(testCase.getHeaders());
-        Map<String, String> query = copyMap(testCase.getQueryParams());
-        Map<String, String> cookies = copyMap(testCase.getCookieParams());
+        Map<String, String> store = variables == null ? new LinkedHashMap<>() : variables;
+        StudioTestCase bound;
+        try {
+            bound = CaseVariables.bind(testCase, store);
+        } catch (IllegalArgumentException exception) {
+            return failed(testCase, "", Map.of(), 0, false, List.of(), exception.getMessage());
+        }
+        Map<String, String> headers = copyMap(bound.getHeaders());
+        Map<String, String> query = copyMap(bound.getQueryParams());
+        Map<String, String> cookies = copyMap(bound.getCookieParams());
         applyAuth(headers, query, cookies, auth);
         String cookieHeader = HttpPayloadSupport.cookieHeader(cookies);
         if (StringUtils.isNotBlank(cookieHeader)) {
@@ -69,27 +80,27 @@ public class TestRunService {
 
         String url;
         try {
-            url = buildUrl(testCase.getBaseUrl(), testCase.getEndpoint(), query);
+            url = buildUrl(bound.getBaseUrl(), bound.getEndpoint(), query);
         } catch (IllegalArgumentException exception) {
-            return failed(testCase, "", headers, 0, false, List.of(), exception.getMessage());
+            return failed(bound, "", headers, 0, false, List.of(), exception.getMessage());
         }
 
-        String method = StringUtils.defaultIfBlank(testCase.getMethod(), "GET").toUpperCase(Locale.ROOT);
-        boolean multipart = RequestFileSupport.isMultipartContentType(testCase.getContentType())
-                || RequestFileSupport.hasFileRefs(testCase.getRequestBody());
+        String method = StringUtils.defaultIfBlank(bound.getMethod(), "GET").toUpperCase(Locale.ROOT);
+        boolean multipart = RequestFileSupport.isMultipartContentType(bound.getContentType())
+                || RequestFileSupport.hasFileRefs(bound.getRequestBody());
         byte[] binaryBody = null;
         String textBody = null;
         if (multipart && !"GET".equals(method) && !"HEAD".equals(method)) {
             RequestFileSupport.MultipartPayload payload =
-                    RequestFileSupport.buildMultipart(testCase.getRequestBody(), testCase.getId(), studioStorage);
+                    RequestFileSupport.buildMultipart(bound.getRequestBody(), bound.getId(), studioStorage);
             binaryBody = payload.body();
             HttpPayloadSupport.putHeader(headers, "Content-Type", payload.contentType());
         } else {
-            textBody = requestBody(testCase);
-            applyContentType(headers, testCase.getContentType(), method, textBody);
+            textBody = requestBody(bound);
+            applyContentType(headers, bound.getContentType(), method, textBody);
         }
 
-        long maxMs = testCase.getMaxResponseTimeMs() <= 0 ? 3000L : testCase.getMaxResponseTimeMs();
+        long maxMs = bound.getMaxResponseTimeMs() <= 0 ? 3000L : bound.getMaxResponseTimeMs();
         long timeoutMs = Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, maxMs + 5_000L));
 
         HttpRequest.Builder builder;
@@ -100,7 +111,7 @@ public class TestRunService {
                             ? HttpRequest.BodyPublishers.ofByteArray(binaryBody)
                             : bodyPublisher(method, textBody));
         } catch (IllegalArgumentException exception) {
-            return failed(testCase, url, headers, 0, false, List.of(), "Invalid request URL: " + exception.getMessage());
+            return failed(bound, url, headers, 0, false, List.of(), "Invalid request URL: " + exception.getMessage());
         }
         headers.forEach(builder::header);
 
@@ -111,26 +122,26 @@ public class TestRunService {
             Map<String, List<String>> rawHeaders = response.headers().map();
             byte[] bytes = response.body() == null ? new byte[0] : response.body();
             String contentType = firstHeader(rawHeaders, "Content-Type");
-            boolean binary = isBinaryResponse(testCase, contentType, bytes);
+            boolean binary = isBinaryResponse(bound, contentType, bytes);
             String downloadPath = null;
             String bodyText;
             if (binary) {
-                downloadPath = saveDownload(testCase, bytes, contentType, firstHeader(rawHeaders, "Content-Disposition"));
+                downloadPath = saveDownload(bound, bytes, contentType, firstHeader(rawHeaders, "Content-Disposition"));
                 bodyText = "[binary " + bytes.length + " bytes" + (downloadPath == null ? "" : " saved to " + downloadPath) + "]";
             } else {
                 bodyText = truncate(new String(bytes, charsetOf(contentType)));
             }
-            return evaluate(testCase, url, redact(headers), response.statusCode(), rawHeaders,
-                    bodyText, downloadPath, elapsedMs, maxMs, null);
+            return evaluate(bound, url, redact(headers), response.statusCode(), rawHeaders,
+                    bodyText, downloadPath, elapsedMs, maxMs, null, store);
         } catch (HttpTimeoutException exception) {
             long elapsedMs = elapsed(started);
-            return evaluate(testCase, url, redact(headers), 0, Map.of(), null, null, elapsedMs, maxMs,
-                    "Request timed out after " + timeoutMs + "ms");
+            return evaluate(bound, url, redact(headers), 0, Map.of(), null, null, elapsedMs, maxMs,
+                    "Request timed out after " + timeoutMs + "ms", store);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            return failed(testCase, url, headers, elapsed(started), true, List.of(), "Run interrupted");
+            return failed(bound, url, headers, elapsed(started), true, List.of(), "Run interrupted");
         } catch (Exception exception) {
-            return failed(testCase, url, headers, elapsed(started), false, List.of(),
+            return failed(bound, url, headers, elapsed(started), false, List.of(),
                     StringUtils.defaultIfBlank(exception.getMessage(), exception.getClass().getSimpleName()));
         }
     }
@@ -161,13 +172,15 @@ public class TestRunService {
                 redact(copyMap(testCase.getHeaders())),
                 List.of(),
                 null,
-                null
+                null,
+                Map.of()
         );
     }
 
     private RunTestResult evaluate(StudioTestCase testCase, String url, Map<String, String> requestHeaders,
                                    int actualStatus, Map<String, List<String>> rawHeaders, String body,
-                                   String downloadPath, long elapsedMs, long maxMs, String error) {
+                                   String downloadPath, long elapsedMs, long maxMs, String error,
+                                   Map<String, String> variables) {
         int expectedStatus = testCase.getStatusCode();
         boolean statusMatched = error == null && actualStatus == expectedStatus;
         boolean timedOut = elapsedMs > maxMs || (error != null && error.toLowerCase(Locale.ROOT).contains("timed out"));
@@ -186,11 +199,16 @@ public class TestRunService {
                 String.valueOf(elapsedMs),
                 !timedOut
         ));
+        Map<String, String> extracted = new LinkedHashMap<>();
         if (error == null) {
             assertions.addAll(jsonPathChecks(testCase.getJsonPathAssertions(), body));
             AssertionCheck expectedBody = expectedBodyCheck(testCase, body);
             if (expectedBody != null) {
                 assertions.add(expectedBody);
+            }
+            assertions.addAll(CaseVariables.extractInto(extracted, testCase.getExtracts(), body, rawHeaders));
+            if (variables != null) {
+                variables.putAll(extracted);
             }
         }
 
@@ -215,7 +233,8 @@ public class TestRunService {
                 requestHeaders,
                 assertions,
                 error,
-                downloadPath
+                downloadPath,
+                Map.copyOf(extracted)
         );
     }
 
@@ -269,7 +288,8 @@ public class TestRunService {
                 redact(headers),
                 assertions,
                 error,
-                null
+                null,
+                Map.of()
         );
     }
 

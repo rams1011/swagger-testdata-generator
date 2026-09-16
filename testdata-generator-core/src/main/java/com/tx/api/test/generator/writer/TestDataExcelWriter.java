@@ -36,7 +36,8 @@ public final class TestDataExcelWriter {
             "JsonSchemaPath",
             "MaxResponseTimeMs",
             "UploadFiles",
-            "DownloadFilePath"
+            "DownloadFilePath",
+            "Extracts"
     };
 
     public void write(Path outputFile, List<TestDataRow> rows) {
@@ -99,6 +100,7 @@ public final class TestDataExcelWriter {
         setTextCell(excelRow, 17, String.valueOf(row.getMaxResponseTimeMs()), textStyle);
         setTextCell(excelRow, 18, row.getUploadFiles(), textStyle);
         setTextCell(excelRow, 19, row.getDownloadFilePath(), textStyle);
+        setTextCell(excelRow, 20, row.getExtracts(), textStyle);
     }
 
     private CellStyle createTextCellStyle(Workbook workbook) {

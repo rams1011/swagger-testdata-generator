@@ -262,6 +262,7 @@ public class TestDataStudioService {
         requirePlan(request.specId(), request.planId());
         List<StudioTestCase> cases = studioStorage.listTestCases(request.specId(), request.planId(), null);
         List<RunTestResult> results = new ArrayList<>();
+        Map<String, String> variables = new LinkedHashMap<>();
         int passed = 0;
         int failed = 0;
         int skipped = 0;
@@ -271,7 +272,7 @@ public class TestDataStudioService {
                 skipped++;
                 continue;
             }
-            RunTestResult result = testRunService.execute(testCase, request.auth());
+            RunTestResult result = testRunService.execute(testCase, request.auth(), variables);
             results.add(result);
             if (result.passed()) {
                 passed++;
@@ -420,6 +421,7 @@ public class TestDataStudioService {
         if (StringUtils.isNotBlank(request.jsonPathAssertions())) {
             testCase.setJsonPathAssertions(request.jsonPathAssertions());
         }
+        testCase.setExtracts(StringUtils.defaultIfBlank(request.extracts(), NA));
         testCase.setMaxResponseTimeMs(request.maxResponseTimeMs() == null ? 3000L : request.maxResponseTimeMs());
     }
 
@@ -441,6 +443,7 @@ public class TestDataStudioService {
                 generated.enabled(),
                 generated.testGroup(),
                 generated.jsonPathAssertions(),
+                NA,
                 generated.maxResponseTimeMs(),
                 generated.contentType()
         );
@@ -567,6 +570,7 @@ public class TestDataStudioService {
                 .enabled(blankToNa(testCase.getEnabled()))
                 .testGroup(blankToNa(testCase.getTestGroup()))
                 .jsonPathAssertions(blankToNa(testCase.getJsonPathAssertions()))
+                .extracts(blankToNa(testCase.getExtracts()))
                 .jsonSchemaPath(schemaReference)
                 .maxResponseTimeMs(testCase.getMaxResponseTimeMs())
                 .uploadFiles(blankToNa(uploadFiles))
@@ -597,6 +601,7 @@ public class TestDataStudioService {
                 testCase.getEnabled(),
                 testCase.getTestGroup(),
                 testCase.getJsonPathAssertions(),
+                testCase.getExtracts(),
                 testCase.getMaxResponseTimeMs()
         );
     }

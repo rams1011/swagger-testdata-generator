@@ -27,6 +27,7 @@ public class StudioTestCase {
     private String enabled;
     private String testGroup;
     private String jsonPathAssertions;
+    private String extracts;
     private long maxResponseTimeMs;
 
     public String getId() {
@@ -203,6 +204,14 @@ public class StudioTestCase {
 
     public void setJsonPathAssertions(String jsonPathAssertions) {
         this.jsonPathAssertions = jsonPathAssertions;
+    }
+
+    public String getExtracts() {
+        return extracts;
+    }
+
+    public void setExtracts(String extracts) {
+        this.extracts = extracts;
     }
 
     public long getMaxResponseTimeMs() {

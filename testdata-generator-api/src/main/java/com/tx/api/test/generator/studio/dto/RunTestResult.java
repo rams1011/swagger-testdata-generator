@@ -22,7 +22,8 @@ public record RunTestResult(
         Map<String, String> requestHeaders,
         List<AssertionCheck> assertions,
         String error,
-        String downloadPath
+        String downloadPath,
+        Map<String, String> extracted
 ) {
     @Override
     public String toString() {

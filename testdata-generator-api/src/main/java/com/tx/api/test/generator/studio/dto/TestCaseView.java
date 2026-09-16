@@ -24,6 +24,7 @@ public record TestCaseView(
         String enabled,
         String testGroup,
         String jsonPathAssertions,
+        String extracts,
         long maxResponseTimeMs
 ) {
 }

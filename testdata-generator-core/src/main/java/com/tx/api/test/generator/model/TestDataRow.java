@@ -27,4 +27,5 @@ public class TestDataRow {
     private final long maxResponseTimeMs;
     private final String uploadFiles;
     private final String downloadFilePath;
+    private final String extracts;
 }

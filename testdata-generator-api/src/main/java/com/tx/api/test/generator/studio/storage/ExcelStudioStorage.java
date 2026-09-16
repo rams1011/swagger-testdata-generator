@@ -51,7 +51,7 @@ public class ExcelStudioStorage implements StudioStorage {
             "test_case_id", "spec_id", "operation_key", "test_name", "http_method", "raw_path",
             "endpoint", "base_url", "content_type", "request_body_json", "response_schema_json",
             "status_code", "response_type", "expected_response", "enabled", "test_group",
-            "json_path_assertions", "max_response_time_ms", "created_at", "updated_at", "plan_id"
+            "json_path_assertions", "max_response_time_ms", "created_at", "updated_at", "plan_id", "extracts"
     };
     private static final String[] PARAM_HEADERS = {
             "test_case_id", "param_in", "param_name", "param_value"
@@ -227,12 +227,23 @@ public class ExcelStudioStorage implements StudioStorage {
     @Override
     public List<StudioTestCase> listTestCases(String specId, String planId, String operationKey) {
         synchronized (lock) {
-            return load().cases.values().stream()
+            WorkbookState state = load();
+            return state.cases.values().stream()
                     .filter(testCase -> specId == null || specId.equals(testCase.getSpecId()))
                     .filter(testCase -> planId == null || planId.equals(testCase.getPlanId()))
                     .filter(testCase -> operationKey == null || operationKey.equals(testCase.getOperationKey()))
-                    .sorted((left, right) -> StringUtils.defaultString(left.getTestName())
-                            .compareToIgnoreCase(StringUtils.defaultString(right.getTestName())))
+                    .sorted((left, right) -> {
+                        Instant createdLeft = Optional.ofNullable(state.caseCreatedAt.get(left.getId()))
+                                .orElse(Instant.EPOCH);
+                        Instant createdRight = Optional.ofNullable(state.caseCreatedAt.get(right.getId()))
+                                .orElse(Instant.EPOCH);
+                        int created = createdLeft.compareTo(createdRight);
+                        if (created != 0) {
+                            return created;
+                        }
+                        return StringUtils.defaultString(left.getTestName())
+                                .compareToIgnoreCase(StringUtils.defaultString(right.getTestName()));
+                    })
                     .toList();
         }
     }
@@ -490,6 +501,7 @@ public class ExcelStudioStorage implements StudioStorage {
             testCase.setJsonPathAssertions(cell(row, 16));
             testCase.setMaxResponseTimeMs(parseLong(cell(row, 17), 3000L));
             testCase.setPlanId(cell(row, 20));
+            testCase.setExtracts(cell(row, 21));
             state.cases.put(testCase.getId(), testCase);
             state.caseCreatedAt.put(testCase.getId(), parseInstant(cell(row, 18)));
             state.caseUpdatedAt.put(testCase.getId(), parseInstant(cell(row, 19)));
@@ -584,6 +596,7 @@ public class ExcelStudioStorage implements StudioStorage {
             set(row, 18, formatInstant(state.caseCreatedAt.get(testCase.getId())));
             set(row, 19, formatInstant(state.caseUpdatedAt.get(testCase.getId())));
             set(row, 20, testCase.getPlanId());
+            set(row, 21, testCase.getExtracts());
         }
     }
 

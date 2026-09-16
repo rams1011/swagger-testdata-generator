@@ -19,6 +19,7 @@ public record SaveTestDataRequest(
         String enabled,
         String testGroup,
         String jsonPathAssertions,
+        String extracts,
         Long maxResponseTimeMs,
         String contentType
 ) {
