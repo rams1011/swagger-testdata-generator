@@ -7,8 +7,10 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -69,6 +71,89 @@ final class CaseVariables {
         return StringUtils.isNotBlank(text) && PLACEHOLDER.matcher(text).find();
     }
 
+    static Set<String> placeholderNames(StudioTestCase testCase) {
+        Set<String> names = new LinkedHashSet<>();
+        if (testCase == null) {
+            return names;
+        }
+        collectNames(testCase.getBaseUrl(), names);
+        collectNames(testCase.getEndpoint(), names);
+        collectNames(testCase.getRawPath(), names);
+        collectNames(testCase.getExpectedResponse(), names);
+        collectNames(testCase.getJsonPathAssertions(), names);
+        collectMap(testCase.getPathParams(), names);
+        collectMap(testCase.getQueryParams(), names);
+        collectMap(testCase.getHeaders(), names);
+        collectMap(testCase.getCookieParams(), names);
+        collectObject(testCase.getRequestBody(), names);
+        return names;
+    }
+
+    static Set<String> extractedNames(String extracts) {
+        return new LinkedHashSet<>(JsonPathEvaluator.parseAssertions(extracts).keySet());
+    }
+
+    static List<StudioTestCase> orderForChain(List<StudioTestCase> cases) {
+        if (cases == null || cases.isEmpty()) {
+            return List.of();
+        }
+        if (cases.size() == 1) {
+            return new ArrayList<>(cases);
+        }
+        List<StudioTestCase> remaining = new ArrayList<>(cases);
+        List<StudioTestCase> ordered = new ArrayList<>(cases.size());
+        while (!remaining.isEmpty()) {
+            ordered.add(remaining.remove(nextReadyIndex(remaining, ordered)));
+        }
+        return ordered;
+    }
+
+    static List<StudioTestCase> prerequisites(List<StudioTestCase> planCases, StudioTestCase current) {
+        Set<String> needed = placeholderNames(current);
+        if (needed.isEmpty() || planCases == null || planCases.isEmpty()) {
+            return List.of();
+        }
+        String currentId = current == null ? null : current.getId();
+        List<StudioTestCase> selected = new ArrayList<>();
+        Set<String> selectedIds = new LinkedHashSet<>();
+        boolean changed = true;
+        while (changed) {
+            changed = false;
+            for (StudioTestCase item : planCases) {
+                if (item == null || "N".equalsIgnoreCase(StringUtils.trimToEmpty(item.getEnabled()))) {
+                    continue;
+                }
+                if (currentId != null && currentId.equals(item.getId())) {
+                    continue;
+                }
+                if (item.getId() != null && !selectedIds.add(item.getId())) {
+                    continue;
+                }
+                if (item.getId() == null && selected.contains(item)) {
+                    continue;
+                }
+                Set<String> produced = extractedNames(item.getExtracts());
+                boolean useful = false;
+                for (String name : needed) {
+                    if (produced.contains(name)) {
+                        useful = true;
+                        break;
+                    }
+                }
+                if (!useful) {
+                    if (item.getId() != null) {
+                        selectedIds.remove(item.getId());
+                    }
+                    continue;
+                }
+                selected.add(item);
+                needed.addAll(placeholderNames(item));
+                changed = true;
+            }
+        }
+        return orderForChain(selected);
+    }
+
     static String substitute(String text, Map<String, String> variables) {
         if (StringUtils.isBlank(text) || !hasPlaceholders(text)) {
             return text;
@@ -86,6 +171,69 @@ final class CaseVariables {
         }
         matcher.appendTail(out);
         return out.toString();
+    }
+
+    private static int nextReadyIndex(List<StudioTestCase> remaining, List<StudioTestCase> ordered) {
+        Set<String> available = new LinkedHashSet<>();
+        for (StudioTestCase item : ordered) {
+            available.addAll(extractedNames(item.getExtracts()));
+        }
+        Set<String> remainingProduces = new LinkedHashSet<>();
+        for (StudioTestCase item : remaining) {
+            remainingProduces.addAll(extractedNames(item.getExtracts()));
+        }
+        for (int i = 0; i < remaining.size(); i++) {
+            StudioTestCase candidate = remaining.get(i);
+            Set<String> producedHere = extractedNames(candidate.getExtracts());
+            boolean waiting = false;
+            for (String name : placeholderNames(candidate)) {
+                if (available.contains(name) || producedHere.contains(name)) {
+                    continue;
+                }
+                if (remainingProduces.contains(name)) {
+                    waiting = true;
+                    break;
+                }
+            }
+            if (!waiting) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private static void collectMap(Map<String, String> values, Set<String> names) {
+        if (values == null) {
+            return;
+        }
+        values.values().forEach(value -> collectNames(value, names));
+    }
+
+    private static void collectObject(Object value, Set<String> names) {
+        if (value == null) {
+            return;
+        }
+        if (value instanceof String text) {
+            collectNames(text, names);
+            return;
+        }
+        if (value instanceof Map<?, ?> map) {
+            map.values().forEach(item -> collectObject(item, names));
+            return;
+        }
+        if (value instanceof List<?> list) {
+            list.forEach(item -> collectObject(item, names));
+        }
+    }
+
+    private static void collectNames(String text, Set<String> names) {
+        if (!hasPlaceholders(text)) {
+            return;
+        }
+        Matcher matcher = PLACEHOLDER.matcher(text);
+        while (matcher.find()) {
+            names.add(matcher.group(1));
+        }
     }
 
     private static String endpoint(String rawPath, Map<String, String> pathParams, String fallback,
