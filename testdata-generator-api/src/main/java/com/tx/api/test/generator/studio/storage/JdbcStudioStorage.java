@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.storage;
 
+import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
@@ -80,6 +81,7 @@ public class JdbcStudioStorage implements StudioStorage {
                 specId);
         jdbcTemplate.update("DELETE FROM td_test_case WHERE spec_id = ?", specId);
         jdbcTemplate.update("DELETE FROM td_test_plan WHERE spec_id = ?", specId);
+        jdbcTemplate.update("DELETE FROM td_environment WHERE spec_id = ?", specId);
         int deleted = jdbcTemplate.update("DELETE FROM td_spec WHERE spec_id = ?", specId);
         if (deleted == 0) {
             throw new NoSuchElementException("Spec not found: " + specId);
@@ -142,6 +144,63 @@ public class JdbcStudioStorage implements StudioStorage {
     public List<StudioTestPlan> listPlans(String specId) {
         return jdbcTemplate.query(
                 "SELECT * FROM td_test_plan WHERE spec_id = ? ORDER BY name", planMapper(), specId);
+    }
+
+    @Override
+    public List<StoredEnvironment> listEnvironments(String specId) {
+        return jdbcTemplate.query(
+                "SELECT * FROM td_environment WHERE spec_id = ? ORDER BY name", environmentMapper(), specId);
+    }
+
+    @Override
+    public Optional<StoredEnvironment> findEnvironment(String environmentId) {
+        List<StoredEnvironment> environments = jdbcTemplate.query(
+                "SELECT * FROM td_environment WHERE environment_id = ?", environmentMapper(), environmentId);
+        return environments.stream().findFirst();
+    }
+
+    @Override
+    public Optional<StoredEnvironment> findEnvironmentByName(String specId, String name) {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        List<StoredEnvironment> environments = jdbcTemplate.query(
+                "SELECT * FROM td_environment WHERE spec_id = ? AND LOWER(name) = LOWER(?)",
+                environmentMapper(), specId, name.trim());
+        return environments.stream().findFirst();
+    }
+
+    @Override
+    public void saveEnvironment(StoredEnvironment environment) {
+        Instant now = Instant.now();
+        Optional<StoredEnvironment> existing = findEnvironment(environment.getId());
+        environment.setCreatedAt(existing.map(StoredEnvironment::getCreatedAt).orElse(now));
+        environment.setUpdatedAt(now);
+        Timestamp updated = Timestamp.from(environment.getUpdatedAt());
+        if (existing.isPresent()) {
+            jdbcTemplate.update("""
+                            UPDATE td_environment
+                               SET spec_id = ?, name = ?, document_json = ?, updated_at = ?
+                             WHERE environment_id = ?
+                            """,
+                    environment.getSpecId(), environment.getName(), environment.getDocumentJson(),
+                    updated, environment.getId());
+            return;
+        }
+        jdbcTemplate.update("""
+                        INSERT INTO td_environment (environment_id, spec_id, name, document_json, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                environment.getId(), environment.getSpecId(), environment.getName(), environment.getDocumentJson(),
+                Timestamp.from(environment.getCreatedAt()), updated);
+    }
+
+    @Override
+    public void deleteEnvironment(String environmentId) {
+        int deleted = jdbcTemplate.update("DELETE FROM td_environment WHERE environment_id = ?", environmentId);
+        if (deleted == 0) {
+            throw new NoSuchElementException("Environment not found: " + environmentId);
+        }
     }
 
     @Override
@@ -407,6 +466,19 @@ public class JdbcStudioStorage implements StudioStorage {
             plan.setCreatedAt(toInstant(rs, "created_at"));
             plan.setUpdatedAt(toInstant(rs, "updated_at"));
             return plan;
+        };
+    }
+
+    private RowMapper<StoredEnvironment> environmentMapper() {
+        return (rs, rowNum) -> {
+            StoredEnvironment environment = new StoredEnvironment();
+            environment.setId(rs.getString("environment_id"));
+            environment.setSpecId(rs.getString("spec_id"));
+            environment.setName(rs.getString("name"));
+            environment.setDocumentJson(rs.getString("document_json"));
+            environment.setCreatedAt(toInstant(rs, "created_at"));
+            environment.setUpdatedAt(toInstant(rs, "updated_at"));
+            return environment;
         };
     }
 

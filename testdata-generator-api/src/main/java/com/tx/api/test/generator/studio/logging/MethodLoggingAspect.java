@@ -1,5 +1,8 @@
 package com.tx.api.test.generator.studio.logging;
 
+import com.tx.api.test.generator.studio.dto.CollectionExport;
+import com.tx.api.test.generator.studio.dto.CollectionImportResult;
+import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.ExcelExport;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -76,6 +79,24 @@ public class MethodLoggingAspect {
             return "ExcelExport[fileName=" + exported.fileName()
                     + ", bytes=" + exported.content().length
                     + ", rows=" + exported.rowCount() + "]";
+        }
+        if (value instanceof CollectionExport exported) {
+            return "CollectionExport[fileName=" + exported.fileName()
+                    + ", bytes=" + exported.content().length
+                    + ", cases=" + exported.caseCount()
+                    + ", files=" + exported.fileCount() + "]";
+        }
+        if (value instanceof EnvironmentExport exported) {
+            return "EnvironmentExport[fileName=" + exported.fileName()
+                    + ", bytes=" + exported.content().length
+                    + ", name=" + exported.name() + "]";
+        }
+        if (value instanceof CollectionImportResult imported) {
+            return "CollectionImportResult[spec=" + imported.specName()
+                    + ", plan=" + imported.planName()
+                    + ", created=" + imported.createdCases()
+                    + ", updated=" + imported.updatedCases()
+                    + ", files=" + imported.importedFiles() + "]";
         }
         if (value instanceof StudioRequestFile file) {
             return "StudioRequestFile[id=" + file.getFileId()

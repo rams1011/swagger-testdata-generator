@@ -2,11 +2,14 @@ package com.tx.api.test.generator.studio.api;
 
 import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.catalog.OperationSummary;
+import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
+import com.tx.api.test.generator.studio.dto.EnvironmentSummary;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
 import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
 import com.tx.api.test.generator.studio.service.SpecCatalogService;
+import com.tx.api.test.generator.studio.service.TestDataStudioService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -31,9 +34,11 @@ import java.util.List;
 public class SpecController {
 
     private final SpecCatalogService specCatalogService;
+    private final TestDataStudioService testDataStudioService;
 
-    public SpecController(SpecCatalogService specCatalogService) {
+    public SpecController(SpecCatalogService specCatalogService, TestDataStudioService testDataStudioService) {
         this.specCatalogService = specCatalogService;
+        this.testDataStudioService = testDataStudioService;
     }
 
     @PostMapping
@@ -94,5 +99,22 @@ public class SpecController {
     @GetMapping("/{specId}/operations/{operationKey}")
     public OperationPage operation(@PathVariable String specId, @PathVariable String operationKey) {
         return specCatalogService.getOperation(specId, operationKey);
+    }
+
+    @GetMapping("/{specId}/environments")
+    public List<EnvironmentSummary> environments(@PathVariable String specId) {
+        return testDataStudioService.listEnvironments(specId);
+    }
+
+    @PostMapping("/{specId}/environments/{environmentId}/apply")
+    public EnvironmentImportResult applyEnvironment(@PathVariable String specId,
+                                                    @PathVariable String environmentId) {
+        return testDataStudioService.applyEnvironment(specId, environmentId);
+    }
+
+    @DeleteMapping("/{specId}/environments/{environmentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteEnvironment(@PathVariable String specId, @PathVariable String environmentId) {
+        testDataStudioService.deleteEnvironment(specId, environmentId);
     }
 }

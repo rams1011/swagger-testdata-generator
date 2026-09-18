@@ -187,3 +187,21 @@ CREATE INDEX IF NOT EXISTS ix_td_run_result_spec
 
 CREATE INDEX IF NOT EXISTS ix_td_run_result_case
     ON td_run_result (case_id);
+
+CREATE TABLE IF NOT EXISTS td_environment (
+    environment_id VARCHAR(36)   NOT NULL,
+    spec_id        VARCHAR(36)   NOT NULL,
+    name           VARCHAR(255)  NOT NULL,
+    document_json  TEXT          NOT NULL,
+    created_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_environment PRIMARY KEY (environment_id),
+    CONSTRAINT fk_td_environment_spec FOREIGN KEY (spec_id)
+        REFERENCES td_spec (spec_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_td_environment_spec
+    ON td_environment (spec_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_td_environment_spec_name
+    ON td_environment (spec_id, name);

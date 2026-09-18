@@ -6,7 +6,18 @@ import com.tx.api.test.generator.generate.GeneratedTestCase;
 import com.tx.api.test.generator.model.TestDataRow;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.catalog.OperationPage;
+import com.tx.api.test.generator.studio.collection.CollectionExporter;
+import com.tx.api.test.generator.studio.collection.CollectionImporter;
+import com.tx.api.test.generator.studio.collection.EnvironmentExporter;
+import com.tx.api.test.generator.studio.collection.EnvironmentImporter;
+import com.tx.api.test.generator.studio.collection.EnvironmentMapper;
+import com.tx.api.test.generator.studio.dto.CollectionExport;
+import com.tx.api.test.generator.studio.dto.CollectionImportResult;
+import com.tx.api.test.generator.studio.dto.EnvironmentExport;
+import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
+import com.tx.api.test.generator.studio.dto.EnvironmentSummary;
 import com.tx.api.test.generator.studio.dto.ExcelExport;
+import com.tx.api.test.generator.studio.dto.ExportEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.ExportRequest;
 import com.tx.api.test.generator.studio.dto.GeneratePlansRequest;
 import com.tx.api.test.generator.studio.dto.GeneratePlansResult;
@@ -18,11 +29,13 @@ import com.tx.api.test.generator.studio.dto.RunPlanRequest;
 import com.tx.api.test.generator.studio.dto.RunPlanResult;
 import com.tx.api.test.generator.studio.dto.RunTestRequest;
 import com.tx.api.test.generator.studio.dto.RunTestResult;
+import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
 import com.tx.api.test.generator.studio.dto.SaveTestDataRequest;
 import com.tx.api.test.generator.studio.dto.SaveTestPlanRequest;
 import com.tx.api.test.generator.studio.dto.TestCaseView;
 import com.tx.api.test.generator.studio.dto.TestPlanView;
 import com.tx.api.test.generator.studio.model.LoadedSpec;
+import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
@@ -328,6 +341,95 @@ public class TestDataStudioService {
         String fileName = exportFileName(request, plan);
         log.info("Prepared {} api-automation rows for plan {} as {}", rows.size(), plan.getName(), fileName);
         return new ExcelExport(fileName, output.toByteArray(), rows.size());
+    }
+
+    public CollectionExport exportCollection(ExportRequest request) {
+        if (request == null || StringUtils.isBlank(request.specId())) {
+            throw new IllegalArgumentException("specId is required to export a collection");
+        }
+        specCatalogService.requireSpec(request.specId());
+        String planId = resolvePlanId(request.specId(), request.planId());
+        CollectionExport exported = CollectionExporter.export(studioStorage, request.specId(), planId);
+        log.info("Prepared collection {} ({} cases, {} files)", exported.fileName(), exported.caseCount(),
+                exported.fileCount());
+        return exported;
+    }
+
+    public CollectionImportResult importCollection(byte[] bytes, String fileName, String specId) {
+        if (bytes == null || bytes.length == 0) {
+            throw new IllegalArgumentException("Collection JSON or zip is required");
+        }
+        if (StringUtils.isNotBlank(specId)) {
+            specCatalogService.requireSpec(specId);
+        }
+        CollectionImportResult imported = CollectionImporter.importInto(studioStorage, bytes, fileName, specId);
+        log.info("Imported collection into spec {} plan {} (created={}, updated={}, files={})",
+                imported.specName(), imported.planName(), imported.createdCases(), imported.updatedCases(),
+                imported.importedFiles());
+        return imported;
+    }
+
+    public EnvironmentExport exportEnvironment(ExportEnvironmentRequest request) {
+        if (request == null || StringUtils.isBlank(request.specId())) {
+            throw new IllegalArgumentException("specId is required to export an environment");
+        }
+        specCatalogService.requireSpec(request.specId());
+        var spec = studioStorage.findSpec(request.specId())
+                .orElseThrow(() -> new NoSuchElementException("Spec not found: " + request.specId()));
+        EnvironmentExport exported = EnvironmentExporter.export(
+                studioStorage, spec, request.name(), request.authType());
+        log.info("Prepared environment {} for spec {}", exported.fileName(), spec.getName());
+        return exported;
+    }
+
+    public EnvironmentImportResult importEnvironment(byte[] bytes, String specId, boolean apply) {
+        if (StringUtils.isBlank(specId)) {
+            throw new IllegalArgumentException("specId is required to import an environment");
+        }
+        specCatalogService.requireSpec(specId);
+        StoredEnvironment stored = EnvironmentImporter.importInto(studioStorage, specId, bytes);
+        EnvironmentSummary summary = EnvironmentMapper.toSummary(stored);
+        boolean created = stored.getCreatedAt() != null && stored.getUpdatedAt() != null
+                && stored.getCreatedAt().equals(stored.getUpdatedAt());
+        boolean applied = false;
+        if (apply && StringUtils.isNotBlank(summary.baseUrl())) {
+            specCatalogService.rename(specId, new SaveSpecRequest(null, null, summary.baseUrl()));
+            applied = true;
+        }
+        log.info("Imported environment {} into spec {} (applied={})", summary.name(), specId, applied);
+        return new EnvironmentImportResult(specId, stored.getId(), summary.name(), summary.baseUrl(), applied, created);
+    }
+
+    public List<EnvironmentSummary> listEnvironments(String specId) {
+        specCatalogService.requireSpec(specId);
+        return studioStorage.listEnvironments(specId).stream()
+                .map(EnvironmentMapper::toSummary)
+                .toList();
+    }
+
+    public EnvironmentImportResult applyEnvironment(String specId, String environmentId) {
+        specCatalogService.requireSpec(specId);
+        StoredEnvironment stored = studioStorage.findEnvironment(environmentId)
+                .orElseThrow(() -> new NoSuchElementException("Environment not found: " + environmentId));
+        if (!specId.equals(stored.getSpecId())) {
+            throw new NoSuchElementException("Environment not found: " + environmentId);
+        }
+        EnvironmentSummary summary = EnvironmentMapper.toSummary(stored);
+        if (StringUtils.isBlank(summary.baseUrl())) {
+            throw new IllegalArgumentException("Environment '" + summary.name() + "' has no values.baseUrl");
+        }
+        specCatalogService.rename(specId, new SaveSpecRequest(null, null, summary.baseUrl()));
+        return new EnvironmentImportResult(specId, stored.getId(), summary.name(), summary.baseUrl(), true, false);
+    }
+
+    public void deleteEnvironment(String specId, String environmentId) {
+        specCatalogService.requireSpec(specId);
+        StoredEnvironment stored = studioStorage.findEnvironment(environmentId)
+                .orElseThrow(() -> new NoSuchElementException("Environment not found: " + environmentId));
+        if (!specId.equals(stored.getSpecId())) {
+            throw new NoSuchElementException("Environment not found: " + environmentId);
+        }
+        studioStorage.deleteEnvironment(environmentId);
     }
 
     public String storageType() {

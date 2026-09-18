@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testdata.studio/schemas/environment/v1.json",
+  "title": "testdata.studio.environment/v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["format", "version", "name"],
+  "properties": {
+    "format": { "const": "testdata.studio.environment" },
+    "version": { "const": 1 },
+    "name": { "type": "string", "minLength": 1 },
+    "values": {
+      "type": "object",
+      "additionalProperties": { "type": "string" },
+      "description": "Non-secret substitutions such as baseUrl"
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["NONE", "BASIC", "BEARER", "API_KEY", "OAUTH2"] },
+        "token": { "type": ["string", "null"], "description": "Placeholder only, e.g. ${AUTOMATION_BEARER_TOKEN}" },
+        "username": { "type": ["string", "null"] },
+        "password": { "type": ["string", "null"] },
+        "apiKey": { "type": ["string", "null"] },
+        "apiKeyName": { "type": ["string", "null"] },
+        "apiKeyIn": { "type": ["string", "null"] },
+        "clientId": { "type": ["string", "null"] },
+        "clientSecret": { "type": ["string", "null"] },
+        "tokenUrl": { "type": ["string", "null"] },
+        "grantType": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

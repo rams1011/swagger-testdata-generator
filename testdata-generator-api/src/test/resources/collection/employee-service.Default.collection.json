@@ -1,0 +1,63 @@
+{
+  "format": "testdata.studio.collection",
+  "version": 1,
+  "spec": {
+    "id": "spec-employee-service",
+    "name": "employee-service",
+    "label": "General",
+    "title": "Employee Service",
+    "version": "1.0",
+    "baseUrl": "http://localhost:8080/employee-service"
+  },
+  "plan": {
+    "id": "plan-default",
+    "name": "Default"
+  },
+  "cases": [
+    {
+      "id": "case-create-role",
+      "operationKey": "create",
+      "testName": "create — 200",
+      "method": "POST",
+      "path": "/api/roles",
+      "endpoint": "/api/roles",
+      "baseUrl": "{{baseUrl}}",
+      "contentType": "application/json",
+      "pathParams": {},
+      "queryParams": {},
+      "headers": {},
+      "cookies": {},
+      "body": {
+        "name": "Admin",
+        "code": "ADMIN"
+      },
+      "statusCode": 200,
+      "responseType": "JSON",
+      "enabled": "Y",
+      "testGroup": "role-controller",
+      "extracts": "roleId=$.roleId",
+      "maxResponseTimeMs": 3000
+    },
+    {
+      "id": "case-get-role",
+      "operationKey": "get",
+      "testName": "get — 200",
+      "method": "GET",
+      "path": "/api/roles/{id}",
+      "endpoint": "/api/roles/{{roleId}}",
+      "baseUrl": "{{baseUrl}}",
+      "contentType": "application/json",
+      "pathParams": {
+        "id": "{{roleId}}"
+      },
+      "queryParams": {},
+      "headers": {},
+      "cookies": {},
+      "statusCode": 200,
+      "responseType": "JSON",
+      "enabled": "Y",
+      "testGroup": "role-controller",
+      "maxResponseTimeMs": 3000
+    }
+  ]
+}

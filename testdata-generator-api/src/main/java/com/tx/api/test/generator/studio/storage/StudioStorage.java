@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.storage;
 
+import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
@@ -30,6 +31,31 @@ public interface StudioStorage {
     Optional<StudioTestPlan> findPlan(String planId);
 
     List<StudioTestPlan> listPlans(String specId);
+
+    default List<StoredEnvironment> listEnvironments(String specId) {
+        return List.of();
+    }
+
+    default Optional<StoredEnvironment> findEnvironment(String environmentId) {
+        return Optional.empty();
+    }
+
+    default Optional<StoredEnvironment> findEnvironmentByName(String specId, String name) {
+        if (name == null) {
+            return Optional.empty();
+        }
+        return listEnvironments(specId).stream()
+                .filter(environment -> name.equalsIgnoreCase(environment.getName()))
+                .findFirst();
+    }
+
+    default void saveEnvironment(StoredEnvironment environment) {
+        throw new IllegalStateException("Environment files need H2 or database storage");
+    }
+
+    default void deleteEnvironment(String environmentId) {
+        throw new java.util.NoSuchElementException("Environment not found: " + environmentId);
+    }
 
     void saveTestCase(StudioTestCase testCase);
 

@@ -1,6 +1,11 @@
 package com.tx.api.test.generator.studio.api;
 
+import com.tx.api.test.generator.studio.dto.CollectionExport;
+import com.tx.api.test.generator.studio.dto.CollectionImportResult;
+import com.tx.api.test.generator.studio.dto.EnvironmentExport;
+import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
 import com.tx.api.test.generator.studio.dto.ExcelExport;
+import com.tx.api.test.generator.studio.dto.ExportEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.ExportRequest;
 import com.tx.api.test.generator.studio.dto.GeneratePlansRequest;
 import com.tx.api.test.generator.studio.dto.GeneratePlansResult;
@@ -27,9 +32,12 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
@@ -117,5 +125,65 @@ public class TestDataController {
                 .filename(exported.fileName(), StandardCharsets.UTF_8)
                 .build());
         return new ResponseEntity<>(exported.content(), headers, HttpStatus.OK);
+    }
+
+    @PostMapping("/export-collection")
+    public ResponseEntity<byte[]> exportCollection(@RequestBody ExportRequest request) {
+        CollectionExport exported = testDataStudioService.exportCollection(request);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(exported.mediaType()));
+        headers.setContentLength(exported.content().length);
+        headers.setContentDisposition(ContentDisposition.attachment()
+                .filename(exported.fileName(), StandardCharsets.UTF_8)
+                .build());
+        return new ResponseEntity<>(exported.content(), headers, HttpStatus.OK);
+    }
+
+    @PostMapping(value = "/import-collection", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public CollectionImportResult importCollectionJson(@RequestParam(required = false) String specId,
+                                                       @RequestBody String json) {
+        return testDataStudioService.importCollection(
+                json == null ? new byte[0] : json.getBytes(StandardCharsets.UTF_8),
+                "collection.json",
+                specId);
+    }
+
+    @PostMapping(value = "/import-collection", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public CollectionImportResult importCollectionFile(@RequestParam(required = false) String specId,
+                                                       @RequestPart("file") MultipartFile file) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Collection JSON or zip is required");
+        }
+        return testDataStudioService.importCollection(file.getBytes(), file.getOriginalFilename(), specId);
+    }
+
+    @PostMapping("/export-environment")
+    public ResponseEntity<byte[]> exportEnvironment(@RequestBody ExportEnvironmentRequest request) {
+        EnvironmentExport exported = testDataStudioService.exportEnvironment(request);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.parseMediaType(exported.mediaType()));
+        headers.setContentLength(exported.content().length);
+        headers.setContentDisposition(ContentDisposition.attachment()
+                .filename(exported.fileName(), StandardCharsets.UTF_8)
+                .build());
+        return new ResponseEntity<>(exported.content(), headers, HttpStatus.OK);
+    }
+
+    @PostMapping(value = "/import-environment", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public EnvironmentImportResult importEnvironmentJson(@RequestParam String specId,
+                                                         @RequestParam(defaultValue = "true") boolean apply,
+                                                         @RequestBody String json) {
+        return testDataStudioService.importEnvironment(
+                json == null ? new byte[0] : json.getBytes(StandardCharsets.UTF_8), specId, apply);
+    }
+
+    @PostMapping(value = "/import-environment", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public EnvironmentImportResult importEnvironmentFile(@RequestParam String specId,
+                                                         @RequestParam(defaultValue = "true") boolean apply,
+                                                         @RequestPart("file") MultipartFile file) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("Environment JSON is required");
+        }
+        return testDataStudioService.importEnvironment(file.getBytes(), specId, apply);
     }
 }
