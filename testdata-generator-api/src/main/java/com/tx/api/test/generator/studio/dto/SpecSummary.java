@@ -15,6 +15,7 @@ public record SpecSummary(
         int operationCount,
         List<String> tags,
         String sourceLocation,
-        List<SpecServer> servers
+        List<SpecServer> servers,
+        boolean manual
 ) {
 }

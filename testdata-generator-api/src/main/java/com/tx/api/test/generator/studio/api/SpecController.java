@@ -5,6 +5,7 @@ import com.tx.api.test.generator.catalog.OperationSummary;
 import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
 import com.tx.api.test.generator.studio.dto.EnvironmentSummary;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
+import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
 import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
@@ -52,7 +53,7 @@ public class SpecController {
                               @RequestParam(value = "label", required = false) String label,
                               @RequestParam(value = "baseUrl", required = false) String baseUrl) throws IOException {
         String content = new String(file.getBytes(), StandardCharsets.UTF_8);
-        return specCatalogService.load(new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, name, label));
+        return specCatalogService.load(new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, name, label, null));
     }
 
     @PutMapping("/{specId}")
@@ -78,7 +79,7 @@ public class SpecController {
                                          @RequestParam(value = "baseUrl", required = false) String baseUrl)
             throws IOException {
         String content = new String(file.getBytes(), StandardCharsets.UTF_8);
-        return specCatalogService.reload(specId, new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, null, null));
+        return specCatalogService.reload(specId, new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, null, null, null));
     }
 
     @GetMapping
@@ -99,6 +100,18 @@ public class SpecController {
     @GetMapping("/{specId}/operations/{operationKey}")
     public OperationPage operation(@PathVariable String specId, @PathVariable String operationKey) {
         return specCatalogService.getOperation(specId, operationKey);
+    }
+
+    @PostMapping("/{specId}/operations")
+    @ResponseStatus(HttpStatus.CREATED)
+    public OperationPage addOperation(@PathVariable String specId, @RequestBody ManualOperationRequest request) {
+        return specCatalogService.addOperation(specId, request);
+    }
+
+    @DeleteMapping("/{specId}/operations/{operationKey}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteOperation(@PathVariable String specId, @PathVariable String operationKey) {
+        specCatalogService.deleteOperation(specId, operationKey);
     }
 
     @GetMapping("/{specId}/environments")

@@ -6,18 +6,22 @@ import com.tx.api.test.generator.catalog.OperationSummary;
 import com.tx.api.test.generator.catalog.SpecServer;
 import com.tx.api.test.generator.openapi.OpenApiOperationInspector;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
+import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
 import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
 import com.tx.api.test.generator.studio.model.LoadedSpec;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
+import com.tx.api.test.generator.studio.openapi.ManualSpecDocument;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
+import com.tx.api.test.generator.studio.tenant.TenantContext;
 import io.swagger.v3.oas.models.OpenAPI;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
+import org.springframework.context.annotation.DependsOn;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -30,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 @Service
+@DependsOn("tenantBootstrap")
 public class SpecCatalogService {
 
     private final StudioStorage studioStorage;
@@ -41,19 +46,24 @@ public class SpecCatalogService {
 
     @PostConstruct
     void ensureUniqueSpecNames() {
-        Set<String> used = new HashSet<>();
-        for (StoredSpec spec : studioStorage.listSpecs()) {
-            String name = uniquifyName(fallbackName(spec.getName(), spec.getTitle(), spec.getSpecId()), used);
-            used.add(name.toLowerCase(Locale.ROOT));
-            if (!name.equals(spec.getName())) {
-                spec.setName(name);
-                studioStorage.saveSpec(spec);
+        TenantContext.runAs(TenantContext.LOCAL_TENANT_ID, () -> {
+            Set<String> used = new HashSet<>();
+            for (StoredSpec spec : studioStorage.listSpecs()) {
+                String name = uniquifyName(fallbackName(spec.getName(), spec.getTitle(), spec.getSpecId()), used);
+                used.add(name.toLowerCase(Locale.ROOT));
+                if (!name.equals(spec.getName())) {
+                    spec.setName(name);
+                    studioStorage.saveSpec(spec);
+                }
             }
-        }
-        studioStorage.ensureSpecNameUniqueIndex();
+            studioStorage.ensureSpecNameUniqueIndex();
+        });
     }
 
     public SpecSummary load(LoadSpecRequest request) {
+        if (request != null && Boolean.TRUE.equals(request.manual())) {
+            return createManual(request);
+        }
         String content = resolveContent(request);
         OpenAPI openApi = parseSpec(request, content);
         List<OperationPage> operations = TestdataGenerator.inspect(openApi, request.baseUrl());
@@ -77,6 +87,47 @@ public class SpecCatalogService {
         studioStorage.saveSpec(toStoredSpec(loadedSpec, request, content, name));
         return toSummary(loadedSpec, request == null ? null : request.location(),
                 request == null ? null : request.label());
+    }
+
+    public SpecSummary createManual(LoadSpecRequest request) {
+        String name = requireUniqueName(request == null ? null : request.name(), null);
+        String baseUrl = firstNonBlank(request == null ? null : request.baseUrl(), "http://localhost:8080");
+        String content = ManualSpecDocument.emptyCatalog(name, baseUrl);
+        OpenAPI openApi = TestdataGenerator.loadSpecFromContent(content);
+        String specId = UUID.randomUUID().toString();
+        LoadedSpec loadedSpec = new LoadedSpec(
+                specId,
+                name,
+                openApi,
+                List.of(),
+                TestdataGenerator.specTitle(openApi),
+                TestdataGenerator.specVersion(openApi),
+                TestdataGenerator.specDescription(openApi),
+                TestdataGenerator.resolveBaseUrl(openApi, baseUrl)
+        );
+        specs.put(specId, loadedSpec);
+        studioStorage.saveSpec(toStoredSpec(loadedSpec,
+                new LoadSpecRequest(null, content, null, baseUrl, name,
+                        request == null ? null : request.label(), true),
+                content, name));
+        return toSummary(loadedSpec, null, request == null ? null : request.label());
+    }
+
+    public OperationPage addOperation(String specId, ManualOperationRequest request) {
+        StoredSpec stored = requireManualSpec(specId);
+        String nextContent = ManualSpecDocument.addOperation(stored.getSourceContent(), request);
+        return persistManualContent(
+                stored,
+                nextContent,
+                ManualSpecDocument.normalizePath(request == null ? null : request.path()),
+                request == null ? null : request.method());
+    }
+
+    public void deleteOperation(String specId, String operationKey) {
+        StoredSpec stored = requireManualSpec(specId);
+        OperationPage page = getOperation(specId, operationKey);
+        String nextContent = ManualSpecDocument.removeOperation(stored.getSourceContent(), page.method(), page.path());
+        persistManualContent(stored, nextContent, null, null);
     }
 
     public SpecSummary rename(String specId, SaveSpecRequest request) {
@@ -116,11 +167,15 @@ public class SpecCatalogService {
     public ReloadSpecResult reload(String specId, LoadSpecRequest request) {
         StoredSpec existing = studioStorage.findSpec(specId)
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
+        if (ManualSpecDocument.isManualContent(existing.getSourceContent())) {
+            throw new IllegalArgumentException(
+                    "This REST catalog is not backed by a Swagger file. Add APIs in Studio instead of updating a spec.");
+        }
         Set<String> previousKeys = previousOperationKeys(specId, existing);
 
         String location = firstNonBlank(request == null ? null : request.location(), existing.getSourceLocation());
         String content = resolveReloadContent(request, existing, location);
-        OpenAPI openApi = parseSpec(new LoadSpecRequest(location, content, null, null, null, null), content);
+        OpenAPI openApi = parseSpec(new LoadSpecRequest(location, content, null, null, null, null, null), content);
         String baseUrl = firstNonBlank(request == null ? null : request.baseUrl(), existing.getBaseUrl());
         List<OperationPage> operations = TestdataGenerator.inspect(openApi, baseUrl);
         if (operations.isEmpty()) {
@@ -150,7 +205,7 @@ public class SpecCatalogService {
         String label = firstNonBlank(request == null ? null : request.label(), existing.getLabel());
         specs.put(specId, loadedSpec);
         studioStorage.saveSpec(toStoredSpec(loadedSpec,
-                new LoadSpecRequest(location, content, request == null ? null : request.fileName(), baseUrl, name, label),
+                new LoadSpecRequest(location, content, request == null ? null : request.fileName(), baseUrl, name, label, null),
                 content, name));
 
         Set<String> nextKeys = new LinkedHashSet<>();
@@ -166,8 +221,12 @@ public class SpecCatalogService {
 
     public List<SpecSummary> list() {
         Map<String, SpecSummary> summaries = new LinkedHashMap<>();
-        studioStorage.listSpecs().forEach(stored -> summaries.put(stored.getSpecId(), toSummary(stored)));
-        specs.values().forEach(loaded -> summaries.put(loaded.getSpecId(), toSummary(loaded, sourceLocation(loaded.getSpecId()))));
+        studioStorage.listSpecs().forEach(stored -> {
+            LoadedSpec loaded = specs.get(stored.getSpecId());
+            summaries.put(stored.getSpecId(), loaded == null
+                    ? toSummary(stored)
+                    : toSummary(loaded, stored.getSourceLocation()));
+        });
         return summaries.values().stream()
                 .sorted((left, right) -> String.CASE_INSENSITIVE_ORDER.compare(
                         StringUtils.defaultString(left.name(), left.title()),
@@ -176,22 +235,22 @@ public class SpecCatalogService {
     }
 
     public SpecSummary getSummary(String specId) {
+        StoredSpec stored = studioStorage.findSpec(specId)
+                .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
         LoadedSpec loaded = specs.get(specId);
         if (loaded != null) {
-            return toSummary(loaded, sourceLocation(specId));
+            return toSummary(loaded, stored.getSourceLocation());
         }
-        return studioStorage.findSpec(specId)
-                .map(this::toSummary)
-                .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
+        return toSummary(stored);
     }
 
     public LoadedSpec requireSpec(String specId) {
+        StoredSpec stored = studioStorage.findSpec(specId)
+                .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
         LoadedSpec loaded = specs.get(specId);
         if (loaded != null) {
             return loaded;
         }
-        StoredSpec stored = studioStorage.findSpec(specId)
-                .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
         LoadedSpec restored = restore(stored);
         specs.put(specId, restored);
         return restored;
@@ -289,7 +348,8 @@ public class SpecCatalogService {
                 spec.getOperations().size(),
                 tags,
                 sourceLocation,
-                serversOf(spec)
+                serversOf(spec),
+                isManualSpec(spec)
         );
     }
 
@@ -309,7 +369,8 @@ public class SpecCatalogService {
                 spec.getOperationCount(),
                 List.of(),
                 spec.getSourceLocation(),
-                List.of()
+                List.of(),
+                ManualSpecDocument.isManualContent(spec.getSourceContent())
         );
     }
 
@@ -457,5 +518,56 @@ public class SpecCatalogService {
             candidate = base + "-" + suffix++;
         }
         return candidate;
+    }
+
+    private StoredSpec requireManualSpec(String specId) {
+        StoredSpec stored = studioStorage.findSpec(specId)
+                .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
+        if (!ManualSpecDocument.isManualContent(stored.getSourceContent())) {
+            throw new IllegalArgumentException("Add extra REST APIs on a REST catalog, not on a Swagger spec");
+        }
+        return stored;
+    }
+
+    private OperationPage persistManualContent(StoredSpec stored, String content, String path, String method) {
+        OpenAPI openApi = TestdataGenerator.loadSpecFromContent(content);
+        List<OperationPage> operations = TestdataGenerator.inspect(openApi, stored.getBaseUrl());
+        LoadedSpec loadedSpec = new LoadedSpec(
+                stored.getSpecId(),
+                stored.getName(),
+                openApi,
+                operations,
+                TestdataGenerator.specTitle(openApi),
+                TestdataGenerator.specVersion(openApi),
+                TestdataGenerator.specDescription(openApi),
+                stored.getBaseUrl()
+        );
+        specs.put(stored.getSpecId(), loadedSpec);
+        stored.setSourceContent(content);
+        stored.setTitle(loadedSpec.getTitle());
+        stored.setVersion(loadedSpec.getVersion());
+        stored.setDescription(loadedSpec.getDescription());
+        stored.setOperationCount(operations.size());
+        studioStorage.saveSpec(stored);
+        if (StringUtils.isBlank(path) || StringUtils.isBlank(method)) {
+            return null;
+        }
+        String expectedMethod = method.trim().toUpperCase(Locale.ROOT);
+        String expectedPath = ManualSpecDocument.normalizePath(path);
+        return operations.stream()
+                .filter(operation -> expectedMethod.equalsIgnoreCase(operation.method())
+                        && (expectedPath.equals(operation.path()) || expectedPath.equals(operation.rawPath())))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Added REST API was not found after save"));
+    }
+
+    private boolean isManualSpec(LoadedSpec spec) {
+        if (ManualSpecDocument.isManual(spec.getOpenApi())) {
+            return true;
+        }
+        return studioStorage.findSpec(spec.getSpecId())
+                .map(StoredSpec::getSourceContent)
+                .map(ManualSpecDocument::isManualContent)
+                .orElse(false);
     }
 }

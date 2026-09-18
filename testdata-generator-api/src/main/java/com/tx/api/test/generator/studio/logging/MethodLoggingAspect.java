@@ -56,9 +56,21 @@ public class MethodLoggingAspect {
                 arguments.append(", ");
             }
             String name = names != null && index < names.length ? names[index] : "arg" + index;
-            arguments.append(name).append('=').append(summarize(values[index]));
+            if (isSecretName(name)) {
+                arguments.append(name).append("=***");
+            } else {
+                arguments.append(name).append('=').append(summarize(values[index]));
+            }
         }
         return className + "." + methodName + "(" + arguments + ")";
+    }
+
+    private static boolean isSecretName(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase();
+        return lower.contains("password") || "token".equals(lower) || "rawToken".equalsIgnoreCase(name);
     }
 
     private long elapsedMs(long startedNanos) {
@@ -103,6 +115,17 @@ public class MethodLoggingAspect {
                     + ", case=" + file.getTestCaseId()
                     + ", name=" + file.getFileName()
                     + ", bytes=" + file.getSizeBytes() + "]";
+        }
+        if (value instanceof com.tx.api.test.generator.studio.dto.RegisterRequest
+                || value instanceof com.tx.api.test.generator.studio.dto.LoginRequest
+                || value instanceof com.tx.api.test.generator.studio.dto.AddMemberRequest) {
+            return "credentials";
+        }
+        if (value instanceof com.tx.api.test.generator.studio.dto.AuthSessionView session) {
+            return "AuthSessionView[saas=" + session.saas()
+                    + ", authenticated=" + session.authenticated()
+                    + ", saasAdmin=" + session.saasAdmin()
+                    + ", tenant=" + (session.tenant() == null ? "none" : session.tenant().slug()) + "]";
         }
         if (value instanceof com.tx.api.test.generator.studio.dto.RunAuth auth) {
             return auth.toString();

@@ -2,6 +2,80 @@
 -- Used for testdata.storage.type = h2 and testdata.storage.type = database
 -- Compatible with PostgreSQL 12+ and H2 2.x (MODE=PostgreSQL; DATABASE_TO_LOWER=TRUE)
 
+CREATE TABLE IF NOT EXISTS td_tenant (
+    tenant_id   VARCHAR(36)   NOT NULL,
+    slug        VARCHAR(64)   NOT NULL,
+    name        VARCHAR(255)  NOT NULL,
+    created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_tenant PRIMARY KEY (tenant_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_td_tenant_slug ON td_tenant (slug);
+
+INSERT INTO td_tenant (tenant_id, slug, name, created_at)
+SELECT '00000000-0000-0000-0000-000000000001', 'local', 'Local', CURRENT_TIMESTAMP
+ WHERE NOT EXISTS (
+     SELECT 1 FROM td_tenant WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+ );
+
+INSERT INTO td_tenant (tenant_id, slug, name, created_at)
+SELECT '00000000-0000-0000-0000-000000000002', 'saas-platform', 'SaaS', CURRENT_TIMESTAMP
+ WHERE NOT EXISTS (
+     SELECT 1 FROM td_tenant WHERE tenant_id = '00000000-0000-0000-0000-000000000002'
+ );
+
+ALTER TABLE td_tenant ADD COLUMN IF NOT EXISTS ready BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE td_tenant ADD COLUMN IF NOT EXISTS enabled_at TIMESTAMP;
+
+UPDATE td_tenant
+   SET ready = TRUE
+ WHERE tenant_id IN (
+     '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-0000-0000-000000000002'
+ );
+
+CREATE TABLE IF NOT EXISTS td_account (
+    account_id     VARCHAR(36)   NOT NULL,
+    email          VARCHAR(320)  NOT NULL,
+    password_hash  VARCHAR(255)  NOT NULL,
+    display_name   VARCHAR(255)  NOT NULL,
+    created_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_account PRIMARY KEY (account_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_td_account_email ON td_account (email);
+
+ALTER TABLE td_account ADD COLUMN IF NOT EXISTS platform_role VARCHAR(16) NOT NULL DEFAULT 'USER';
+
+CREATE TABLE IF NOT EXISTS td_membership (
+    tenant_id   VARCHAR(36)  NOT NULL,
+    account_id  VARCHAR(36)  NOT NULL,
+    role        VARCHAR(16)  NOT NULL,
+    created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_membership PRIMARY KEY (tenant_id, account_id),
+    CONSTRAINT fk_td_membership_tenant FOREIGN KEY (tenant_id)
+        REFERENCES td_tenant (tenant_id) ON DELETE CASCADE,
+    CONSTRAINT fk_td_membership_account FOREIGN KEY (account_id)
+        REFERENCES td_account (account_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_td_membership_account ON td_membership (account_id);
+
+CREATE TABLE IF NOT EXISTS td_session (
+    token_hash   VARCHAR(64)  NOT NULL,
+    account_id   VARCHAR(36)  NOT NULL,
+    tenant_id    VARCHAR(36)  NOT NULL,
+    expires_at   TIMESTAMP    NOT NULL,
+    created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_session PRIMARY KEY (token_hash),
+    CONSTRAINT fk_td_session_account FOREIGN KEY (account_id)
+        REFERENCES td_account (account_id) ON DELETE CASCADE,
+    CONSTRAINT fk_td_session_tenant FOREIGN KEY (tenant_id)
+        REFERENCES td_tenant (tenant_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_td_session_account ON td_session (account_id);
+
 CREATE TABLE IF NOT EXISTS td_spec (
     spec_id           VARCHAR(36)   NOT NULL,
     name              VARCHAR(255),
@@ -16,6 +90,20 @@ CREATE TABLE IF NOT EXISTS td_spec (
     updated_at        TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_td_spec PRIMARY KEY (spec_id)
 );
+
+ALTER TABLE td_spec ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(36);
+
+UPDATE td_spec
+   SET tenant_id = '00000000-0000-0000-0000-000000000001'
+ WHERE tenant_id IS NULL OR TRIM(tenant_id) = '';
+
+ALTER TABLE td_spec DROP CONSTRAINT IF EXISTS fk_td_spec_tenant;
+ALTER TABLE td_spec ADD CONSTRAINT fk_td_spec_tenant FOREIGN KEY (tenant_id)
+    REFERENCES td_tenant (tenant_id);
+
+DROP INDEX IF EXISTS ux_td_spec_name;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_td_spec_tenant_name ON td_spec (tenant_id, name);
+CREATE INDEX IF NOT EXISTS ix_td_spec_tenant ON td_spec (tenant_id);
 
 CREATE TABLE IF NOT EXISTS td_test_case (
     test_case_id           VARCHAR(36)   NOT NULL,

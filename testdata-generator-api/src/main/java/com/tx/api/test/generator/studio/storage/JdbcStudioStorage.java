@@ -35,25 +35,26 @@ public class JdbcStudioStorage implements StudioStorage {
         Optional<StoredSpec> existing = findSpec(spec.getSpecId());
         spec.setCreatedAt(existing.map(StoredSpec::getCreatedAt).orElse(now));
         spec.setUpdatedAt(now);
+        String tenantId = tenantId();
         if (existing.isPresent()) {
             jdbcTemplate.update("""
                             UPDATE td_spec
                                SET name = ?, label = ?, title = ?, version = ?, description = ?, base_url = ?, source_location = ?,
                                    source_content = ?, operation_count = ?, updated_at = ?
-                             WHERE spec_id = ?
+                             WHERE spec_id = ? AND tenant_id = ?
                             """,
                     spec.getName(), defaultLabel(spec.getLabel()), spec.getTitle(), spec.getVersion(), spec.getDescription(), spec.getBaseUrl(),
                     spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
-                    Timestamp.from(spec.getUpdatedAt()), spec.getSpecId());
+                    Timestamp.from(spec.getUpdatedAt()), spec.getSpecId(), tenantId);
             return;
         }
         jdbcTemplate.update("""
                         INSERT INTO td_spec (
-                            spec_id, name, label, title, version, description, base_url, source_location, source_content,
+                            spec_id, tenant_id, name, label, title, version, description, base_url, source_location, source_content,
                             operation_count, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                spec.getSpecId(), spec.getName(), defaultLabel(spec.getLabel()), spec.getTitle(), spec.getVersion(), spec.getDescription(),
+                spec.getSpecId(), tenantId, spec.getName(), defaultLabel(spec.getLabel()), spec.getTitle(), spec.getVersion(), spec.getDescription(),
                 spec.getBaseUrl(), spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
                 Timestamp.from(spec.getCreatedAt()), Timestamp.from(spec.getUpdatedAt()));
     }
@@ -61,13 +62,14 @@ public class JdbcStudioStorage implements StudioStorage {
     @Override
     public Optional<StoredSpec> findSpec(String specId) {
         List<StoredSpec> specs = jdbcTemplate.query(
-                "SELECT * FROM td_spec WHERE spec_id = ?", specMapper(), specId);
+                "SELECT * FROM td_spec WHERE spec_id = ? AND tenant_id = ?", specMapper(), specId, tenantId());
         return specs.stream().findFirst();
     }
 
     @Override
     public List<StoredSpec> listSpecs() {
-        return jdbcTemplate.query("SELECT * FROM td_spec ORDER BY name, title", specMapper());
+        return jdbcTemplate.query(
+                "SELECT * FROM td_spec WHERE tenant_id = ? ORDER BY name, title", specMapper(), tenantId());
     }
 
     @Override
@@ -82,7 +84,7 @@ public class JdbcStudioStorage implements StudioStorage {
         jdbcTemplate.update("DELETE FROM td_test_case WHERE spec_id = ?", specId);
         jdbcTemplate.update("DELETE FROM td_test_plan WHERE spec_id = ?", specId);
         jdbcTemplate.update("DELETE FROM td_environment WHERE spec_id = ?", specId);
-        int deleted = jdbcTemplate.update("DELETE FROM td_spec WHERE spec_id = ?", specId);
+        int deleted = jdbcTemplate.update("DELETE FROM td_spec WHERE spec_id = ? AND tenant_id = ?", specId, tenantId());
         if (deleted == 0) {
             throw new NoSuchElementException("Spec not found: " + specId);
         }
@@ -90,15 +92,14 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void ensureSpecNameUniqueIndex() {
-        try {
-            jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_td_spec_name ON td_spec (LOWER(name))");
-        } catch (RuntimeException ignored) {
-            jdbcTemplate.execute("CREATE UNIQUE INDEX IF NOT EXISTS ux_td_spec_name ON td_spec (name)");
-        }
+        jdbcTemplate.execute("DROP INDEX IF EXISTS ux_td_spec_name");
+        jdbcTemplate.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_td_spec_tenant_name ON td_spec (tenant_id, name)");
     }
 
     @Override
     public void savePlan(StudioTestPlan plan) {
+        requireOwnedSpec(plan.getSpecId());
         Instant now = Instant.now();
         Optional<StudioTestPlan> existing = findPlan(plan.getId());
         plan.setCreatedAt(existing.map(StudioTestPlan::getCreatedAt).orElse(now));
@@ -136,26 +137,48 @@ public class JdbcStudioStorage implements StudioStorage {
     @Override
     public Optional<StudioTestPlan> findPlan(String planId) {
         List<StudioTestPlan> plans = jdbcTemplate.query(
-                "SELECT * FROM td_test_plan WHERE plan_id = ?", planMapper(), planId);
+                """
+                SELECT p.* FROM td_test_plan p
+                  JOIN td_spec s ON s.spec_id = p.spec_id
+                 WHERE p.plan_id = ? AND s.tenant_id = ?
+                """,
+                planMapper(), planId, tenantId());
         return plans.stream().findFirst();
     }
 
     @Override
     public List<StudioTestPlan> listPlans(String specId) {
         return jdbcTemplate.query(
-                "SELECT * FROM td_test_plan WHERE spec_id = ? ORDER BY name", planMapper(), specId);
+                """
+                SELECT p.* FROM td_test_plan p
+                  JOIN td_spec s ON s.spec_id = p.spec_id
+                 WHERE p.spec_id = ? AND s.tenant_id = ?
+                 ORDER BY p.name
+                """,
+                planMapper(), specId, tenantId());
     }
 
     @Override
     public List<StoredEnvironment> listEnvironments(String specId) {
         return jdbcTemplate.query(
-                "SELECT * FROM td_environment WHERE spec_id = ? ORDER BY name", environmentMapper(), specId);
+                """
+                SELECT e.* FROM td_environment e
+                  JOIN td_spec s ON s.spec_id = e.spec_id
+                 WHERE e.spec_id = ? AND s.tenant_id = ?
+                 ORDER BY e.name
+                """,
+                environmentMapper(), specId, tenantId());
     }
 
     @Override
     public Optional<StoredEnvironment> findEnvironment(String environmentId) {
         List<StoredEnvironment> environments = jdbcTemplate.query(
-                "SELECT * FROM td_environment WHERE environment_id = ?", environmentMapper(), environmentId);
+                """
+                SELECT e.* FROM td_environment e
+                  JOIN td_spec s ON s.spec_id = e.spec_id
+                 WHERE e.environment_id = ? AND s.tenant_id = ?
+                """,
+                environmentMapper(), environmentId, tenantId());
         return environments.stream().findFirst();
     }
 
@@ -165,13 +188,18 @@ public class JdbcStudioStorage implements StudioStorage {
             return Optional.empty();
         }
         List<StoredEnvironment> environments = jdbcTemplate.query(
-                "SELECT * FROM td_environment WHERE spec_id = ? AND LOWER(name) = LOWER(?)",
-                environmentMapper(), specId, name.trim());
+                """
+                SELECT e.* FROM td_environment e
+                  JOIN td_spec s ON s.spec_id = e.spec_id
+                 WHERE e.spec_id = ? AND LOWER(e.name) = LOWER(?) AND s.tenant_id = ?
+                """,
+                environmentMapper(), specId, name.trim(), tenantId());
         return environments.stream().findFirst();
     }
 
     @Override
     public void saveEnvironment(StoredEnvironment environment) {
+        requireOwnedSpec(environment.getSpecId());
         Instant now = Instant.now();
         Optional<StoredEnvironment> existing = findEnvironment(environment.getId());
         environment.setCreatedAt(existing.map(StoredEnvironment::getCreatedAt).orElse(now));
@@ -205,6 +233,7 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void saveTestCase(StudioTestCase testCase) {
+        requireOwnedSpec(testCase.getSpecId());
         boolean exists = findTestCase(testCase.getId()).isPresent();
         Instant now = Instant.now();
         Timestamp updated = Timestamp.from(now);
@@ -260,7 +289,12 @@ public class JdbcStudioStorage implements StudioStorage {
     @Override
     public Optional<StudioTestCase> findTestCase(String testCaseId) {
         List<StudioTestCase> cases = jdbcTemplate.query(
-                "SELECT * FROM td_test_case WHERE test_case_id = ?", caseMapper(), testCaseId);
+                """
+                SELECT c.* FROM td_test_case c
+                  JOIN td_spec s ON s.spec_id = c.spec_id
+                 WHERE c.test_case_id = ? AND s.tenant_id = ?
+                """,
+                caseMapper(), testCaseId, tenantId());
         if (cases.isEmpty()) {
             return Optional.empty();
         }
@@ -272,20 +306,25 @@ public class JdbcStudioStorage implements StudioStorage {
     @Override
     public List<StudioTestCase> listTestCases(String specId, String planId, String operationKey) {
         List<Object> args = new ArrayList<>();
-        StringBuilder sql = new StringBuilder("SELECT * FROM td_test_case WHERE 1=1");
+        StringBuilder sql = new StringBuilder("""
+                SELECT c.* FROM td_test_case c
+                  JOIN td_spec s ON s.spec_id = c.spec_id
+                 WHERE s.tenant_id = ?
+                """);
+        args.add(tenantId());
         if (specId != null) {
-            sql.append(" AND spec_id = ?");
+            sql.append(" AND c.spec_id = ?");
             args.add(specId);
         }
         if (planId != null) {
-            sql.append(" AND plan_id = ?");
+            sql.append(" AND c.plan_id = ?");
             args.add(planId);
         }
         if (operationKey != null) {
-            sql.append(" AND operation_key = ?");
+            sql.append(" AND c.operation_key = ?");
             args.add(operationKey);
         }
-        sql.append(" ORDER BY created_at, test_name");
+        sql.append(" ORDER BY c.created_at, c.test_name");
         List<StudioTestCase> cases = jdbcTemplate.query(sql.toString(), caseMapper(), args.toArray());
         attachParams(cases);
         return cases;
@@ -307,8 +346,13 @@ public class JdbcStudioStorage implements StudioStorage {
     @Override
     public Optional<StudioRequestFile> findRequestFile(String testCaseId, String fileId) {
         List<StudioRequestFile> files = jdbcTemplate.query(
-                "SELECT * FROM td_request_file WHERE test_case_id = ? AND file_id = ?",
-                requestFileMapper(true), testCaseId, fileId);
+                """
+                SELECT f.* FROM td_request_file f
+                  JOIN td_test_case c ON c.test_case_id = f.test_case_id
+                  JOIN td_spec s ON s.spec_id = c.spec_id
+                 WHERE f.test_case_id = ? AND f.file_id = ? AND s.tenant_id = ?
+                """,
+                requestFileMapper(true), testCaseId, fileId, tenantId());
         return files.stream().findFirst();
     }
 
@@ -484,6 +528,7 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void saveRun(StudioRun run) {
+        requireOwnedSpec(run.getSpecId());
         jdbcTemplate.update("""
                         INSERT INTO td_run (run_id, spec_id, plan_id, run_trigger, passed, failed, skipped, started_at)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -514,7 +559,12 @@ public class JdbcStudioStorage implements StudioStorage {
     @Override
     public Optional<StudioRun> findRun(String runId) {
         List<StudioRun> runs = jdbcTemplate.query(
-                "SELECT * FROM td_run WHERE run_id = ?", runMapper(), runId);
+                """
+                SELECT r.* FROM td_run r
+                  JOIN td_spec s ON s.spec_id = r.spec_id
+                 WHERE r.run_id = ? AND s.tenant_id = ?
+                """,
+                runMapper(), runId, tenantId());
         if (runs.isEmpty()) {
             return Optional.empty();
         }
@@ -534,9 +584,14 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public List<StudioRun> listRuns(RunHistoryFilter filter) {
-        StringBuilder sql = new StringBuilder("SELECT * FROM td_run r WHERE r.spec_id = ?");
+        StringBuilder sql = new StringBuilder("""
+                SELECT r.* FROM td_run r
+                  JOIN td_spec s ON s.spec_id = r.spec_id
+                 WHERE r.spec_id = ? AND s.tenant_id = ?
+                """);
         List<Object> args = new ArrayList<>();
         args.add(filter.specId());
+        args.add(tenantId());
         if (hasText(filter.planId())) {
             sql.append(" AND r.plan_id = ?");
             args.add(filter.planId());
@@ -593,6 +648,16 @@ public class JdbcStudioStorage implements StudioStorage {
 
     private static boolean hasText(String value) {
         return value != null && !value.isBlank();
+    }
+
+    private String tenantId() {
+        return com.tx.api.test.generator.studio.tenant.TenantContext.tenantId();
+    }
+
+    private void requireOwnedSpec(String specId) {
+        if (specId == null || findSpec(specId).isEmpty()) {
+            throw new NoSuchElementException("Spec not found: " + specId);
+        }
     }
 
     private RowMapper<StudioRun> runMapper() {

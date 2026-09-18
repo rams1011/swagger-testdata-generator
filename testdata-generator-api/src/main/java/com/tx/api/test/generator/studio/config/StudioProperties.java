@@ -9,6 +9,7 @@ public class StudioProperties {
     private Excel excel = new Excel();
     private H2 h2 = new H2();
     private RunHistory runHistory = new RunHistory();
+    private Saas saas = new Saas();
     private String defaultOutputDir = "D:/code/api-automation/src/test/data";
     private String defaultExcelFileName = "TestData.xlsx";
     private String filesPathPrefix = "src/test/data/files";
@@ -44,6 +45,18 @@ public class StudioProperties {
 
     public void setRunHistory(RunHistory runHistory) {
         this.runHistory = runHistory;
+    }
+
+    public Saas getSaas() {
+        return saas;
+    }
+
+    public void setSaas(Saas saas) {
+        this.saas = saas;
+    }
+
+    public boolean isSaasEnabled() {
+        return saas != null && saas.isEnabled();
     }
 
     public String getDefaultOutputDir() {
@@ -193,6 +206,75 @@ public class StudioProperties {
                 return 100;
             }
             return maxPerSpec;
+        }
+    }
+
+    public static class Saas {
+        private boolean enabled = false;
+        private int sessionDays = 14;
+        private String corsOrigins = "http://localhost:*,http://127.0.0.1:*";
+        private String adminEmail = "";
+        private String adminPassword = "";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getSessionDays() {
+            return sessionDays;
+        }
+
+        public void setSessionDays(int sessionDays) {
+            this.sessionDays = sessionDays;
+        }
+
+        public int resolvedSessionDays() {
+            return sessionDays < 1 ? 14 : sessionDays;
+        }
+
+        public String getCorsOrigins() {
+            return corsOrigins;
+        }
+
+        public void setCorsOrigins(String corsOrigins) {
+            this.corsOrigins = corsOrigins;
+        }
+
+        public String[] originPatterns() {
+            if (corsOrigins == null || corsOrigins.isBlank()) {
+                return new String[] {"http://localhost:*", "http://127.0.0.1:*"};
+            }
+            return java.util.Arrays.stream(corsOrigins.split(","))
+                    .map(String::trim)
+                    .filter(value -> !value.isBlank())
+                    .toArray(String[]::new);
+        }
+
+        public String getAdminEmail() {
+            return adminEmail;
+        }
+
+        public void setAdminEmail(String adminEmail) {
+            this.adminEmail = adminEmail;
+        }
+
+        public String getAdminPassword() {
+            return adminPassword;
+        }
+
+        public void setAdminPassword(String adminPassword) {
+            this.adminPassword = adminPassword;
+        }
+
+        public String normalizedAdminEmail() {
+            if (adminEmail == null || adminEmail.isBlank() || !adminEmail.contains("@")) {
+                return null;
+            }
+            return adminEmail.trim().toLowerCase(java.util.Locale.ROOT);
         }
     }
 }
