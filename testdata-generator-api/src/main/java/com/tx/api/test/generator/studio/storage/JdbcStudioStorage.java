@@ -155,7 +155,7 @@ public class JdbcStudioStorage implements StudioStorage {
                                SET spec_id = ?, plan_id = ?, operation_key = ?, test_name = ?, http_method = ?, raw_path = ?,
                                    endpoint = ?, base_url = ?, content_type = ?, request_body_json = ?,
                                    response_schema_json = ?, status_code = ?, response_type = ?, expected_response = ?,
-                                   enabled = ?, test_group = ?, json_path_assertions = ?, max_response_time_ms = ?,
+                                   enabled = ?, test_group = ?, json_path_assertions = ?, extracts = ?, max_response_time_ms = ?,
                                    updated_at = ?
                              WHERE test_case_id = ?
                             """,
@@ -164,7 +164,8 @@ public class JdbcStudioStorage implements StudioStorage {
                     testCase.getContentType(), JsonMaps.toJson(testCase.getRequestBody()),
                     JsonMaps.toJson(testCase.getResponseJsonSchema()), testCase.getStatusCode(),
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getEnabled(),
-                    testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getMaxResponseTimeMs(),
+                    testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
+                    testCase.getMaxResponseTimeMs(),
                     updated, testCase.getId());
             jdbcTemplate.update("DELETE FROM td_test_case_param WHERE test_case_id = ?", testCase.getId());
         } else {
@@ -172,16 +173,17 @@ public class JdbcStudioStorage implements StudioStorage {
                             INSERT INTO td_test_case (
                                 test_case_id, spec_id, plan_id, operation_key, test_name, http_method, raw_path, endpoint,
                                 base_url, content_type, request_body_json, response_schema_json, status_code,
-                                response_type, expected_response, enabled, test_group, json_path_assertions,
+                                response_type, expected_response, enabled, test_group, json_path_assertions, extracts,
                                 max_response_time_ms, created_at, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                     testCase.getId(), testCase.getSpecId(), testCase.getPlanId(), testCase.getOperationKey(),
                     testCase.getTestName(), testCase.getMethod(), testCase.getRawPath(), testCase.getEndpoint(),
                     testCase.getBaseUrl(), testCase.getContentType(), JsonMaps.toJson(testCase.getRequestBody()),
                     JsonMaps.toJson(testCase.getResponseJsonSchema()), testCase.getStatusCode(),
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getEnabled(),
-                    testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getMaxResponseTimeMs(),
+                    testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
+                    testCase.getMaxResponseTimeMs(),
                     updated, updated);
         }
         insertParams(testCase);
@@ -224,7 +226,7 @@ public class JdbcStudioStorage implements StudioStorage {
             sql.append(" AND operation_key = ?");
             args.add(operationKey);
         }
-        sql.append(" ORDER BY test_name");
+        sql.append(" ORDER BY created_at, test_name");
         List<StudioTestCase> cases = jdbcTemplate.query(sql.toString(), caseMapper(), args.toArray());
         attachParams(cases);
         return cases;
@@ -388,6 +390,7 @@ public class JdbcStudioStorage implements StudioStorage {
             testCase.setEnabled(rs.getString("enabled"));
             testCase.setTestGroup(rs.getString("test_group"));
             testCase.setJsonPathAssertions(rs.getString("json_path_assertions"));
+            testCase.setExtracts(rs.getString("extracts"));
             long maxTime = rs.getLong("max_response_time_ms");
             testCase.setMaxResponseTimeMs(rs.wasNull() ? 3000L : maxTime);
             return testCase;

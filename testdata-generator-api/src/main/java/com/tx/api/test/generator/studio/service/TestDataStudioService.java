@@ -13,6 +13,7 @@ import com.tx.api.test.generator.studio.dto.GeneratePlansResult;
 import com.tx.api.test.generator.studio.dto.GenerateTestDataRequest;
 import com.tx.api.test.generator.studio.dto.GenerateTestDataResult;
 import com.tx.api.test.generator.studio.dto.RequestFileView;
+import com.tx.api.test.generator.studio.dto.RunAuth;
 import com.tx.api.test.generator.studio.dto.RunPlanRequest;
 import com.tx.api.test.generator.studio.dto.RunPlanResult;
 import com.tx.api.test.generator.studio.dto.RunTestRequest;
@@ -250,9 +251,27 @@ public class TestDataStudioService {
         String trigger = StringUtils.isNotBlank(request.caseId())
                 ? RunHistoryService.TRIGGER_CASE
                 : RunHistoryService.TRIGGER_TRY;
-        RunTestResult result = testRunService.execute(testCase, request.auth());
+        Map<String, String> variables = new LinkedHashMap<>();
+        runPrerequisites(testCase, request.auth(), trigger, variables);
+        RunTestResult result = testRunService.execute(testCase, request.auth(), variables);
         runHistoryService.recordSingle(trigger, testCase, result);
         return result;
+    }
+
+    private void runPrerequisites(StudioTestCase testCase, RunAuth auth, String trigger, Map<String, String> variables) {
+        if (testCase == null || CaseVariables.placeholderNames(testCase).isEmpty()) {
+            return;
+        }
+        if (StringUtils.isBlank(testCase.getSpecId()) || StringUtils.isBlank(testCase.getPlanId())) {
+            return;
+        }
+        List<StudioTestCase> priors = CaseVariables.prerequisites(
+                studioStorage.listTestCases(testCase.getSpecId(), testCase.getPlanId(), null),
+                testCase);
+        for (StudioTestCase prior : priors) {
+            RunTestResult priorResult = testRunService.execute(prior, auth, variables);
+            runHistoryService.recordSingle(trigger, prior, priorResult);
+        }
     }
 
     public RunPlanResult runPlan(RunPlanRequest request) {
@@ -260,8 +279,10 @@ public class TestDataStudioService {
             throw new IllegalArgumentException("specId and planId are required");
         }
         requirePlan(request.specId(), request.planId());
-        List<StudioTestCase> cases = studioStorage.listTestCases(request.specId(), request.planId(), null);
+        List<StudioTestCase> cases = CaseVariables.orderForChain(
+                studioStorage.listTestCases(request.specId(), request.planId(), null));
         List<RunTestResult> results = new ArrayList<>();
+        Map<String, String> variables = new LinkedHashMap<>();
         int passed = 0;
         int failed = 0;
         int skipped = 0;
@@ -271,7 +292,7 @@ public class TestDataStudioService {
                 skipped++;
                 continue;
             }
-            RunTestResult result = testRunService.execute(testCase, request.auth());
+            RunTestResult result = testRunService.execute(testCase, request.auth(), variables);
             results.add(result);
             if (result.passed()) {
                 passed++;
@@ -420,6 +441,7 @@ public class TestDataStudioService {
         if (StringUtils.isNotBlank(request.jsonPathAssertions())) {
             testCase.setJsonPathAssertions(request.jsonPathAssertions());
         }
+        testCase.setExtracts(StringUtils.defaultIfBlank(request.extracts(), NA));
         testCase.setMaxResponseTimeMs(request.maxResponseTimeMs() == null ? 3000L : request.maxResponseTimeMs());
     }
 
@@ -441,6 +463,7 @@ public class TestDataStudioService {
                 generated.enabled(),
                 generated.testGroup(),
                 generated.jsonPathAssertions(),
+                NA,
                 generated.maxResponseTimeMs(),
                 generated.contentType()
         );
@@ -567,6 +590,7 @@ public class TestDataStudioService {
                 .enabled(blankToNa(testCase.getEnabled()))
                 .testGroup(blankToNa(testCase.getTestGroup()))
                 .jsonPathAssertions(blankToNa(testCase.getJsonPathAssertions()))
+                .extracts(blankToNa(testCase.getExtracts()))
                 .jsonSchemaPath(schemaReference)
                 .maxResponseTimeMs(testCase.getMaxResponseTimeMs())
                 .uploadFiles(blankToNa(uploadFiles))
@@ -597,6 +621,7 @@ public class TestDataStudioService {
                 testCase.getEnabled(),
                 testCase.getTestGroup(),
                 testCase.getJsonPathAssertions(),
+                testCase.getExtracts(),
                 testCase.getMaxResponseTimeMs()
         );
     }
