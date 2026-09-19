@@ -1,0 +1,12 @@
+{
+  "format": "testdata.studio.environment",
+  "version": 1,
+  "name": "int",
+  "values": {
+    "baseUrl": "https://int.example.com/employee-service"
+  },
+  "auth": {
+    "type": "BEARER",
+    "token": "${AUTOMATION_BEARER_TOKEN}"
+  }
+}

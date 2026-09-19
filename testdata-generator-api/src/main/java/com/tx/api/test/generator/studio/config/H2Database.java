@@ -19,9 +19,14 @@ public final class H2Database {
     private H2Database() {
     }
 
+    public static String memoryJdbcUrl(String databaseName) {
+        String name = blankToDefault(databaseName, "testdata_studio");
+        return "jdbc:h2:mem:" + name + ";" + MEM_OPTIONS;
+    }
+
     public static String jdbcUrl(String file, boolean inMemory) {
         if (inMemory) {
-            return "jdbc:h2:mem:testdata_studio;" + MEM_OPTIONS;
+            return memoryJdbcUrl("testdata_studio");
         }
         Path path = Path.of(blankToDefault(file, DEFAULT_FILE)).toAbsolutePath().normalize();
         Path parent = path.getParent();

@@ -1,5 +1,8 @@
 package com.tx.api.test.generator.studio.logging;
 
+import com.tx.api.test.generator.studio.dto.CollectionExport;
+import com.tx.api.test.generator.studio.dto.CollectionImportResult;
+import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.ExcelExport;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -53,9 +56,21 @@ public class MethodLoggingAspect {
                 arguments.append(", ");
             }
             String name = names != null && index < names.length ? names[index] : "arg" + index;
-            arguments.append(name).append('=').append(summarize(values[index]));
+            if (isSecretName(name)) {
+                arguments.append(name).append("=***");
+            } else {
+                arguments.append(name).append('=').append(summarize(values[index]));
+            }
         }
         return className + "." + methodName + "(" + arguments + ")";
+    }
+
+    private static boolean isSecretName(String name) {
+        if (name == null) {
+            return false;
+        }
+        String lower = name.toLowerCase();
+        return lower.contains("password") || "token".equals(lower) || "rawToken".equalsIgnoreCase(name);
     }
 
     private long elapsedMs(long startedNanos) {
@@ -77,11 +92,40 @@ public class MethodLoggingAspect {
                     + ", bytes=" + exported.content().length
                     + ", rows=" + exported.rowCount() + "]";
         }
+        if (value instanceof CollectionExport exported) {
+            return "CollectionExport[fileName=" + exported.fileName()
+                    + ", bytes=" + exported.content().length
+                    + ", cases=" + exported.caseCount()
+                    + ", files=" + exported.fileCount() + "]";
+        }
+        if (value instanceof EnvironmentExport exported) {
+            return "EnvironmentExport[fileName=" + exported.fileName()
+                    + ", bytes=" + exported.content().length
+                    + ", name=" + exported.name() + "]";
+        }
+        if (value instanceof CollectionImportResult imported) {
+            return "CollectionImportResult[spec=" + imported.specName()
+                    + ", plan=" + imported.planName()
+                    + ", created=" + imported.createdCases()
+                    + ", updated=" + imported.updatedCases()
+                    + ", files=" + imported.importedFiles() + "]";
+        }
         if (value instanceof StudioRequestFile file) {
             return "StudioRequestFile[id=" + file.getFileId()
                     + ", case=" + file.getTestCaseId()
                     + ", name=" + file.getFileName()
                     + ", bytes=" + file.getSizeBytes() + "]";
+        }
+        if (value instanceof com.tx.api.test.generator.studio.dto.RegisterRequest
+                || value instanceof com.tx.api.test.generator.studio.dto.LoginRequest
+                || value instanceof com.tx.api.test.generator.studio.dto.AddMemberRequest) {
+            return "credentials";
+        }
+        if (value instanceof com.tx.api.test.generator.studio.dto.AuthSessionView session) {
+            return "AuthSessionView[saas=" + session.saas()
+                    + ", authenticated=" + session.authenticated()
+                    + ", saasAdmin=" + session.saasAdmin()
+                    + ", tenant=" + (session.tenant() == null ? "none" : session.tenant().slug()) + "]";
         }
         if (value instanceof com.tx.api.test.generator.studio.dto.RunAuth auth) {
             return auth.toString();

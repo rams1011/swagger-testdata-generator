@@ -14,7 +14,7 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-final class CaseVariables {
+public final class CaseVariables {
 
     private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{([A-Za-z_][A-Za-z0-9_]*)}}");
 
@@ -93,7 +93,7 @@ final class CaseVariables {
         return new LinkedHashSet<>(JsonPathEvaluator.parseAssertions(extracts).keySet());
     }
 
-    static List<StudioTestCase> orderForChain(List<StudioTestCase> cases) {
+    public static List<StudioTestCase> orderForChain(List<StudioTestCase> cases) {
         if (cases == null || cases.isEmpty()) {
             return List.of();
         }

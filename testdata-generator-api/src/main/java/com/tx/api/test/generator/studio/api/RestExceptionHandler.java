@@ -1,6 +1,8 @@
 package com.tx.api.test.generator.studio.api;
 
 import com.tx.api.test.generator.studio.dto.ApiError;
+import com.tx.api.test.generator.studio.tenant.ForbiddenException;
+import com.tx.api.test.generator.studio.tenant.UnauthenticatedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -20,6 +22,18 @@ public class RestExceptionHandler {
     public ResponseEntity<ApiError> badRequest(IllegalArgumentException exception) {
         log.warn("Bad request: {}", exception.getMessage());
         return ResponseEntity.badRequest().body(new ApiError(exception.getMessage()));
+    }
+
+    @ExceptionHandler(UnauthenticatedException.class)
+    public ResponseEntity<ApiError> unauthorized(UnauthenticatedException exception) {
+        log.warn("Unauthorized: {}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(new ApiError(exception.getMessage()));
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiError> forbidden(ForbiddenException exception) {
+        log.warn("Forbidden: {}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(new ApiError(exception.getMessage()));
     }
 
     @ExceptionHandler(NoResourceFoundException.class)

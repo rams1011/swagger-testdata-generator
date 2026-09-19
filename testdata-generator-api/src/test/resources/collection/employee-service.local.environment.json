@@ -1,0 +1,12 @@
+{
+  "format": "testdata.studio.environment",
+  "version": 1,
+  "name": "local",
+  "values": {
+    "baseUrl": "http://localhost:8080/employee-service"
+  },
+  "auth": {
+    "type": "BEARER",
+    "token": "${AUTOMATION_BEARER_TOKEN}"
+  }
+}

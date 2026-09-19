@@ -41,6 +41,15 @@ testdata:
   run-history:
     # Oldest batches are deleted after each write. 0 disables pruning.
     max-per-spec: 100
+  saas:
+    # false: single local workspace, no login (desktop Studio).
+    # true: hosted multi-tenant product — register/login and isolate specs by workspace.
+    enabled: false
+    session-days: 14
+    cors-origins: "http://localhost:*,http://127.0.0.1:*"
+    # Platform operator who enables customer workspaces. Change these in production.
+    admin-email: saas.admin@local.test
+    admin-password: saas-admin-1
 
 logging:
   level:
