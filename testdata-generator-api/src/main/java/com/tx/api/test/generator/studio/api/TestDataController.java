@@ -93,8 +93,8 @@ public class TestDataController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable String id) {
-        testDataStudioService.delete(id);
+    public void delete(@PathVariable String id, @RequestParam(required = false) String environmentId) {
+        testDataStudioService.delete(id, environmentId);
     }
 
     @GetMapping("/config")
@@ -146,20 +146,24 @@ public class TestDataController {
 
     @PostMapping(value = "/import-collection", consumes = MediaType.APPLICATION_JSON_VALUE)
     public CollectionImportResult importCollectionJson(@RequestParam(required = false) String specId,
+                                                       @RequestParam(required = false) String environmentId,
                                                        @RequestBody String json) {
         return testDataStudioService.importCollection(
                 json == null ? new byte[0] : json.getBytes(StandardCharsets.UTF_8),
                 "collection.json",
-                specId);
+                specId,
+                environmentId);
     }
 
     @PostMapping(value = "/import-collection", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public CollectionImportResult importCollectionFile(@RequestParam(required = false) String specId,
+                                                       @RequestParam(required = false) String environmentId,
                                                        @RequestPart("file") MultipartFile file) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Collection JSON or zip is required");
         }
-        return testDataStudioService.importCollection(file.getBytes(), file.getOriginalFilename(), specId);
+        return testDataStudioService.importCollection(file.getBytes(), file.getOriginalFilename(), specId,
+                environmentId);
     }
 
     @PostMapping("/export-environment")

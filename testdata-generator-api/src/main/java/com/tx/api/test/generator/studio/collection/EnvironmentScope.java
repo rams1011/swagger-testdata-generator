@@ -10,9 +10,11 @@ import java.util.Map;
 
 public final class EnvironmentScope {
 
-    public static final String EXTENSION = "x-testdata-environments";
-
     private EnvironmentScope() {
+    }
+
+    public static boolean assigned(List<String> environments) {
+        return normalize(environments) != null;
     }
 
     public static boolean visible(List<String> environments, String selectedName) {
@@ -20,7 +22,7 @@ public final class EnvironmentScope {
             return true;
         }
         if (StringUtils.isBlank(selectedName)) {
-            return true;
+            return false;
         }
         String needle = selectedName.trim();
         for (String name : environments) {
@@ -53,29 +55,6 @@ public final class EnvironmentScope {
             }
         }
         return unique.isEmpty() ? null : List.copyOf(unique.values());
-    }
-
-    public static List<String> fromExtension(Object value) {
-        if (value == null) {
-            return null;
-        }
-        if (value instanceof List<?> list) {
-            List<String> names = new ArrayList<>();
-            for (Object item : list) {
-                if (item != null && StringUtils.isNotBlank(item.toString())) {
-                    names.add(item.toString().trim());
-                }
-            }
-            return normalize(names);
-        }
-        String text = value.toString().trim();
-        if (text.isEmpty()) {
-            return null;
-        }
-        if (text.startsWith("[")) {
-            return normalize(List.of(text.replace("[", "").replace("]", "").split(",")));
-        }
-        return normalize(List.of(text));
     }
 
     public static String label(List<String> environments) {

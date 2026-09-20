@@ -75,6 +75,20 @@ public final class EnvironmentMapper {
         return environment;
     }
 
+    public static StudioEnvironment withoutOverlays(StudioEnvironment environment) {
+        if (environment == null) {
+            return null;
+        }
+        return new StudioEnvironment(
+                environment.format(),
+                environment.version(),
+                environment.name(),
+                environment.values() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(environment.values()),
+                environment.auth(),
+                new LinkedHashMap<>()
+        );
+    }
+
     public static String authType(StudioEnvironment environment) {
         if (environment == null || environment.auth() == null || StringUtils.isBlank(environment.auth().type())) {
             return "NONE";

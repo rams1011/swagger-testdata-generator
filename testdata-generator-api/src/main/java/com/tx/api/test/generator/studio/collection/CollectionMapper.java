@@ -56,11 +56,18 @@ public final class CollectionMapper {
     }
 
     public static StudioCollection readFrom(StudioStorage storage, String specId, String planId) {
+        return readFrom(storage, specId, planId, null);
+    }
+
+    public static StudioCollection readFrom(StudioStorage storage, String specId, String planId,
+                                            String environmentName) {
         StoredSpec spec = storage.findSpec(specId)
                 .orElseThrow(() -> new CollectionFormatException("Spec not found: " + specId));
         StudioTestPlan plan = storage.findPlan(planId)
                 .orElseThrow(() -> new CollectionFormatException("Plan not found: " + planId));
-        List<StudioTestCase> cases = storage.listTestCases(specId, planId, null);
+        List<StudioTestCase> cases = storage.listTestCases(specId, planId, null).stream()
+                .filter(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName))
+                .toList();
         Map<String, List<StudioRequestFile>> filesByCaseId = new LinkedHashMap<>();
         for (StudioTestCase testCase : cases) {
             List<StudioRequestFile> files = storage.listRequestFiles(testCase.getId());
@@ -101,8 +108,12 @@ public final class CollectionMapper {
         if (collection.cases() == null) {
             throw new CollectionFormatException("Collection cases array is required");
         }
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
         for (StudioCollectionCase item : collection.cases()) {
             validateCase(item);
+            if (!ids.add(item.id())) {
+                throw new CollectionFormatException("Collection case id is not unique: " + item.id());
+            }
         }
     }
 

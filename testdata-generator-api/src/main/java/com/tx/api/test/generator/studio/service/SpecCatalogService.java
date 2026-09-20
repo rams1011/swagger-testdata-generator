@@ -5,7 +5,6 @@ import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.catalog.OperationSummary;
 import com.tx.api.test.generator.catalog.SpecServer;
 import com.tx.api.test.generator.openapi.OpenApiOperationInspector;
-import com.tx.api.test.generator.studio.collection.EnvironmentScope;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
 import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
@@ -157,23 +156,6 @@ public class SpecCatalogService {
             propagateCaseBaseUrls(specId, previousBaseUrl, stored.getBaseUrl());
         }
         return getSummary(specId);
-    }
-
-    public void renameEnvironmentReferences(String specId, String from, String to) {
-        if (StringUtils.isBlank(from) || StringUtils.isBlank(to) || from.trim().equals(to.trim())) {
-            return;
-        }
-        StoredSpec stored = requireStoredSpec(specId);
-        if (StringUtils.isBlank(stored.getSourceContent())
-                || !stored.getSourceContent().contains(EnvironmentScope.EXTENSION)) {
-            return;
-        }
-        String content = jsonSource(stored.getSourceContent());
-        String next = ManualSpecDocument.renameEnvironments(content, from, to);
-        if (content.equals(next)) {
-            return;
-        }
-        persistManualContent(stored, next, null, null);
     }
 
     public void delete(String specId) {

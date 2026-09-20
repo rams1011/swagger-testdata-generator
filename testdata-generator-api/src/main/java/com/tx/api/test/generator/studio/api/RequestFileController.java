@@ -31,10 +31,9 @@ public class RequestFileController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public RequestFileView upload(@PathVariable String caseId,
                                   @RequestPart("file") MultipartFile file,
-                                  @RequestParam(value = "part", required = false) String part,
-                                  @RequestParam(value = "environmentId", required = false) String environmentId)
+                                  @RequestParam(value = "part", required = false) String part)
             throws IOException {
-        return testDataStudioService.saveRequestFile(caseId, file, part, environmentId);
+        return testDataStudioService.saveRequestFile(caseId, file, part);
     }
 
     @GetMapping("/{fileId}")

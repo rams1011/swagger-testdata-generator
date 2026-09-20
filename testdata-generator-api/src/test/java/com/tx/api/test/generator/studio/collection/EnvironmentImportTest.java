@@ -67,6 +67,7 @@ class EnvironmentImportTest {
         assertEquals("local", environment.name());
         assertEquals("http://localhost:8080/employee-service", environment.values().get("baseUrl"));
         assertEquals("${AUTOMATION_BEARER_TOKEN}", environment.auth().token());
+        assertTrue(environment.caseOverlays().isEmpty());
         assertEquals(1, storage.listEnvironments("spec-local").size());
     }
 

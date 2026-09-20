@@ -20,7 +20,6 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -76,7 +75,6 @@ class SpecCatalogServiceManualTest {
                 true,
                 "{\"name\":\"Ada\"}",
                 null,
-                null,
                 null
         ));
         assertEquals("POST", added.method());
@@ -98,10 +96,9 @@ class SpecCatalogServiceManualTest {
         assertEquals(1, swagger.operationCount());
 
         OperationPage extra = catalog.addOperation(swagger.specId(), new ManualOperationRequest(
-                "GET", "/extra", "Prod only ping", null, null, null, null, null, null, null, List.of("prod")));
+                "GET", "/extra", "Prod only ping", null, null, null, null, null, null, null));
         assertEquals("GET", extra.method());
         assertEquals("/extra", extra.path());
-        assertEquals(List.of("prod"), extra.environmentNames());
         assertEquals(2, catalog.listOperations(swagger.specId()).size());
 
         SpecSummary manual = catalog.createManual(new LoadSpecRequest(null, null, null, null,

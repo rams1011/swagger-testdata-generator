@@ -194,9 +194,6 @@ public class TestDataStudioService {
         int created = 0;
         int skipped = 0;
         for (OperationPage operation : operations) {
-            if (!EnvironmentScope.visible(operation.environmentNames(), environmentName)) {
-                continue;
-            }
             for (GeneratedTestCase generated : TestdataGenerator.generateCases(operation)) {
                 if ((generated.positive() && !includePositive) || (!generated.positive() && !includeNegative)) {
                     continue;
@@ -207,7 +204,7 @@ public class TestDataStudioService {
                     continue;
                 }
                 create(toSaveRequest(request.specId(), planId, generated,
-                        membershipFor(request.specId(), request.environmentId(), operation.environmentNames()),
+                        membershipFor(request.specId(), request.environmentId(), null),
                         request.environmentId()));
                 created++;
             }
@@ -249,10 +246,62 @@ public class TestDataStudioService {
     }
 
     public void delete(String id) {
+        delete(id, null);
+    }
+
+    public void delete(String id, String environmentId) {
         StudioTestCase testCase = requireCase(id);
-        removeOverlays(testCase.getSpecId(), id);
-        studioStorage.deleteRequestFilesForCase(id);
-        studioStorage.deleteTestCase(id);
+        if (StringUtils.isBlank(environmentId)) {
+            removeCase(testCase);
+            return;
+        }
+        StudioEnvironment environment = loadEnvironment(testCase.getSpecId(), environmentId);
+        String environmentName = environment == null ? null : environment.name();
+        if (StringUtils.isBlank(environmentName)) {
+            throw new NoSuchElementException("Environment not found: " + environmentId);
+        }
+        List<String> names = EnvironmentScope.normalize(testCase.getEnvironments());
+        if (names == null) {
+            List<String> remaining = otherEnvironmentNames(testCase.getSpecId(), environmentName);
+            if (remaining.isEmpty()) {
+                removeCase(testCase);
+                return;
+            }
+            testCase.setEnvironments(remaining);
+            studioStorage.saveTestCase(testCase);
+            clearOverlay(testCase.getSpecId(), environmentId, testCase.getId());
+            return;
+        }
+        if (!EnvironmentScope.visible(names, environmentName)) {
+            throw new NoSuchElementException("Test case not found in environment: " + environmentName);
+        }
+        if (names.size() == 1) {
+            removeCase(testCase);
+            return;
+        }
+        testCase.setEnvironments(names.stream()
+                .filter(name -> !EnvironmentScope.matchesIgnoreCase(name, environmentName))
+                .toList());
+        studioStorage.saveTestCase(testCase);
+        clearOverlay(testCase.getSpecId(), environmentId, testCase.getId());
+    }
+
+    private void removeCase(StudioTestCase testCase) {
+        removeOverlays(testCase.getSpecId(), testCase.getId());
+        studioStorage.deleteRequestFilesForCase(testCase.getId());
+        studioStorage.deleteTestCase(testCase.getId());
+    }
+
+    private List<String> otherEnvironmentNames(String specId, String exceptName) {
+        List<String> names = new ArrayList<>();
+        for (StoredEnvironment stored : studioStorage.listEnvironments(specId)) {
+            if (stored == null || StringUtils.isBlank(stored.getName())
+                    || EnvironmentScope.matchesIgnoreCase(stored.getName(), exceptName)) {
+                continue;
+            }
+            names.add(stored.getName());
+        }
+        return EnvironmentScope.normalize(names) == null ? List.of() : EnvironmentScope.normalize(names);
     }
 
     public TestCaseView get(String id, String environmentId) {
@@ -278,14 +327,15 @@ public class TestDataStudioService {
         String environmentId = resolveRunEnvironmentId(request);
         StudioTestCase testCase;
         if (request.testCase() != null) {
-            testCase = new StudioTestCase();
+            testCase = StringUtils.isNotBlank(request.caseId())
+                    ? applyOverlay(requireCase(request.caseId()), environmentId)
+                    : new StudioTestCase();
             if (StringUtils.isNotBlank(request.caseId())) {
                 testCase.setId(request.caseId());
             }
-            apply(testCase, request.testCase(), true);
+            apply(testCase, request.testCase(), StringUtils.isBlank(testCase.getId()));
         } else if (StringUtils.isNotBlank(request.caseId())) {
-            testCase = requireCase(request.caseId());
-            testCase = applyOverlay(testCase, environmentId);
+            testCase = applyOverlay(requireCase(request.caseId()), environmentId);
         } else {
             throw new IllegalArgumentException("caseId or testCase is required");
         }
@@ -325,14 +375,15 @@ public class TestDataStudioService {
             throw new IllegalArgumentException("specId and planId are required");
         }
         requirePlan(request.specId(), request.planId());
-        List<StudioTestCase> cases = CaseVariables.orderForChain(
-                studioStorage.listTestCases(request.specId(), request.planId(), null));
+        List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), request.planId(), null);
+        String environmentName = requireEnvironmentNameForScopedCases(
+                request.specId(), request.environmentId(), storedCases, "run this plan");
+        List<StudioTestCase> cases = CaseVariables.orderForChain(storedCases);
         List<RunTestResult> results = new ArrayList<>();
         Map<String, String> variables = new LinkedHashMap<>();
         int passed = 0;
         int failed = 0;
         int skipped = 0;
-        String environmentName = environmentName(request.specId(), request.environmentId());
         for (StudioTestCase testCase : cases) {
             if ("N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()))
                     || !EnvironmentScope.visible(testCase.getEnvironments(), environmentName)) {
@@ -359,9 +410,16 @@ public class TestDataStudioService {
         }
         specCatalogService.requireSpec(request.specId());
         StudioTestPlan plan = requirePlan(request.specId(), resolvePlanId(request.specId(), request.planId()));
-        List<StudioTestCase> cases = studioStorage.listTestCases(request.specId(), plan.getId(), null);
+        List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), plan.getId(), null);
+        String environmentName = requireEnvironmentNameForScopedCases(
+                request.specId(), request.environmentId(), storedCases, "export this plan");
+        List<StudioTestCase> cases = storedCases.stream()
+                .filter(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName))
+                .toList();
         if (cases.isEmpty()) {
-            throw new IllegalStateException("No test cases have been saved for this plan yet");
+            throw new IllegalStateException(environmentName == null
+                    ? "No test cases have been saved for this plan yet"
+                    : "No test cases in environment '" + environmentName + "' for this plan");
         }
 
         List<TestDataRow> rows = new ArrayList<>();
@@ -390,20 +448,36 @@ public class TestDataStudioService {
         }
         specCatalogService.requireSpec(request.specId());
         String planId = resolvePlanId(request.specId(), request.planId());
-        CollectionExport exported = CollectionExporter.export(studioStorage, request.specId(), planId);
+        List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), planId, null);
+        String environmentName = requireEnvironmentNameForScopedCases(
+                request.specId(), request.environmentId(), storedCases, "export this collection");
+        boolean anyVisible = storedCases.stream()
+                .anyMatch(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName));
+        if (!anyVisible) {
+            throw new IllegalStateException(environmentName == null
+                    ? "No test cases have been saved for this plan yet"
+                    : "No test cases in environment '" + environmentName + "' for this plan");
+        }
+        CollectionExport exported = CollectionExporter.export(studioStorage, request.specId(), planId, environmentName);
         log.info("Prepared collection {} ({} cases, {} files)", exported.fileName(), exported.caseCount(),
                 exported.fileCount());
         return exported;
     }
 
     public CollectionImportResult importCollection(byte[] bytes, String fileName, String specId) {
+        return importCollection(bytes, fileName, specId, null);
+    }
+
+    public CollectionImportResult importCollection(byte[] bytes, String fileName, String specId, String environmentId) {
         if (bytes == null || bytes.length == 0) {
             throw new IllegalArgumentException("Collection JSON or zip is required");
         }
         if (StringUtils.isNotBlank(specId)) {
             specCatalogService.requireSpec(specId);
         }
-        CollectionImportResult imported = CollectionImporter.importInto(studioStorage, bytes, fileName, specId);
+        String environmentName = environmentName(specId, environmentId);
+        CollectionImportResult imported = CollectionImporter.importInto(
+                studioStorage, bytes, fileName, specId, environmentName);
         log.info("Imported collection into spec {} plan {} (created={}, updated={}, files={})",
                 imported.specName(), imported.planName(), imported.createdCases(), imported.updatedCases(),
                 imported.importedFiles());
@@ -500,7 +574,17 @@ public class TestDataStudioService {
         StudioEnvironment copy = EnvironmentMapper.merge(existing, copyName, EnvironmentMapper.baseUrl(existing),
                 EnvironmentMapper.authType(existing));
         StoredEnvironment created = saveEnvironmentDocument(specId, copy);
-        log.info("Duplicated environment {} to {} for spec {}", existing.name(), copy.name(), specId);
+        int copied = 0;
+        for (StudioTestCase testCase : studioStorage.listTestCases(specId, null, null)) {
+            List<String> names = EnvironmentScope.normalize(testCase.getEnvironments());
+            if (names == null || names.size() != 1 || !EnvironmentScope.matchesIgnoreCase(names.get(0), existing.name())) {
+                continue;
+            }
+            duplicate(testCase.getId(), new CopyEnvironmentOverlayRequest(environmentId, created.getId()));
+            copied++;
+        }
+        log.info("Duplicated environment {} to {} for spec {} ({} cases)",
+                existing.name(), copy.name(), specId, copied);
         return EnvironmentMapper.toSummary(created);
     }
 
@@ -602,14 +686,10 @@ public class TestDataStudioService {
     }
 
     public RequestFileView saveRequestFile(String caseId, MultipartFile upload) throws IOException {
-        return saveRequestFile(caseId, upload, null, null);
+        return saveRequestFile(caseId, upload, null);
     }
 
-    public RequestFileView saveRequestFile(String caseId, MultipartFile upload, String partName) throws IOException {
-        return saveRequestFile(caseId, upload, partName, null);
-    }
-
-    public RequestFileView saveRequestFile(String caseId, MultipartFile upload, String partName, String environmentId)
+    public RequestFileView saveRequestFile(String caseId, MultipartFile upload, String partName)
             throws IOException {
         if (upload == null || upload.isEmpty()) {
             throw new IllegalArgumentException("A file is required");
@@ -1030,7 +1110,6 @@ public class TestDataStudioService {
                 studioStorage.saveTestCase(testCase);
             }
         }
-        specCatalogService.renameEnvironmentReferences(specId, from, to);
     }
 
     private List<String> membershipFor(String specId, String environmentId, List<String> fallback) {
@@ -1220,6 +1299,17 @@ public class TestDataStudioService {
     private String environmentName(String specId, String environmentId) {
         StudioEnvironment environment = loadEnvironment(specId, environmentId);
         return environment == null ? null : environment.name();
+    }
+
+    private String requireEnvironmentNameForScopedCases(String specId, String environmentId,
+                                                       List<StudioTestCase> cases, String action) {
+        boolean scoped = cases != null && cases.stream()
+                .anyMatch(testCase -> EnvironmentScope.assigned(testCase.getEnvironments()));
+        String name = environmentName(specId, environmentId);
+        if (scoped && StringUtils.isBlank(name)) {
+            throw new IllegalArgumentException("environmentId is required to " + action);
+        }
+        return name;
     }
 
     private String originalFileName(String name) {

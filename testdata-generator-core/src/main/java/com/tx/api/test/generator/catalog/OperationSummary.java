@@ -7,7 +7,6 @@ public record OperationSummary(
         String summary,
         String tag,
         boolean hasRequestBody,
-        int successStatus,
-        java.util.List<String> environmentNames
+        int successStatus
 ) {
 }

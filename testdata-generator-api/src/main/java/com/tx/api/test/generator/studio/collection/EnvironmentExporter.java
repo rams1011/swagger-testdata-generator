@@ -20,7 +20,8 @@ public final class EnvironmentExporter {
         if (stored == null) {
             throw new CollectionFormatException("environment is required");
         }
-        StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
+        StudioEnvironment environment = EnvironmentMapper.withoutOverlays(
+                CollectionDocuments.parseEnvironment(stored.getDocumentJson()));
         byte[] json = CollectionDocuments.toJson(environment).getBytes(StandardCharsets.UTF_8);
         return new EnvironmentExport(
                 CollectionFormat.environmentFileName(spec.getName(), environment.name()),

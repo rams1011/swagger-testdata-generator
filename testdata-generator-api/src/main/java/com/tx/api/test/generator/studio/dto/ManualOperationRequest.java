@@ -12,7 +12,6 @@ public record ManualOperationRequest(
         Boolean hasRequestBody,
         String requestExample,
         List<String> queryNames,
-        List<String> headerNames,
-        List<String> environments
+        List<String> headerNames
 ) {
 }

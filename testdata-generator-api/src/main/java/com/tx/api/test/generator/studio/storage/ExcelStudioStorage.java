@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.storage;
 
 import com.tx.api.test.generator.studio.config.StudioProperties;
+import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
@@ -40,6 +41,7 @@ public class ExcelStudioStorage implements StudioStorage {
     private static final String PLANS = "Plans";
     private static final String CASES = "TestCases";
     private static final String PARAMS = "Params";
+    private static final String ENVIRONMENTS = "Environments";
     private static final String[] SPEC_HEADERS = {
             "spec_id", "title", "version", "description", "base_url", "source_location",
             "source_content", "operation_count", "created_at", "updated_at", "name", "label"
@@ -56,6 +58,9 @@ public class ExcelStudioStorage implements StudioStorage {
     };
     private static final String[] PARAM_HEADERS = {
             "test_case_id", "param_in", "param_name", "param_value"
+    };
+    private static final String[] ENVIRONMENT_HEADERS = {
+            "environment_id", "spec_id", "name", "document_json", "created_at", "updated_at"
     };
 
     private final Path workbookPath;
@@ -113,6 +118,7 @@ public class ExcelStudioStorage implements StudioStorage {
             }
             List<String> removedCases = new ArrayList<>();
             state.plans.entrySet().removeIf(entry -> specId.equals(entry.getValue().getSpecId()));
+            state.environments.entrySet().removeIf(entry -> specId.equals(entry.getValue().getSpecId()));
             state.cases.entrySet().removeIf(entry -> {
                 if (specId.equals(entry.getValue().getSpecId())) {
                     removedCases.add(entry.getKey());
@@ -184,6 +190,56 @@ public class ExcelStudioStorage implements StudioStorage {
                     .sorted((left, right) -> StringUtils.defaultString(left.getName())
                             .compareToIgnoreCase(StringUtils.defaultString(right.getName())))
                     .toList();
+        }
+    }
+
+    @Override
+    public List<StoredEnvironment> listEnvironments(String specId) {
+        synchronized (lock) {
+            return load().environments.values().stream()
+                    .filter(environment -> specId == null || specId.equals(environment.getSpecId()))
+                    .sorted(Comparator.comparing(environment -> StringUtils.defaultString(environment.getName()),
+                            String.CASE_INSENSITIVE_ORDER))
+                    .toList();
+        }
+    }
+
+    @Override
+    public Optional<StoredEnvironment> findEnvironment(String environmentId) {
+        synchronized (lock) {
+            return Optional.ofNullable(load().environments.get(environmentId));
+        }
+    }
+
+    @Override
+    public void saveEnvironment(StoredEnvironment environment) {
+        if (environment == null || StringUtils.isBlank(environment.getId())
+                || StringUtils.isBlank(environment.getSpecId())) {
+            throw new IllegalArgumentException("Environment id and spec id are required");
+        }
+        synchronized (lock) {
+            WorkbookState state = load();
+            if (!state.specs.containsKey(environment.getSpecId())) {
+                throw new IllegalStateException("Spec not found in Excel store: " + environment.getSpecId());
+            }
+            Instant now = Instant.now();
+            StoredEnvironment existing = state.environments.get(environment.getId());
+            environment.setCreatedAt(existing != null && existing.getCreatedAt() != null
+                    ? existing.getCreatedAt() : now);
+            environment.setUpdatedAt(now);
+            state.environments.put(environment.getId(), environment);
+            write(state);
+        }
+    }
+
+    @Override
+    public void deleteEnvironment(String environmentId) {
+        synchronized (lock) {
+            WorkbookState state = load();
+            if (state.environments.remove(environmentId) == null) {
+                throw new NoSuchElementException("Environment not found: " + environmentId);
+            }
+            write(state);
         }
     }
 
@@ -401,6 +457,7 @@ public class ExcelStudioStorage implements StudioStorage {
             readPlans(workbook.getSheet(PLANS), state);
             readCases(workbook.getSheet(CASES), state);
             readParams(workbook.getSheet(PARAMS), state);
+            readEnvironments(workbook.getSheet(ENVIRONMENTS), state);
             return state;
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to read Excel store: " + workbookPath, exception);
@@ -418,6 +475,7 @@ public class ExcelStudioStorage implements StudioStorage {
                 writePlans(workbook.createSheet(PLANS), state);
                 writeCases(workbook.createSheet(CASES), state);
                 writeParams(workbook.createSheet(PARAMS), state);
+                writeEnvironments(workbook.createSheet(ENVIRONMENTS), state);
                 try (OutputStream output = Files.newOutputStream(workbookPath)) {
                     workbook.write(output);
                 }
@@ -535,6 +593,40 @@ public class ExcelStudioStorage implements StudioStorage {
             } else {
                 testCase.getQueryParams().put(name, value);
             }
+        }
+    }
+
+    private void readEnvironments(Sheet sheet, WorkbookState state) {
+        if (sheet == null) {
+            return;
+        }
+        for (int rowIndex = 1; rowIndex <= sheet.getLastRowNum(); rowIndex++) {
+            Row row = sheet.getRow(rowIndex);
+            if (row == null || StringUtils.isBlank(cell(row, 0))) {
+                continue;
+            }
+            StoredEnvironment environment = new StoredEnvironment();
+            environment.setId(cell(row, 0));
+            environment.setSpecId(cell(row, 1));
+            environment.setName(cell(row, 2));
+            environment.setDocumentJson(cell(row, 3));
+            environment.setCreatedAt(parseInstant(cell(row, 4)));
+            environment.setUpdatedAt(parseInstant(cell(row, 5)));
+            state.environments.put(environment.getId(), environment);
+        }
+    }
+
+    private void writeEnvironments(Sheet sheet, WorkbookState state) {
+        writeHeader(sheet, ENVIRONMENT_HEADERS);
+        int rowIndex = 1;
+        for (StoredEnvironment environment : state.environments.values()) {
+            Row row = sheet.createRow(rowIndex++);
+            set(row, 0, environment.getId());
+            set(row, 1, environment.getSpecId());
+            set(row, 2, environment.getName());
+            set(row, 3, environment.getDocumentJson());
+            set(row, 4, formatInstant(environment.getCreatedAt()));
+            set(row, 5, formatInstant(environment.getUpdatedAt()));
         }
     }
 
@@ -780,6 +872,7 @@ public class ExcelStudioStorage implements StudioStorage {
         private final Map<String, StoredSpec> specs = new LinkedHashMap<>();
         private final Map<String, StudioTestPlan> plans = new LinkedHashMap<>();
         private final Map<String, StudioTestCase> cases = new LinkedHashMap<>();
+        private final Map<String, StoredEnvironment> environments = new LinkedHashMap<>();
         private final Map<String, Instant> caseCreatedAt = new LinkedHashMap<>();
         private final Map<String, Instant> caseUpdatedAt = new LinkedHashMap<>();
     }

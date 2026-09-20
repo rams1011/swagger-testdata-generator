@@ -158,8 +158,7 @@ public final class OpenApiOperationInspector {
                 defaults,
                 requestContentTypes(operation),
                 OpenApiSecurityInspector.inspect(openApi, operation),
-                servers,
-                environmentNames(operation)
+                servers
         );
     }
 
@@ -171,8 +170,7 @@ public final class OpenApiOperationInspector {
                 page.summary(),
                 page.tag(),
                 page.requestBody() != null,
-                page.response() == null ? 200 : page.response().statusCode(),
-                page.environmentNames()
+                page.response() == null ? 200 : page.response().statusCode()
         );
     }
 
@@ -488,28 +486,6 @@ public final class OpenApiOperationInspector {
             return null;
         }
         return GSON.fromJson(element, Object.class);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<String> environmentNames(Operation operation) {
-        if (operation == null || operation.getExtensions() == null) {
-            return null;
-        }
-        Object value = operation.getExtensions().get("x-testdata-environments");
-        if (value == null) {
-            return null;
-        }
-        List<String> names = new ArrayList<>();
-        if (value instanceof List<?> list) {
-            for (Object item : list) {
-                if (item != null && StringUtils.isNotBlank(item.toString())) {
-                    names.add(item.toString().trim());
-                }
-            }
-        } else if (StringUtils.isNotBlank(value.toString())) {
-            names.add(value.toString().trim());
-        }
-        return names.isEmpty() ? null : List.copyOf(names);
     }
 
     private record SuccessResponse(int statusCode, ApiResponse response) {

@@ -15,7 +15,10 @@ class EnvironmentScopeTest {
     void emptyMembershipIsVisibleEverywhere() {
         assertTrue(EnvironmentScope.visible(null, "int"));
         assertTrue(EnvironmentScope.visible(List.of(), "prod"));
-        assertTrue(EnvironmentScope.visible(List.of("int"), null));
+        assertFalse(EnvironmentScope.visible(List.of("int"), null));
+        assertFalse(EnvironmentScope.visible(List.of("int"), " "));
+        assertTrue(EnvironmentScope.assigned(List.of("int")));
+        assertFalse(EnvironmentScope.assigned(List.of()));
     }
 
     @Test

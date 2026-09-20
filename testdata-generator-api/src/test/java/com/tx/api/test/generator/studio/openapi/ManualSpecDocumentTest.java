@@ -33,8 +33,7 @@ class ManualSpecDocumentTest {
                 false,
                 null,
                 List.of("include"),
-                List.of("X-Request-Id"),
-                null
+                List.of("X-Request-Id")
         ));
         assertTrue(withGet.contains("\"/users/{id}\""));
         assertTrue(withGet.contains("\"get\""));
@@ -44,7 +43,7 @@ class ManualSpecDocumentTest {
 
         IllegalArgumentException duplicate = assertThrows(IllegalArgumentException.class, () ->
                 ManualSpecDocument.addOperation(withGet, new ManualOperationRequest(
-                        "GET", "/users/{id}", null, null, null, null, null, null, null, null, null)));
+                        "GET", "/users/{id}", null, null, null, null, null, null, null, null)));
         assertTrue(duplicate.getMessage().contains("already"));
     }
 
@@ -61,29 +60,15 @@ class ManualSpecDocumentTest {
                 true,
                 "{\"name\":\"Ada\"}",
                 null,
-                null,
-                List.of("prod")
+                null
         ));
         assertTrue(withPost.contains("requestBody"));
         assertTrue(withPost.contains("\"201\""));
         assertTrue(withPost.contains("Ada"));
-        assertTrue(withPost.contains("x-testdata-environments"));
-        assertTrue(withPost.contains("prod"));
+        assertFalse(withPost.contains("x-testdata-environments"));
 
         String cleared = ManualSpecDocument.removeOperation(withPost, "POST", "/users");
         assertFalse(cleared.contains("\"/users\""));
         assertEquals("/users", ManualSpecDocument.normalizePath("users"));
-    }
-
-    @Test
-    void renameEnvironmentsRewritesOperationScope() {
-        String empty = ManualSpecDocument.emptyCatalog("HRM", "http://localhost:8080");
-        String withPost = ManualSpecDocument.addOperation(empty, new ManualOperationRequest(
-                "POST", "/users", "Create user", "Users", null, null, true, "{\"name\":\"Ada\"}",
-                null, null, List.of("local")));
-        String renamed = ManualSpecDocument.renameEnvironments(withPost, "local", "dev");
-        assertTrue(renamed.contains("\"dev\""));
-        assertFalse(renamed.contains("\"local\""));
-        assertEquals(withPost, ManualSpecDocument.renameEnvironments(withPost, "local", "local"));
     }
 }

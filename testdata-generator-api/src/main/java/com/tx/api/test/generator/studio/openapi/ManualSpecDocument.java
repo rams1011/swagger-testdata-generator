@@ -7,7 +7,6 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
-import com.tx.api.test.generator.studio.collection.EnvironmentScope;
 import io.swagger.v3.oas.models.OpenAPI;
 import org.apache.commons.lang3.StringUtils;
 
@@ -15,7 +14,6 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -128,15 +126,6 @@ public final class ManualSpecDocument {
         responses.add(String.valueOf(status), response);
         operation.add("responses", responses);
 
-        List<String> environments = namedList(request == null ? null : request.environments());
-        if (!environments.isEmpty()) {
-            JsonArray scoped = new JsonArray();
-            for (String name : environments) {
-                scoped.add(name);
-            }
-            operation.add(EnvironmentScope.EXTENSION, scoped);
-        }
-
         pathItem.add(methodKey, operation);
         paths.add(path, pathItem);
         return GSON.toJson(root);
@@ -158,67 +147,6 @@ public final class ManualSpecDocument {
             paths.remove(path);
         }
         return GSON.toJson(root);
-    }
-
-    public static String renameEnvironments(String content, String from, String to) {
-        if (StringUtils.isBlank(content) || StringUtils.isBlank(from) || StringUtils.isBlank(to)
-                || from.trim().equals(to.trim())) {
-            return content;
-        }
-        JsonObject root = parseObject(content);
-        JsonObject paths = root.getAsJsonObject("paths");
-        if (paths == null) {
-            return content;
-        }
-        boolean changed = false;
-        for (Map.Entry<String, JsonElement> pathEntry : paths.entrySet()) {
-            if (pathEntry.getValue() == null || !pathEntry.getValue().isJsonObject()) {
-                continue;
-            }
-            JsonObject pathItem = pathEntry.getValue().getAsJsonObject();
-            for (Map.Entry<String, JsonElement> opEntry : pathItem.entrySet()) {
-                if (opEntry.getKey() == null || !METHODS.contains(opEntry.getKey().toUpperCase(Locale.ROOT))) {
-                    continue;
-                }
-                if (opEntry.getValue() == null || !opEntry.getValue().isJsonObject()) {
-                    continue;
-                }
-                JsonObject operation = opEntry.getValue().getAsJsonObject();
-                if (!operation.has(EnvironmentScope.EXTENSION)) {
-                    continue;
-                }
-                List<String> current = namesFromExtension(operation.get(EnvironmentScope.EXTENSION));
-                List<String> renamed = EnvironmentScope.rename(current, from, to);
-                if (java.util.Objects.equals(current, renamed)) {
-                    continue;
-                }
-                if (renamed == null || renamed.isEmpty()) {
-                    operation.remove(EnvironmentScope.EXTENSION);
-                } else {
-                    JsonArray scoped = new JsonArray();
-                    renamed.forEach(scoped::add);
-                    operation.add(EnvironmentScope.EXTENSION, scoped);
-                }
-                changed = true;
-            }
-        }
-        return changed ? GSON.toJson(root) : content;
-    }
-
-    private static List<String> namesFromExtension(JsonElement value) {
-        if (value == null || value.isJsonNull()) {
-            return null;
-        }
-        if (value.isJsonArray()) {
-            List<String> names = new ArrayList<>();
-            for (JsonElement item : value.getAsJsonArray()) {
-                if (item != null && !item.isJsonNull()) {
-                    names.add(item.getAsString());
-                }
-            }
-            return EnvironmentScope.normalize(names);
-        }
-        return EnvironmentScope.fromExtension(value.getAsString());
     }
 
     private static JsonObject requestBody(String exampleJson) {
