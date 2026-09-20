@@ -6,16 +6,19 @@ import com.tx.api.test.generator.generate.GeneratedTestCase;
 import com.tx.api.test.generator.model.TestDataRow;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.catalog.OperationPage;
+import com.tx.api.test.generator.studio.collection.CollectionDocuments;
 import com.tx.api.test.generator.studio.collection.CollectionExporter;
 import com.tx.api.test.generator.studio.collection.CollectionImporter;
 import com.tx.api.test.generator.studio.collection.EnvironmentExporter;
 import com.tx.api.test.generator.studio.collection.EnvironmentImporter;
 import com.tx.api.test.generator.studio.collection.EnvironmentMapper;
+import com.tx.api.test.generator.studio.collection.StudioEnvironment;
 import com.tx.api.test.generator.studio.dto.CollectionExport;
 import com.tx.api.test.generator.studio.dto.CollectionImportResult;
 import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
 import com.tx.api.test.generator.studio.dto.EnvironmentSummary;
+import com.tx.api.test.generator.studio.dto.SaveEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.ExcelExport;
 import com.tx.api.test.generator.studio.dto.ExportEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.ExportRequest;
@@ -253,15 +256,18 @@ public class TestDataStudioService {
             throw new IllegalArgumentException("caseId or testCase is required");
         }
         StudioTestCase testCase;
-        if (StringUtils.isNotBlank(request.caseId())) {
-            testCase = requireCase(request.caseId());
-        } else if (request.testCase() != null) {
+        if (request.testCase() != null) {
             testCase = new StudioTestCase();
+            if (StringUtils.isNotBlank(request.caseId())) {
+                testCase.setId(request.caseId());
+            }
             apply(testCase, request.testCase(), true);
+        } else if (StringUtils.isNotBlank(request.caseId())) {
+            testCase = requireCase(request.caseId());
         } else {
             throw new IllegalArgumentException("caseId or testCase is required");
         }
-        String trigger = StringUtils.isNotBlank(request.caseId())
+        String trigger = request.testCase() == null
                 ? RunHistoryService.TRIGGER_CASE
                 : RunHistoryService.TRIGGER_TRY;
         Map<String, String> variables = new LinkedHashMap<>();
@@ -402,9 +408,61 @@ public class TestDataStudioService {
 
     public List<EnvironmentSummary> listEnvironments(String specId) {
         specCatalogService.requireSpec(specId);
-        return studioStorage.listEnvironments(specId).stream()
+        List<StoredEnvironment> stored = studioStorage.listEnvironments(specId);
+        if (stored.isEmpty()) {
+            var spec = studioStorage.findSpec(specId)
+                    .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
+            saveEnvironmentDocument(specId, EnvironmentMapper.fromSpec(spec, "local", "NONE"));
+            stored = studioStorage.listEnvironments(specId);
+        }
+        return stored.stream()
                 .map(EnvironmentMapper::toSummary)
                 .toList();
+    }
+
+    public EnvironmentSummary getEnvironment(String specId, String environmentId) {
+        return EnvironmentMapper.toSummary(requireEnvironment(specId, environmentId));
+    }
+
+    public EnvironmentSummary createEnvironment(String specId, SaveEnvironmentRequest request) {
+        specCatalogService.requireSpec(specId);
+        String name = requireEnvironmentName(request == null ? null : request.name());
+        rejectDuplicateEnvironmentName(specId, name, null);
+        String baseUrl = request == null ? null : request.baseUrl();
+        if (StringUtils.isBlank(baseUrl)) {
+            throw new IllegalArgumentException("Base URL is required");
+        }
+        StoredEnvironment stored = saveEnvironmentDocument(specId,
+                EnvironmentMapper.fromInputs(name, baseUrl, request.authType()));
+        log.info("Created environment {} for spec {}", stored.getName(), specId);
+        return EnvironmentMapper.toSummary(stored);
+    }
+
+    public EnvironmentSummary updateEnvironment(String specId, String environmentId, SaveEnvironmentRequest request) {
+        StoredEnvironment stored = requireEnvironment(specId, environmentId);
+        String name = requireEnvironmentName(request == null ? null : request.name());
+        rejectDuplicateEnvironmentName(specId, name, environmentId);
+        StudioEnvironment existing = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
+        StudioEnvironment merged = EnvironmentMapper.merge(existing, name,
+                request == null ? null : request.baseUrl(),
+                request == null ? null : request.authType());
+        stored.setName(merged.name());
+        stored.setDocumentJson(CollectionDocuments.toJson(merged));
+        studioStorage.saveEnvironment(stored);
+        log.info("Updated environment {} for spec {}", stored.getName(), specId);
+        return EnvironmentMapper.toSummary(stored);
+    }
+
+    public EnvironmentSummary duplicateEnvironment(String specId, String environmentId) {
+        StoredEnvironment stored = requireEnvironment(specId, environmentId);
+        StudioEnvironment existing = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
+        String copyName = EnvironmentMapper.copyName(existing.name(),
+                candidate -> studioStorage.findEnvironmentByName(specId, candidate).isPresent());
+        StudioEnvironment copy = EnvironmentMapper.merge(existing, copyName, EnvironmentMapper.baseUrl(existing),
+                EnvironmentMapper.authType(existing));
+        StoredEnvironment created = saveEnvironmentDocument(specId, copy);
+        log.info("Duplicated environment {} to {} for spec {}", existing.name(), copy.name(), specId);
+        return EnvironmentMapper.toSummary(created);
     }
 
     public EnvironmentImportResult applyEnvironment(String specId, String environmentId) {
@@ -432,6 +490,36 @@ public class TestDataStudioService {
         studioStorage.deleteEnvironment(environmentId);
     }
 
+    private StoredEnvironment requireEnvironment(String specId, String environmentId) {
+        specCatalogService.requireSpec(specId);
+        StoredEnvironment stored = studioStorage.findEnvironment(environmentId)
+                .orElseThrow(() -> new NoSuchElementException("Environment not found: " + environmentId));
+        if (!specId.equals(stored.getSpecId())) {
+            throw new NoSuchElementException("Environment not found: " + environmentId);
+        }
+        return stored;
+    }
+
+    private StoredEnvironment saveEnvironmentDocument(String specId, StudioEnvironment environment) {
+        return EnvironmentExporter.upsert(studioStorage, specId, environment);
+    }
+
+    private static String requireEnvironmentName(String name) {
+        String trimmed = StringUtils.trimToNull(name);
+        if (trimmed == null) {
+            throw new IllegalArgumentException("Environment name is required");
+        }
+        return trimmed;
+    }
+
+    private void rejectDuplicateEnvironmentName(String specId, String name, String excludeId) {
+        studioStorage.findEnvironmentByName(specId, name).ifPresent(existing -> {
+            if (excludeId == null || !excludeId.equals(existing.getId())) {
+                throw new IllegalArgumentException("An environment named '" + name + "' already exists for this spec");
+            }
+        });
+    }
+
     public String storageType() {
         return properties.getStorage().getType();
     }
@@ -452,6 +540,10 @@ public class TestDataStudioService {
     }
 
     public RequestFileView saveRequestFile(String caseId, MultipartFile upload) throws IOException {
+        return saveRequestFile(caseId, upload, null);
+    }
+
+    public RequestFileView saveRequestFile(String caseId, MultipartFile upload, String partName) throws IOException {
         if (upload == null || upload.isEmpty()) {
             throw new IllegalArgumentException("A file is required");
         }
@@ -469,6 +561,13 @@ public class TestDataStudioService {
         file.setSizeBytes(content.length);
         file.setCreatedAt(Instant.now());
         studioStorage.saveRequestFile(file);
+        Object body = RequestFileSupport.putFileRef(testCase.getRequestBody(), partName, file);
+        testCase.setRequestBody(body);
+        if (!RequestFileSupport.isMultipartContentType(testCase.getContentType())) {
+            testCase.setContentType("MULTIPART");
+        }
+        studioStorage.saveTestCase(testCase);
+        bindCaseFiles(testCase);
         return toFileView(file);
     }
 

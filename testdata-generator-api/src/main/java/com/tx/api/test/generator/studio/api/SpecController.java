@@ -4,6 +4,7 @@ import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.catalog.OperationSummary;
 import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
 import com.tx.api.test.generator.studio.dto.EnvironmentSummary;
+import com.tx.api.test.generator.studio.dto.SaveEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
 import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
@@ -117,6 +118,32 @@ public class SpecController {
     @GetMapping("/{specId}/environments")
     public List<EnvironmentSummary> environments(@PathVariable String specId) {
         return testDataStudioService.listEnvironments(specId);
+    }
+
+    @GetMapping("/{specId}/environments/{environmentId}")
+    public EnvironmentSummary environment(@PathVariable String specId, @PathVariable String environmentId) {
+        return testDataStudioService.getEnvironment(specId, environmentId);
+    }
+
+    @PostMapping("/{specId}/environments")
+    @ResponseStatus(HttpStatus.CREATED)
+    public EnvironmentSummary createEnvironment(@PathVariable String specId,
+                                                @RequestBody SaveEnvironmentRequest request) {
+        return testDataStudioService.createEnvironment(specId, request);
+    }
+
+    @PutMapping("/{specId}/environments/{environmentId}")
+    public EnvironmentSummary updateEnvironment(@PathVariable String specId,
+                                                @PathVariable String environmentId,
+                                                @RequestBody SaveEnvironmentRequest request) {
+        return testDataStudioService.updateEnvironment(specId, environmentId, request);
+    }
+
+    @PostMapping("/{specId}/environments/{environmentId}/duplicate")
+    @ResponseStatus(HttpStatus.CREATED)
+    public EnvironmentSummary duplicateEnvironment(@PathVariable String specId,
+                                                   @PathVariable String environmentId) {
+        return testDataStudioService.duplicateEnvironment(specId, environmentId);
     }
 
     @PostMapping("/{specId}/environments/{environmentId}/apply")

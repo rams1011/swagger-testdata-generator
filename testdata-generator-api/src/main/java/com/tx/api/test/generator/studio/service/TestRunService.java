@@ -28,6 +28,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -91,10 +92,14 @@ public class TestRunService {
         byte[] binaryBody = null;
         String textBody = null;
         if (multipart && !"GET".equals(method) && !"HEAD".equals(method)) {
-            RequestFileSupport.MultipartPayload payload =
-                    RequestFileSupport.buildMultipart(bound.getRequestBody(), bound.getId(), studioStorage);
-            binaryBody = payload.body();
-            HttpPayloadSupport.putHeader(headers, "Content-Type", payload.contentType());
+            try {
+                RequestFileSupport.MultipartPayload payload =
+                        RequestFileSupport.buildMultipart(bound.getRequestBody(), bound.getId(), studioStorage);
+                binaryBody = payload.body();
+                HttpPayloadSupport.putHeader(headers, "Content-Type", payload.contentType());
+            } catch (IllegalArgumentException | NoSuchElementException exception) {
+                return failed(bound, url, headers, 0, false, List.of(), exception.getMessage());
+            }
         } else {
             textBody = requestBody(bound);
             applyContentType(headers, bound.getContentType(), method, textBody);

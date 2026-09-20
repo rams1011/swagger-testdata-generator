@@ -76,6 +76,7 @@ class EnvironmentImportTest {
         EnvironmentSummary integration = EnvironmentMapper.toSummary(
                 storage.findEnvironmentByName("spec-local", "int").orElseThrow());
         assertEquals("http://localhost:8080/employee-service", local.baseUrl());
+        assertEquals("BEARER", local.authType());
         assertEquals("https://int.example.com/employee-service", integration.baseUrl());
 
         CollectionFormatException error = assertThrows(CollectionFormatException.class, () -> {
@@ -85,6 +86,23 @@ class EnvironmentImportTest {
             EnvironmentImporter.importInto(storage, "spec-local", secret.getBytes(StandardCharsets.UTF_8));
         });
         assertTrue(error.getMessage().contains("placeholder"));
+    }
+
+    @Test
+    void formSaveCreatesAndMergesWithoutLosingValues() {
+        StudioEnvironment created = EnvironmentMapper.fromInputs("int", "https://int.example.com/api", "BEARER");
+        EnvironmentExporter.upsert(storage, "spec-local", created);
+        EnvironmentSummary summary = EnvironmentMapper.toSummary(
+                storage.findEnvironmentByName("spec-local", "int").orElseThrow());
+        assertEquals("https://int.example.com/api", summary.baseUrl());
+        assertEquals("BEARER", summary.authType());
+
+        StudioEnvironment merged = EnvironmentMapper.merge(created, "int", "https://int.example.com/v2", "BEARER");
+        assertEquals("${AUTOMATION_BEARER_TOKEN}", merged.auth().token());
+        assertEquals("https://int.example.com/v2", merged.values().get("baseUrl"));
+
+        assertEquals("local-copy", EnvironmentMapper.copyName("local", name -> false));
+        assertEquals("local-copy-2", EnvironmentMapper.copyName("local", "local-copy"::equals));
     }
 
     private static StoredSpec localSpec() {

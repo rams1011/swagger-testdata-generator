@@ -27,7 +27,7 @@ public final class EnvironmentExporter {
         );
     }
 
-    static StoredEnvironment upsert(StudioStorage storage, String specId, StudioEnvironment environment) {
+    public static StoredEnvironment upsert(StudioStorage storage, String specId, StudioEnvironment environment) {
         StoredEnvironment stored = storage.findEnvironmentByName(specId, environment.name()).orElseGet(() -> {
             StoredEnvironment created = new StoredEnvironment();
             created.setId(UUID.randomUUID().toString());
