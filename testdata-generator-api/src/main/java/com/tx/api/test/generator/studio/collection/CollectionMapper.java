@@ -119,6 +119,11 @@ public final class CollectionMapper {
         if (StringUtils.isBlank(environment.name())) {
             throw new CollectionFormatException("Environment name is required");
         }
+        for (String caseId : environment.caseOverlays().keySet()) {
+            if (StringUtils.isBlank(caseId)) {
+                throw new CollectionFormatException("Environment overlay case id is required");
+            }
+        }
     }
 
     private static void validateCase(StudioCollectionCase item) {
@@ -185,7 +190,8 @@ public final class CollectionMapper {
                 testCase.getJsonPathAssertions(),
                 testCase.getExtracts(),
                 testCase.getMaxResponseTimeMs(),
-                toCollectionFiles(testCase.getId(), files)
+                toCollectionFiles(testCase.getId(), files),
+                EnvironmentScope.normalize(testCase.getEnvironments())
         );
     }
 
@@ -200,7 +206,8 @@ public final class CollectionMapper {
                     file.getFileName(),
                     file.getContentType(),
                     file.getSizeBytes(),
-                    CollectionFormat.relativeFilePath(caseId, file.getFileId(), file.getFileName())
+                    CollectionFormat.relativeFilePath(caseId, file.getFileId(), file.getFileName()),
+                    null
             ));
         }
         return List.copyOf(mapped);
@@ -254,6 +261,7 @@ public final class CollectionMapper {
         testCase.setJsonPathAssertions(item.jsonPathAssertions());
         testCase.setExtracts(item.extracts());
         testCase.setMaxResponseTimeMs(item.maxResponseTimeMs() == null ? 0 : item.maxResponseTimeMs());
+        testCase.setEnvironments(EnvironmentScope.normalize(item.environments()));
         return testCase;
     }
 

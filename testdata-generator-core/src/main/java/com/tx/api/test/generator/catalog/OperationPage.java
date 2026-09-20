@@ -17,6 +17,7 @@ public record OperationPage(
         OperationDefaults defaults,
         List<String> requestContentTypes,
         OperationAuth auth,
-        List<SpecServer> servers
+        List<SpecServer> servers,
+        List<String> environmentNames
 ) {
 }

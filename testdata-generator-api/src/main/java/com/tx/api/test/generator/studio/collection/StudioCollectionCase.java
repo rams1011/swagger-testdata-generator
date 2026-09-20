@@ -26,6 +26,7 @@ public record StudioCollectionCase(
         String jsonPathAssertions,
         String extracts,
         Long maxResponseTimeMs,
-        List<StudioCollectionFile> files
+        List<StudioCollectionFile> files,
+        List<String> environments
 ) {
 }

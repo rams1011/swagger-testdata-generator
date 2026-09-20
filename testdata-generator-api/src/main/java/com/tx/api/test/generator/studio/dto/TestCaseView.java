@@ -25,6 +25,8 @@ public record TestCaseView(
         String testGroup,
         String jsonPathAssertions,
         String extracts,
-        long maxResponseTimeMs
+        long maxResponseTimeMs,
+        boolean hasEnvironmentOverlay,
+        java.util.List<String> environments
 ) {
 }

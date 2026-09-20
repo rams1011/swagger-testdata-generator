@@ -5,6 +5,7 @@ public record StudioCollectionFile(
         String fileName,
         String contentType,
         long sizeBytes,
-        String path
+        String path,
+        String environment
 ) {
 }

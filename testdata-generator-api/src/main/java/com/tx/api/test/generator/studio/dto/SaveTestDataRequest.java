@@ -21,6 +21,8 @@ public record SaveTestDataRequest(
         String jsonPathAssertions,
         String extracts,
         Long maxResponseTimeMs,
-        String contentType
+        String contentType,
+        String environmentId,
+        java.util.List<String> environments
 ) {
 }

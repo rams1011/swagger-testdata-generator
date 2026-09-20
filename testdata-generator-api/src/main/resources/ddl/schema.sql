@@ -6,6 +6,8 @@ CREATE TABLE IF NOT EXISTS td_tenant (
     tenant_id   VARCHAR(36)   NOT NULL,
     slug        VARCHAR(64)   NOT NULL,
     name        VARCHAR(255)  NOT NULL,
+    ready       BOOLEAN       NOT NULL DEFAULT FALSE,
+    enabled_at  TIMESTAMP,
     created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_td_tenant PRIMARY KEY (tenant_id)
 );
@@ -39,6 +41,7 @@ CREATE TABLE IF NOT EXISTS td_account (
     email          VARCHAR(320)  NOT NULL,
     password_hash  VARCHAR(255)  NOT NULL,
     display_name   VARCHAR(255)  NOT NULL,
+    platform_role  VARCHAR(16)   NOT NULL DEFAULT 'USER',
     created_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_td_account PRIMARY KEY (account_id)
 );
@@ -78,7 +81,9 @@ CREATE INDEX IF NOT EXISTS ix_td_session_account ON td_session (account_id);
 
 CREATE TABLE IF NOT EXISTS td_spec (
     spec_id           VARCHAR(36)   NOT NULL,
+    tenant_id         VARCHAR(36),
     name              VARCHAR(255),
+    label             VARCHAR(255),
     title             VARCHAR(255)  NOT NULL,
     version           VARCHAR(64),
     description       TEXT,
@@ -108,6 +113,7 @@ CREATE INDEX IF NOT EXISTS ix_td_spec_tenant ON td_spec (tenant_id);
 CREATE TABLE IF NOT EXISTS td_test_case (
     test_case_id           VARCHAR(36)   NOT NULL,
     spec_id                VARCHAR(36)   NOT NULL,
+    plan_id                VARCHAR(36),
     operation_key          VARCHAR(255)  NOT NULL,
     test_name              VARCHAR(255)  NOT NULL,
     http_method            VARCHAR(16)   NOT NULL,
@@ -125,6 +131,7 @@ CREATE TABLE IF NOT EXISTS td_test_case (
     json_path_assertions   TEXT,
     extracts               TEXT,
     max_response_time_ms   BIGINT,
+    environment_names      TEXT,
     created_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_td_test_case PRIMARY KEY (test_case_id),
@@ -293,3 +300,6 @@ CREATE INDEX IF NOT EXISTS ix_td_environment_spec
 
 CREATE UNIQUE INDEX IF NOT EXISTS ux_td_environment_spec_name
     ON td_environment (spec_id, name);
+
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS environment_names TEXT;
+ALTER TABLE td_request_file DROP COLUMN IF EXISTS environment_name;

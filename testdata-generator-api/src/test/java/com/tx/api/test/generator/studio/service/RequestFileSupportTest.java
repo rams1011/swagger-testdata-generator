@@ -60,6 +60,26 @@ class RequestFileSupportTest {
         assertTrue(text.contains("filename=\"photo.png\""));
     }
 
+    @Test
+    void replaceFileIdsRewritesNestedRefs() {
+        Map<String, Object> ref = new LinkedHashMap<>();
+        ref.put("fileId", "old");
+        ref.put("testCaseId", "case-1");
+        ref.put("fileName", "resume.pdf");
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("file", ref);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> next = (Map<String, Object>) RequestFileSupport.replaceFileIds(
+                body, Map.of("old", "new"), "case-2");
+
+        assertEquals("old", ref.get("fileId"));
+        Map<?, ?> file = (Map<?, ?>) next.get("file");
+        assertEquals("new", file.get("fileId"));
+        assertEquals("case-2", file.get("testCaseId"));
+        assertEquals("resume.pdf", file.get("fileName"));
+    }
+
     private static StudioRequestFile stored(String fileId, String caseId, String name, String content) {
         StudioRequestFile file = new StudioRequestFile();
         file.setFileId(fileId);

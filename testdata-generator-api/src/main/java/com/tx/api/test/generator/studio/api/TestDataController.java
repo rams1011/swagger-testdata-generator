@@ -2,6 +2,7 @@ package com.tx.api.test.generator.studio.api;
 
 import com.tx.api.test.generator.studio.dto.CollectionExport;
 import com.tx.api.test.generator.studio.dto.CollectionImportResult;
+import com.tx.api.test.generator.studio.dto.CopyEnvironmentOverlayRequest;
 import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
 import com.tx.api.test.generator.studio.dto.ExcelExport;
@@ -81,7 +82,8 @@ public class TestDataController {
     @PostMapping("/{id}/run")
     public RunTestResult runSaved(@PathVariable String id, @RequestBody(required = false) RunTestRequest request) {
         RunAuth auth = request == null ? null : request.auth();
-        return testDataStudioService.run(new RunTestRequest(id, null, auth));
+        String environmentId = request == null ? null : request.environmentId();
+        return testDataStudioService.run(new RunTestRequest(id, null, auth, environmentId));
     }
 
     @PutMapping("/{id}")
@@ -101,15 +103,21 @@ public class TestDataController {
     }
 
     @GetMapping("/{id}")
-    public TestCaseView get(@PathVariable String id) {
-        return testDataStudioService.get(id);
+    public TestCaseView get(@PathVariable String id, @RequestParam(required = false) String environmentId) {
+        return testDataStudioService.get(id, environmentId);
     }
 
     @GetMapping
     public List<TestCaseView> list(@RequestParam(required = false) String specId,
                                    @RequestParam(required = false) String planId,
-                                   @RequestParam(required = false) String operationKey) {
-        return testDataStudioService.list(specId, planId, operationKey);
+                                   @RequestParam(required = false) String operationKey,
+                                   @RequestParam(required = false) String environmentId) {
+        return testDataStudioService.list(specId, planId, operationKey, environmentId);
+    }
+
+    @PostMapping("/{id}/duplicate")
+    public TestCaseView duplicate(@PathVariable String id, @RequestBody CopyEnvironmentOverlayRequest request) {
+        return testDataStudioService.duplicate(id, request);
     }
 
     @PostMapping("/export")

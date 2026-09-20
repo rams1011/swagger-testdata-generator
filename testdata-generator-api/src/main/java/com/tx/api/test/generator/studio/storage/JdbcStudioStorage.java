@@ -244,7 +244,7 @@ public class JdbcStudioStorage implements StudioStorage {
                                    endpoint = ?, base_url = ?, content_type = ?, request_body_json = ?,
                                    response_schema_json = ?, status_code = ?, response_type = ?, expected_response = ?,
                                    enabled = ?, test_group = ?, json_path_assertions = ?, extracts = ?, max_response_time_ms = ?,
-                                   updated_at = ?
+                                   environment_names = ?, updated_at = ?
                              WHERE test_case_id = ?
                             """,
                     testCase.getSpecId(), testCase.getPlanId(), testCase.getOperationKey(), testCase.getTestName(),
@@ -253,7 +253,7 @@ public class JdbcStudioStorage implements StudioStorage {
                     JsonMaps.toJson(testCase.getResponseJsonSchema()), testCase.getStatusCode(),
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getEnabled(),
                     testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
-                    testCase.getMaxResponseTimeMs(),
+                    testCase.getMaxResponseTimeMs(), JsonMaps.toJson(testCase.getEnvironments()),
                     updated, testCase.getId());
             jdbcTemplate.update("DELETE FROM td_test_case_param WHERE test_case_id = ?", testCase.getId());
         } else {
@@ -262,8 +262,8 @@ public class JdbcStudioStorage implements StudioStorage {
                                 test_case_id, spec_id, plan_id, operation_key, test_name, http_method, raw_path, endpoint,
                                 base_url, content_type, request_body_json, response_schema_json, status_code,
                                 response_type, expected_response, enabled, test_group, json_path_assertions, extracts,
-                                max_response_time_ms, created_at, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                max_response_time_ms, environment_names, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                     testCase.getId(), testCase.getSpecId(), testCase.getPlanId(), testCase.getOperationKey(),
                     testCase.getTestName(), testCase.getMethod(), testCase.getRawPath(), testCase.getEndpoint(),
@@ -271,7 +271,7 @@ public class JdbcStudioStorage implements StudioStorage {
                     JsonMaps.toJson(testCase.getResponseJsonSchema()), testCase.getStatusCode(),
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getEnabled(),
                     testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
-                    testCase.getMaxResponseTimeMs(),
+                    testCase.getMaxResponseTimeMs(), JsonMaps.toJson(testCase.getEnvironments()),
                     updated, updated);
         }
         insertParams(testCase);
@@ -496,6 +496,7 @@ public class JdbcStudioStorage implements StudioStorage {
             testCase.setExtracts(rs.getString("extracts"));
             long maxTime = rs.getLong("max_response_time_ms");
             testCase.setMaxResponseTimeMs(rs.wasNull() ? 3000L : maxTime);
+            testCase.setEnvironments(JsonMaps.toStringList(rs.getString("environment_names")));
             return testCase;
         };
     }

@@ -19,6 +19,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -105,6 +106,11 @@ class EnvironmentImportTest {
         StudioEnvironment merged = EnvironmentMapper.merge(created, "int", "https://int.example.com/v2", "BEARER");
         assertEquals("${AUTOMATION_BEARER_TOKEN}", merged.auth().token());
         assertEquals("https://int.example.com/v2", merged.values().get("baseUrl"));
+
+        StudioEnvironment withOverlay = EnvironmentOverlay.withCase(created, "case-create-role",
+                new StudioEnvironmentCaseOverlay(Map.of("code", "INT"), null, null, null, null, null, null, null));
+        StudioEnvironment renamed = EnvironmentMapper.merge(withOverlay, "int", "https://int.example.com/v2", "BEARER");
+        assertEquals("INT", ((Map<?, ?>) renamed.caseOverlays().get("case-create-role").body()).get("code"));
 
         assertEquals("local-copy", EnvironmentMapper.copyName("local", name -> false));
         assertEquals("local-copy-2", EnvironmentMapper.copyName("local", "local-copy"::equals));

@@ -5,6 +5,7 @@ public record GenerateTestDataRequest(
         String planId,
         String operationKey,
         Boolean includePositive,
-        Boolean includeNegative
+        Boolean includeNegative,
+        String environmentId
 ) {
 }

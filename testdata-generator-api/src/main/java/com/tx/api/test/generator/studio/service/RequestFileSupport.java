@@ -56,6 +56,36 @@ final class RequestFileSupport {
         return collectFileParts(body).stream().map(FilePart::fileId).distinct().toList();
     }
 
+    static Object replaceFileIds(Object body, Map<String, String> oldToNew, String newCaseId) {
+        if (body == null || oldToNew == null || oldToNew.isEmpty()) {
+            return body;
+        }
+        if (isFileRef(body) && body instanceof Map<?, ?>) {
+            Map<String, Object> next = new LinkedHashMap<>();
+            ((Map<?, ?>) body).forEach((key, value) -> {
+                if (key != null) {
+                    next.put(String.valueOf(key), value);
+                }
+            });
+            String oldId = fileId(body);
+            if (oldId != null && oldToNew.containsKey(oldId)) {
+                next.put("fileId", oldToNew.get(oldId));
+                next.put("testCaseId", newCaseId);
+            }
+            return next;
+        }
+        if (body instanceof Map<?, ?> map) {
+            Map<String, Object> next = new LinkedHashMap<>();
+            map.forEach((key, value) -> {
+                if (key != null) {
+                    next.put(String.valueOf(key), replaceFileIds(value, oldToNew, newCaseId));
+                }
+            });
+            return next;
+        }
+        return body;
+    }
+
     @SuppressWarnings("unchecked")
     static void stampTestCaseId(Object body, String testCaseId) {
         if (StringUtils.isBlank(testCaseId) || !(body instanceof Map<?, ?> map)) {

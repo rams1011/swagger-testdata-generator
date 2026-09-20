@@ -116,7 +116,8 @@ class CollectionImportTest {
                                 create.queryParams(), create.headers(), create.cookies(), Map.of("code", "UPDATED"),
                                 create.responseJsonSchema(), create.statusCode(), create.responseType(),
                                 create.expectedResponse(), create.enabled(), create.testGroup(),
-                                create.jsonPathAssertions(), "roleId=$.id", create.maxResponseTimeMs(), create.files()),
+                                create.jsonPathAssertions(), "roleId=$.id", create.maxResponseTimeMs(), create.files(),
+                                create.environments()),
                         edited.cases().get(1)
                 )
         );

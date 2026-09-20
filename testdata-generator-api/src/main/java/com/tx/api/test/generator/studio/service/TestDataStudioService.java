@@ -13,9 +13,13 @@ import com.tx.api.test.generator.studio.collection.ExcelExportPackage;
 import com.tx.api.test.generator.studio.collection.EnvironmentExporter;
 import com.tx.api.test.generator.studio.collection.EnvironmentImporter;
 import com.tx.api.test.generator.studio.collection.EnvironmentMapper;
+import com.tx.api.test.generator.studio.collection.EnvironmentOverlay;
+import com.tx.api.test.generator.studio.collection.EnvironmentScope;
 import com.tx.api.test.generator.studio.collection.StudioEnvironment;
+import com.tx.api.test.generator.studio.collection.StudioEnvironmentCaseOverlay;
 import com.tx.api.test.generator.studio.dto.CollectionExport;
 import com.tx.api.test.generator.studio.dto.CollectionImportResult;
+import com.tx.api.test.generator.studio.dto.CopyEnvironmentOverlayRequest;
 import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
 import com.tx.api.test.generator.studio.dto.EnvironmentSummary;
@@ -58,6 +62,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -140,7 +145,8 @@ public class TestDataStudioService {
         RequestFileSupport.stampTestCaseId(testCase.getRequestBody(), testCase.getId());
         studioStorage.saveTestCase(testCase);
         bindCaseFiles(testCase);
-        return toView(testCase);
+        saveOverlay(testCase, request);
+        return toView(testCase, request == null ? null : request.environmentId());
     }
 
     public TestCaseView update(String id, SaveTestDataRequest request) {
@@ -149,7 +155,8 @@ public class TestDataStudioService {
         RequestFileSupport.stampTestCaseId(testCase.getRequestBody(), testCase.getId());
         studioStorage.saveTestCase(testCase);
         bindCaseFiles(testCase);
-        return toView(testCase);
+        saveOverlay(testCase, request);
+        return toView(testCase, request == null ? null : request.environmentId());
     }
 
     public GenerateTestDataResult generate(GenerateTestDataRequest request) {
@@ -175,14 +182,21 @@ public class TestDataStudioService {
             operations = List.of(operation);
         }
 
+        String environmentName = environmentName(request.specId(), request.environmentId());
         Set<String> existing = new HashSet<>();
         for (StudioTestCase testCase : studioStorage.listTestCases(request.specId(), planId, null)) {
+            if (!EnvironmentScope.visible(testCase.getEnvironments(), environmentName)) {
+                continue;
+            }
             existing.add(caseKey(testCase.getOperationKey(), testCase.getTestName()));
         }
 
         int created = 0;
         int skipped = 0;
         for (OperationPage operation : operations) {
+            if (!EnvironmentScope.visible(operation.environmentNames(), environmentName)) {
+                continue;
+            }
             for (GeneratedTestCase generated : TestdataGenerator.generateCases(operation)) {
                 if ((generated.positive() && !includePositive) || (!generated.positive() && !includeNegative)) {
                     continue;
@@ -192,7 +206,9 @@ public class TestDataStudioService {
                     skipped++;
                     continue;
                 }
-                create(toSaveRequest(request.specId(), planId, generated));
+                create(toSaveRequest(request.specId(), planId, generated,
+                        membershipFor(request.specId(), request.environmentId(), operation.environmentNames()),
+                        request.environmentId()));
                 created++;
             }
         }
@@ -215,7 +231,7 @@ public class TestDataStudioService {
         StudioTestPlan smokePlan = findOrCreatePlan(request.specId(), smokeName,
                 "Happy path for every operation");
         GenerateTestDataResult smoke = generate(new GenerateTestDataRequest(
-                request.specId(), smokePlan.getId(), null, true, false));
+                request.specId(), smokePlan.getId(), null, true, false, request.environmentId()));
 
         TestPlanView negativePlanView = null;
         GenerateTestDataResult negative = null;
@@ -223,7 +239,7 @@ public class TestDataStudioService {
             StudioTestPlan negativePlan = findOrCreatePlan(request.specId(), negativeName,
                     "Schema-derived negative cases for every operation");
             negative = generate(new GenerateTestDataRequest(
-                    request.specId(), negativePlan.getId(), null, false, true));
+                    request.specId(), negativePlan.getId(), null, false, true, request.environmentId()));
             negativePlanView = toPlanView(negativePlan);
         }
         log.info("Generated plans for spec {}: smoke={} created={} skipped={}; negative={}",
@@ -233,20 +249,25 @@ public class TestDataStudioService {
     }
 
     public void delete(String id) {
+        StudioTestCase testCase = requireCase(id);
+        removeOverlays(testCase.getSpecId(), id);
         studioStorage.deleteRequestFilesForCase(id);
         studioStorage.deleteTestCase(id);
     }
 
-    public TestCaseView get(String id) {
-        return toView(requireCase(id));
+    public TestCaseView get(String id, String environmentId) {
+        return toView(requireCase(id), environmentId);
     }
 
-    public List<TestCaseView> list(String specId, String planId, String operationKey) {
+    public List<TestCaseView> list(String specId, String planId, String operationKey, String environmentId) {
         if (StringUtils.isNotBlank(specId) && StringUtils.isNotBlank(planId)) {
             requirePlan(specId, planId);
         }
+        StudioEnvironment environment = loadEnvironment(specId, environmentId);
+        String environmentName = environment == null ? null : environment.name();
         return studioStorage.listTestCases(specId, planId, operationKey).stream()
-                .map(this::toView)
+                .filter(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName))
+                .map(testCase -> toView(testCase, environment))
                 .toList();
     }
 
@@ -254,6 +275,7 @@ public class TestDataStudioService {
         if (request == null) {
             throw new IllegalArgumentException("caseId or testCase is required");
         }
+        String environmentId = resolveRunEnvironmentId(request);
         StudioTestCase testCase;
         if (request.testCase() != null) {
             testCase = new StudioTestCase();
@@ -263,6 +285,7 @@ public class TestDataStudioService {
             apply(testCase, request.testCase(), true);
         } else if (StringUtils.isNotBlank(request.caseId())) {
             testCase = requireCase(request.caseId());
+            testCase = applyOverlay(testCase, environmentId);
         } else {
             throw new IllegalArgumentException("caseId or testCase is required");
         }
@@ -270,24 +293,29 @@ public class TestDataStudioService {
                 ? RunHistoryService.TRIGGER_CASE
                 : RunHistoryService.TRIGGER_TRY;
         Map<String, String> variables = new LinkedHashMap<>();
-        runPrerequisites(testCase, request.auth(), trigger, variables);
+        runPrerequisites(testCase, request.auth(), trigger, variables, environmentId);
         RunTestResult result = testRunService.execute(testCase, request.auth(), variables);
         runHistoryService.recordSingle(trigger, testCase, result);
         return result;
     }
 
-    private void runPrerequisites(StudioTestCase testCase, RunAuth auth, String trigger, Map<String, String> variables) {
+    private void runPrerequisites(StudioTestCase testCase, RunAuth auth, String trigger,
+                                  Map<String, String> variables, String environmentId) {
         if (testCase == null || CaseVariables.placeholderNames(testCase).isEmpty()) {
             return;
         }
         if (StringUtils.isBlank(testCase.getSpecId()) || StringUtils.isBlank(testCase.getPlanId())) {
             return;
         }
+        String environmentName = environmentName(testCase.getSpecId(), environmentId);
         List<StudioTestCase> priors = CaseVariables.prerequisites(
                 studioStorage.listTestCases(testCase.getSpecId(), testCase.getPlanId(), null),
                 testCase);
         for (StudioTestCase prior : priors) {
-            RunTestResult priorResult = testRunService.execute(prior, auth, variables);
+            if (!EnvironmentScope.visible(prior.getEnvironments(), environmentName)) {
+                continue;
+            }
+            RunTestResult priorResult = testRunService.execute(applyOverlay(prior, environmentId), auth, variables);
             runHistoryService.recordSingle(trigger, prior, priorResult);
         }
     }
@@ -304,13 +332,15 @@ public class TestDataStudioService {
         int passed = 0;
         int failed = 0;
         int skipped = 0;
+        String environmentName = environmentName(request.specId(), request.environmentId());
         for (StudioTestCase testCase : cases) {
-            if ("N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()))) {
+            if ("N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()))
+                    || !EnvironmentScope.visible(testCase.getEnvironments(), environmentName)) {
                 results.add(testRunService.skipped(testCase));
                 skipped++;
                 continue;
             }
-            RunTestResult result = testRunService.execute(testCase, request.auth(), variables);
+            RunTestResult result = testRunService.execute(applyOverlay(testCase, request.environmentId()), request.auth(), variables);
             results.add(result);
             if (result.passed()) {
                 passed++;
@@ -450,12 +480,14 @@ public class TestDataStudioService {
         String name = requireEnvironmentName(request == null ? null : request.name());
         rejectDuplicateEnvironmentName(specId, name, environmentId);
         StudioEnvironment existing = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
+        String previousName = StringUtils.defaultIfBlank(existing == null ? null : existing.name(), stored.getName());
         StudioEnvironment merged = EnvironmentMapper.merge(existing, name,
                 request == null ? null : request.baseUrl(),
                 request == null ? null : request.authType());
         stored.setName(merged.name());
         stored.setDocumentJson(CollectionDocuments.toJson(merged));
         studioStorage.saveEnvironment(stored);
+        retargetEnvironmentName(specId, previousName, merged.name());
         log.info("Updated environment {} for spec {}", stored.getName(), specId);
         return EnvironmentMapper.toSummary(stored);
     }
@@ -494,7 +526,30 @@ public class TestDataStudioService {
         if (!specId.equals(stored.getSpecId())) {
             throw new NoSuchElementException("Environment not found: " + environmentId);
         }
+        StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
+        String name = environment == null ? null : environment.name();
         studioStorage.deleteEnvironment(environmentId);
+        if (StringUtils.isBlank(name)) {
+            return;
+        }
+        for (StudioTestCase testCase : new ArrayList<>(studioStorage.listTestCases(specId, null, null))) {
+            List<String> names = testCase.getEnvironments();
+            if (names == null || names.isEmpty()) {
+                continue;
+            }
+            boolean onlyThis = names.size() == 1 && EnvironmentScope.matchesIgnoreCase(names.get(0), name);
+            if (onlyThis) {
+                delete(testCase.getId());
+                continue;
+            }
+            List<String> remaining = names.stream()
+                    .filter(item -> !EnvironmentScope.matchesIgnoreCase(item, name))
+                    .toList();
+            if (remaining.size() != names.size()) {
+                testCase.setEnvironments(EnvironmentScope.normalize(remaining));
+                studioStorage.saveTestCase(testCase);
+            }
+        }
     }
 
     private StoredEnvironment requireEnvironment(String specId, String environmentId) {
@@ -547,10 +602,15 @@ public class TestDataStudioService {
     }
 
     public RequestFileView saveRequestFile(String caseId, MultipartFile upload) throws IOException {
-        return saveRequestFile(caseId, upload, null);
+        return saveRequestFile(caseId, upload, null, null);
     }
 
     public RequestFileView saveRequestFile(String caseId, MultipartFile upload, String partName) throws IOException {
+        return saveRequestFile(caseId, upload, partName, null);
+    }
+
+    public RequestFileView saveRequestFile(String caseId, MultipartFile upload, String partName, String environmentId)
+            throws IOException {
         if (upload == null || upload.isEmpty()) {
             throw new IllegalArgumentException("A file is required");
         }
@@ -574,7 +634,7 @@ public class TestDataStudioService {
             testCase.setContentType("MULTIPART");
         }
         studioStorage.saveTestCase(testCase);
-        bindCaseFiles(testCase);
+        bindCaseFiles(testCase, body);
         return toFileView(file);
     }
 
@@ -630,8 +690,8 @@ public class TestDataStudioService {
         testCase.setCookieParams(cookieParams);
         if (operation.response() != null) {
             testCase.setResponseJsonSchema(operation.response().jsonSchema());
-            testCase.setStatusCode(request.statusCode() == null ? operation.response().statusCode() : request.statusCode());
             testCase.setResponseType(StringUtils.defaultIfBlank(request.responseType(), operation.response().responseType()));
+            testCase.setStatusCode(request.statusCode() == null ? operation.response().statusCode() : request.statusCode());
             testCase.setJsonPathAssertions(StringUtils.defaultIfBlank(request.jsonPathAssertions(), NA));
         } else if (creating) {
             testCase.setStatusCode(request.statusCode() == null ? 200 : request.statusCode());
@@ -652,9 +712,11 @@ public class TestDataStudioService {
         }
         testCase.setExtracts(StringUtils.defaultIfBlank(request.extracts(), NA));
         testCase.setMaxResponseTimeMs(request.maxResponseTimeMs() == null ? 3000L : request.maxResponseTimeMs());
+        testCase.setEnvironments(membershipFor(request.specId(), request.environmentId(), request.environments()));
     }
 
-    private SaveTestDataRequest toSaveRequest(String specId, String planId, GeneratedTestCase generated) {
+    private SaveTestDataRequest toSaveRequest(String specId, String planId, GeneratedTestCase generated,
+                                              List<String> environments, String environmentId) {
         return new SaveTestDataRequest(
                 specId,
                 planId,
@@ -674,7 +736,9 @@ public class TestDataStudioService {
                 generated.jsonPathAssertions(),
                 NA,
                 generated.maxResponseTimeMs(),
-                generated.contentType()
+                generated.contentType(),
+                environmentId,
+                EnvironmentScope.normalize(environments)
         );
     }
 
@@ -820,8 +884,201 @@ public class TestDataStudioService {
                 testCase.getTestGroup(),
                 testCase.getJsonPathAssertions(),
                 testCase.getExtracts(),
-                testCase.getMaxResponseTimeMs()
+                testCase.getMaxResponseTimeMs(),
+                false,
+                testCase.getEnvironments()
         );
+    }
+
+    private TestCaseView toView(StudioTestCase testCase, String environmentId) {
+        return toView(testCase, loadEnvironment(testCase == null ? null : testCase.getSpecId(), environmentId));
+    }
+
+    private TestCaseView toView(StudioTestCase testCase, StudioEnvironment environment) {
+        boolean hasOverlay = EnvironmentOverlay.hasOverlay(environment, testCase.getId());
+        StudioTestCase view = hasOverlay
+                ? EnvironmentOverlay.merge(testCase, environment.caseOverlays().get(testCase.getId()))
+                : testCase;
+        return new TestCaseView(
+                view.getId(),
+                view.getSpecId(),
+                view.getPlanId(),
+                view.getOperationKey(),
+                view.getTestName(),
+                view.getMethod(),
+                view.getRawPath(),
+                view.getEndpoint(),
+                view.getBaseUrl(),
+                view.getContentType(),
+                view.getPathParams(),
+                view.getQueryParams(),
+                view.getHeaders(),
+                view.getCookieParams(),
+                view.getRequestBody(),
+                view.getStatusCode(),
+                view.getResponseType(),
+                view.getExpectedResponse(),
+                view.getEnabled(),
+                view.getTestGroup(),
+                view.getJsonPathAssertions(),
+                view.getExtracts(),
+                view.getMaxResponseTimeMs(),
+                hasOverlay,
+                testCase.getEnvironments()
+        );
+    }
+
+    public TestCaseView duplicate(String caseId, CopyEnvironmentOverlayRequest request) {
+        if (request == null || StringUtils.isBlank(request.toEnvironmentId())) {
+            throw new IllegalArgumentException("toEnvironmentId is required");
+        }
+        StudioTestCase source = applyOverlay(requireCase(caseId), request.fromEnvironmentId());
+        StoredEnvironment targetStored = requireEnvironment(source.getSpecId(), request.toEnvironmentId());
+        StudioEnvironment target = CollectionDocuments.parseEnvironment(targetStored.getDocumentJson());
+        StudioTestCase copy = EnvironmentOverlay.copy(source);
+        copy.setId(UUID.randomUUID().toString());
+        copy.setEnvironments(EnvironmentScope.normalize(List.of(target.name())));
+        copy.setRequestBody(copyRequestFiles(source.getId(), copy.getId(), source.getRequestBody()));
+        RequestFileSupport.stampTestCaseId(copy.getRequestBody(), copy.getId());
+        studioStorage.saveTestCase(copy);
+        bindCaseFiles(copy);
+        return toView(copy, request.toEnvironmentId());
+    }
+
+    private void saveOverlay(StudioTestCase testCase, SaveTestDataRequest request) {
+        if (testCase == null || request == null || StringUtils.isBlank(request.environmentId())) {
+            return;
+        }
+        clearOverlay(testCase.getSpecId(), request.environmentId(), testCase.getId());
+    }
+
+    private static String resolveRunEnvironmentId(RunTestRequest request) {
+        if (request == null) {
+            return null;
+        }
+        if (StringUtils.isNotBlank(request.environmentId())) {
+            return request.environmentId();
+        }
+        return request.testCase() == null ? null : request.testCase().environmentId();
+    }
+
+    private StudioTestCase applyOverlay(StudioTestCase testCase, String environmentId) {
+        StudioEnvironmentCaseOverlay overlay = overlayOf(
+                testCase == null ? null : testCase.getSpecId(), environmentId,
+                testCase == null ? null : testCase.getId());
+        return overlay == null ? testCase : EnvironmentOverlay.merge(testCase, overlay);
+    }
+
+    private StudioEnvironmentCaseOverlay overlayOf(String specId, String environmentId, String caseId) {
+        StudioEnvironment environment = loadEnvironment(specId, environmentId);
+        if (environment == null || StringUtils.isBlank(caseId)) {
+            return null;
+        }
+        return environment.caseOverlays().get(caseId);
+    }
+
+    private StudioEnvironment loadEnvironment(String specId, String environmentId) {
+        if (StringUtils.isBlank(specId) || StringUtils.isBlank(environmentId)) {
+            return null;
+        }
+        StoredEnvironment stored;
+        try {
+            stored = requireEnvironment(specId, environmentId);
+        } catch (NoSuchElementException ignored) {
+            return null;
+        }
+        return CollectionDocuments.parseEnvironment(stored.getDocumentJson());
+    }
+
+    private void upsertOverlay(String specId, String environmentId, String caseId,
+                               StudioEnvironmentCaseOverlay overlay) {
+        StoredEnvironment stored = requireEnvironment(specId, environmentId);
+        StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
+        StudioEnvironment next = EnvironmentOverlay.withCase(environment, caseId, overlay);
+        stored.setDocumentJson(CollectionDocuments.toJson(next));
+        studioStorage.saveEnvironment(stored);
+    }
+
+    private void clearOverlay(String specId, String environmentId, String caseId) {
+        if (StringUtils.isBlank(specId) || StringUtils.isBlank(environmentId) || StringUtils.isBlank(caseId)) {
+            return;
+        }
+        StoredEnvironment stored;
+        try {
+            stored = requireEnvironment(specId, environmentId);
+        } catch (NoSuchElementException ignored) {
+            return;
+        }
+        StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
+        if (!EnvironmentOverlay.hasOverlay(environment, caseId)) {
+            return;
+        }
+        stored.setDocumentJson(CollectionDocuments.toJson(EnvironmentOverlay.withoutCase(environment, caseId)));
+        studioStorage.saveEnvironment(stored);
+    }
+
+    private void retargetEnvironmentName(String specId, String from, String to) {
+        if (StringUtils.isBlank(specId) || StringUtils.isBlank(from) || StringUtils.isBlank(to)
+                || from.trim().equals(to.trim())) {
+            return;
+        }
+        for (StudioTestCase testCase : studioStorage.listTestCases(specId, null, null)) {
+            List<String> current = EnvironmentScope.normalize(testCase.getEnvironments());
+            List<String> renamed = EnvironmentScope.rename(testCase.getEnvironments(), from, to);
+            if (!java.util.Objects.equals(current, renamed)) {
+                testCase.setEnvironments(renamed);
+                studioStorage.saveTestCase(testCase);
+            }
+        }
+        specCatalogService.renameEnvironmentReferences(specId, from, to);
+    }
+
+    private List<String> membershipFor(String specId, String environmentId, List<String> fallback) {
+        StudioEnvironment environment = loadEnvironment(specId, environmentId);
+        if (environment != null && StringUtils.isNotBlank(environment.name())) {
+            return EnvironmentScope.normalize(List.of(environment.name()));
+        }
+        return EnvironmentScope.normalize(fallback);
+    }
+
+    private Object copyRequestFiles(String fromCaseId, String toCaseId, Object body) {
+        List<StudioRequestFile> files = studioStorage.listRequestFiles(fromCaseId);
+        if (files == null || files.isEmpty()) {
+            return body;
+        }
+        Map<String, String> oldToNew = new LinkedHashMap<>();
+        for (StudioRequestFile file : files) {
+            StudioRequestFile copy = studioStorage.findRequestFile(fromCaseId, file.getFileId()).orElse(null);
+            if (copy == null) {
+                continue;
+            }
+            String newId = UUID.randomUUID().toString();
+            oldToNew.put(file.getFileId(), newId);
+            StudioRequestFile stored = new StudioRequestFile();
+            stored.setFileId(newId);
+            stored.setTestCaseId(toCaseId);
+            stored.setFileName(copy.getFileName());
+            stored.setContentType(copy.getContentType());
+            stored.setSizeBytes(copy.getSizeBytes());
+            stored.setContent(copy.getContent());
+            stored.setCreatedAt(Instant.now());
+            studioStorage.saveRequestFile(stored);
+        }
+        return RequestFileSupport.replaceFileIds(body, oldToNew, toCaseId);
+    }
+
+    private void removeOverlays(String specId, String caseId) {
+        if (StringUtils.isBlank(specId) || StringUtils.isBlank(caseId)) {
+            return;
+        }
+        for (StoredEnvironment stored : studioStorage.listEnvironments(specId)) {
+            StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
+            if (!EnvironmentOverlay.hasOverlay(environment, caseId)) {
+                continue;
+            }
+            stored.setDocumentJson(CollectionDocuments.toJson(EnvironmentOverlay.withoutCase(environment, caseId)));
+            studioStorage.saveEnvironment(stored);
+        }
     }
 
     private List<StudioTestPlan> ensureDefaultPlan(String specId) {
@@ -946,9 +1203,23 @@ public class TestDataStudioService {
     }
 
     private void bindCaseFiles(StudioTestCase testCase) {
-        studioStorage.assignRequestFiles(
-                testCase.getId(),
-                RequestFileSupport.fileIds(testCase.getRequestBody()));
+        bindCaseFiles(testCase, null);
+    }
+
+    private void bindCaseFiles(StudioTestCase testCase, Object extraBody) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>(RequestFileSupport.fileIds(testCase.getRequestBody()));
+        ids.addAll(RequestFileSupport.fileIds(extraBody));
+        for (StudioRequestFile existing : studioStorage.listRequestFiles(testCase.getId())) {
+            if (existing != null && StringUtils.isNotBlank(existing.getFileId())) {
+                ids.add(existing.getFileId());
+            }
+        }
+        studioStorage.assignRequestFiles(testCase.getId(), List.copyOf(ids));
+    }
+
+    private String environmentName(String specId, String environmentId) {
+        StudioEnvironment environment = loadEnvironment(specId, environmentId);
+        return environment == null ? null : environment.name();
     }
 
     private String originalFileName(String name) {

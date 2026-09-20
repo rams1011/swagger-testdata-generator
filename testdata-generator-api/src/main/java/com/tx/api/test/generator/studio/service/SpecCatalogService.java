@@ -5,6 +5,7 @@ import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.catalog.OperationSummary;
 import com.tx.api.test.generator.catalog.SpecServer;
 import com.tx.api.test.generator.openapi.OpenApiOperationInspector;
+import com.tx.api.test.generator.studio.collection.EnvironmentScope;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
 import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
@@ -114,8 +115,8 @@ public class SpecCatalogService {
     }
 
     public OperationPage addOperation(String specId, ManualOperationRequest request) {
-        StoredSpec stored = requireManualSpec(specId);
-        String nextContent = ManualSpecDocument.addOperation(stored.getSourceContent(), request);
+        StoredSpec stored = requireStoredSpec(specId);
+        String nextContent = ManualSpecDocument.addOperation(jsonSource(stored.getSourceContent()), request);
         return persistManualContent(
                 stored,
                 nextContent,
@@ -124,9 +125,10 @@ public class SpecCatalogService {
     }
 
     public void deleteOperation(String specId, String operationKey) {
-        StoredSpec stored = requireManualSpec(specId);
+        StoredSpec stored = requireStoredSpec(specId);
         OperationPage page = getOperation(specId, operationKey);
-        String nextContent = ManualSpecDocument.removeOperation(stored.getSourceContent(), page.method(), page.path());
+        String nextContent = ManualSpecDocument.removeOperation(
+                jsonSource(stored.getSourceContent()), page.method(), page.path());
         persistManualContent(stored, nextContent, null, null);
     }
 
@@ -155,6 +157,23 @@ public class SpecCatalogService {
             propagateCaseBaseUrls(specId, previousBaseUrl, stored.getBaseUrl());
         }
         return getSummary(specId);
+    }
+
+    public void renameEnvironmentReferences(String specId, String from, String to) {
+        if (StringUtils.isBlank(from) || StringUtils.isBlank(to) || from.trim().equals(to.trim())) {
+            return;
+        }
+        StoredSpec stored = requireStoredSpec(specId);
+        if (StringUtils.isBlank(stored.getSourceContent())
+                || !stored.getSourceContent().contains(EnvironmentScope.EXTENSION)) {
+            return;
+        }
+        String content = jsonSource(stored.getSourceContent());
+        String next = ManualSpecDocument.renameEnvironments(content, from, to);
+        if (content.equals(next)) {
+            return;
+        }
+        persistManualContent(stored, next, null, null);
     }
 
     public void delete(String specId) {
@@ -520,13 +539,25 @@ public class SpecCatalogService {
         return candidate;
     }
 
-    private StoredSpec requireManualSpec(String specId) {
-        StoredSpec stored = studioStorage.findSpec(specId)
+    private StoredSpec requireStoredSpec(String specId) {
+        return studioStorage.findSpec(specId)
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
-        if (!ManualSpecDocument.isManualContent(stored.getSourceContent())) {
-            throw new IllegalArgumentException("Add extra REST APIs on a REST catalog, not on a Swagger spec");
+    }
+
+    private String jsonSource(String content) {
+        if (StringUtils.isBlank(content)) {
+            throw new IllegalArgumentException("Spec source is missing");
         }
-        return stored;
+        String trimmed = content.trim();
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            return content;
+        }
+        try {
+            OpenAPI openApi = TestdataGenerator.loadSpecFromContent(content);
+            return io.swagger.v3.core.util.Json.pretty(openApi);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("Spec source must be OpenAPI JSON or YAML to add an API", exception);
+        }
     }
 
     private OperationPage persistManualContent(StoredSpec stored, String content, String path, String method) {

@@ -78,21 +78,23 @@ API base: [http://localhost:8083](http://localhost:8083)
 | `DELETE` | `/api/specs/{specId}` | Delete a spec and its plans/cases |
 | `POST` | `/api/specs/{specId}/reload` | Re-fetch the spec in place (same `specId`); optional `location`, `content`, `baseUrl` |
 | `POST` | `/api/specs/{specId}/reload/upload` | Replace the spec document from a file, keeping the same `specId` |
-| `POST` | `/api/testdata/{id}/files` | Upload a multipart request file owned by that test case |
+| `POST` | `/api/testdata/{id}/files` | Upload a multipart request file owned by that test case (`?environmentId=` stores it for that environment) |
 | `GET` | `/api/testdata/{id}/files/{fileId}` | Download a stored request file |
 | `GET` | `/api/specs` | List loaded specs |
 | `GET` | `/api/specs/{specId}` | Spec summary |
 | `GET` | `/api/specs/{specId}/operations` | Operation list (dynamic pages) |
+| `POST` | `/api/specs/{specId}/operations` | Add a REST API (manual catalogs and extra Swagger operations). Optional `environments` writes `x-testdata-environments` |
 | `GET` | `/api/specs/{specId}/operations/{key}` | JSON Schema, samples, and defaults for one operation |
 | `GET` | `/api/specs/{specId}/plans` | List test plans for a spec (creates **Default** on first access) |
 | `POST` | `/api/specs/{specId}/plans` | Create a named test plan |
 | `PUT` | `/api/specs/{specId}/plans/{planId}` | Rename a test plan |
 | `DELETE` | `/api/specs/{specId}/plans/{planId}` | Delete a plan and its cases (the last plan cannot be deleted) |
-| `POST` | `/api/testdata` | Save a test case into a plan (`planId`) |
-| `POST` | `/api/testdata/generate` | Auto-generate positive and negative cases from the spec/operation schema into a plan |
+| `POST` | `/api/testdata` | Save a test case into a plan (`planId`). With `environmentId`, the case belongs to that environment |
+| `POST` | `/api/testdata/generate` | Auto-generate positive and negative cases from the spec/operation schema into a plan (`environmentId` scopes create/skip) |
 | `POST` | `/api/testdata/generate-plans` | Create/fill a **Smoke** plan (one happy path per operation) and an optional **Negative** plan |
 | `PUT` | `/api/testdata/{id}` | Update a test case |
-| `GET` | `/api/testdata?specId=&planId=&operationKey=` | List saved cases for a plan |
+| `GET` | `/api/testdata?specId=&planId=&operationKey=&environmentId=` | List saved cases for a plan (environment filters the list) |
+| `POST` | `/api/testdata/{id}/duplicate` | Copy a case into another environment as a new id (`fromEnvironmentId`, `toEnvironmentId`) |
 | `DELETE` | `/api/testdata/{id}` | Delete a case |
 | `POST` | `/api/testdata/export` | Download Excel for one plan (`specId` + `planId`) |
 | `POST` | `/api/testdata/run` | Run the current (unsaved) case; body is `{ testCase, auth }` |
@@ -222,6 +224,8 @@ Use the **Test plan** control in the sidebar to switch plans, add a plan, or del
 **Reload spec** (home list or sidebar) replaces the OpenAPI document for that spec id. Plans and saved cases are not deleted. New and changed operations appear immediately. Cases whose `operationKey` disappeared stay in the plan as orphans (counted in the reload result) until you delete them. The stored base URL is kept unless you pass a new one. Change the spec **Base URL** in the workspace bar without reloading the document; saved cases that still used the previous spec URL are updated. **Load spec** still creates a *new* spec id and leaves existing data untouched. Each spec has a unique **name** (required when loading); the OpenAPI `info.title` is stored separately and can stay the same across specs.
 
 **Run** on an operation page executes the current form (save is not required). **Run plan** on the saved-cases page runs every enabled case. Set **Run authentication** to credentials (HTTP Basic), a bearer token, or an API key; the values stay in browser `sessionStorage` for that spec and are not written to Excel or the studio database. Choose **None** when a case already sends `Authorization` (for example generated 401 tests).
+
+**Environments** share one case list. Restrict a case with **Run in** (empty = every environment, `int` = int only). **Add API** works on Swagger specs too; pick environments to hide an extra operation from other env dropdowns (`x-testdata-environments`). Uploads while an environment is selected attach to that environment's overlay. Collection export stores environment **names**, not UUIDs. Restart testdata-generator-api after this change so JDBC picks up `environment_names` / `environment_name`.
 
 **History** lists saved Try / Run / Run plan snapshots (H2 or PostgreSQL). Oldest runs are pruned when a spec exceeds `testdata.run-history.max-per-spec` (default 100). Tick two runs to compare status, timing, assertions, and bodies (older vs newer).
 

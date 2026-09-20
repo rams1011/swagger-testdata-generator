@@ -7,6 +7,10 @@ public record StudioEnvironment(
         int version,
         String name,
         Map<String, String> values,
-        StudioEnvironmentAuth auth
+        StudioEnvironmentAuth auth,
+        Map<String, StudioEnvironmentCaseOverlay> cases
 ) {
+    public Map<String, StudioEnvironmentCaseOverlay> caseOverlays() {
+        return cases == null ? Map.of() : cases;
+    }
 }

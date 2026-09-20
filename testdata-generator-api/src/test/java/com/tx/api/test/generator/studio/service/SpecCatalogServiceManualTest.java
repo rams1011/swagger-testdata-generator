@@ -76,6 +76,7 @@ class SpecCatalogServiceManualTest {
                 true,
                 "{\"name\":\"Ada\"}",
                 null,
+                null,
                 null
         ));
         assertEquals("POST", added.method());
@@ -90,16 +91,18 @@ class SpecCatalogServiceManualTest {
     }
 
     @Test
-    void rejectsReloadAndManualEditsOnSwaggerSpecs() {
+    void addsExtraOperationsOnSwaggerSpecs() {
         SpecSummary swagger = catalog.load(new LoadSpecRequest(null, swaggerSpec(), "ping.json",
                 "http://localhost:8080", "Ping", null, null));
         assertFalse(swagger.manual());
         assertEquals(1, swagger.operationCount());
 
-        IllegalArgumentException add = assertThrows(IllegalArgumentException.class, () ->
-                catalog.addOperation(swagger.specId(), new ManualOperationRequest(
-                        "GET", "/extra", null, null, null, null, null, null, null, List.of())));
-        assertTrue(add.getMessage().contains("REST catalog"));
+        OperationPage extra = catalog.addOperation(swagger.specId(), new ManualOperationRequest(
+                "GET", "/extra", "Prod only ping", null, null, null, null, null, null, null, List.of("prod")));
+        assertEquals("GET", extra.method());
+        assertEquals("/extra", extra.path());
+        assertEquals(List.of("prod"), extra.environmentNames());
+        assertEquals(2, catalog.listOperations(swagger.specId()).size());
 
         SpecSummary manual = catalog.createManual(new LoadSpecRequest(null, null, null, null,
                 "Manual", null, true));

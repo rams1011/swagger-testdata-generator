@@ -35,7 +35,8 @@ public final class EnvironmentMapper {
                 CollectionFormat.VERSION,
                 environmentName,
                 values,
-                placeholderAuth(authType)
+                placeholderAuth(authType),
+                new LinkedHashMap<>()
         );
         CollectionMapper.validate(environment);
         rejectRawSecrets(environment);
@@ -66,7 +67,8 @@ public final class EnvironmentMapper {
                 CollectionFormat.VERSION,
                 environmentName,
                 values,
-                auth
+                auth,
+                existing.caseOverlays().isEmpty() ? new LinkedHashMap<>() : new LinkedHashMap<>(existing.caseOverlays())
         );
         CollectionMapper.validate(environment);
         rejectRawSecrets(environment);

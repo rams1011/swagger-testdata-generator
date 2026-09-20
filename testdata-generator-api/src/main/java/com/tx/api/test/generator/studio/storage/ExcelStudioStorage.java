@@ -51,7 +51,8 @@ public class ExcelStudioStorage implements StudioStorage {
             "test_case_id", "spec_id", "operation_key", "test_name", "http_method", "raw_path",
             "endpoint", "base_url", "content_type", "request_body_json", "response_schema_json",
             "status_code", "response_type", "expected_response", "enabled", "test_group",
-            "json_path_assertions", "max_response_time_ms", "created_at", "updated_at", "plan_id", "extracts"
+            "json_path_assertions", "max_response_time_ms", "created_at", "updated_at", "plan_id", "extracts",
+            "environment_names"
     };
     private static final String[] PARAM_HEADERS = {
             "test_case_id", "param_in", "param_name", "param_value"
@@ -502,6 +503,7 @@ public class ExcelStudioStorage implements StudioStorage {
             testCase.setMaxResponseTimeMs(parseLong(cell(row, 17), 3000L));
             testCase.setPlanId(cell(row, 20));
             testCase.setExtracts(cell(row, 21));
+            testCase.setEnvironments(JsonMaps.toStringList(cell(row, 22)));
             state.cases.put(testCase.getId(), testCase);
             state.caseCreatedAt.put(testCase.getId(), parseInstant(cell(row, 18)));
             state.caseUpdatedAt.put(testCase.getId(), parseInstant(cell(row, 19)));
@@ -597,6 +599,7 @@ public class ExcelStudioStorage implements StudioStorage {
             set(row, 19, formatInstant(state.caseUpdatedAt.get(testCase.getId())));
             set(row, 20, testCase.getPlanId());
             set(row, 21, testCase.getExtracts());
+            set(row, 22, JsonMaps.toJson(testCase.getEnvironments()));
         }
     }
 

@@ -29,6 +29,7 @@ public class StudioTestCase {
     private String jsonPathAssertions;
     private String extracts;
     private long maxResponseTimeMs;
+    private java.util.List<String> environments;
 
     public String getId() {
         return id;
@@ -220,5 +221,13 @@ public class StudioTestCase {
 
     public void setMaxResponseTimeMs(long maxResponseTimeMs) {
         this.maxResponseTimeMs = maxResponseTimeMs;
+    }
+
+    public java.util.List<String> getEnvironments() {
+        return environments;
+    }
+
+    public void setEnvironments(java.util.List<String> environments) {
+        this.environments = environments;
     }
 }
