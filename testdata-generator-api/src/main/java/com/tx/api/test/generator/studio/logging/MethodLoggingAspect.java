@@ -90,7 +90,8 @@ public class MethodLoggingAspect {
         if (value instanceof ExcelExport exported) {
             return "ExcelExport[fileName=" + exported.fileName()
                     + ", bytes=" + exported.content().length
-                    + ", rows=" + exported.rowCount() + "]";
+                    + ", rows=" + exported.rowCount()
+                    + ", files=" + exported.fileCount() + "]";
         }
         if (value instanceof CollectionExport exported) {
             return "CollectionExport[fileName=" + exported.fileName()

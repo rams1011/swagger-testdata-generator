@@ -10,10 +10,8 @@ public class StudioProperties {
     private H2 h2 = new H2();
     private RunHistory runHistory = new RunHistory();
     private Saas saas = new Saas();
-    private String defaultOutputDir = "D:/code/api-automation/src/test/data";
+    private String defaultOutputDir = "./studio-output";
     private String defaultExcelFileName = "TestData.xlsx";
-    private String filesPathPrefix = "src/test/data/files";
-    private String downloadsPathPrefix = "src/test/data/downloads";
 
     public Storage getStorage() {
         return storage;
@@ -73,22 +71,6 @@ public class StudioProperties {
 
     public void setDefaultExcelFileName(String defaultExcelFileName) {
         this.defaultExcelFileName = defaultExcelFileName;
-    }
-
-    public String getFilesPathPrefix() {
-        return filesPathPrefix;
-    }
-
-    public void setFilesPathPrefix(String filesPathPrefix) {
-        this.filesPathPrefix = filesPathPrefix;
-    }
-
-    public String getDownloadsPathPrefix() {
-        return downloadsPathPrefix;
-    }
-
-    public void setDownloadsPathPrefix(String downloadsPathPrefix) {
-        this.downloadsPathPrefix = downloadsPathPrefix;
     }
 
     public boolean isH2Storage() {

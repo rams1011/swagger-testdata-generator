@@ -536,7 +536,8 @@ public class TestRunService {
     }
 
     private String saveDownload(StudioTestCase testCase, byte[] bytes, String contentType, String disposition) {
-        Path dir = Path.of(properties.getDefaultOutputDir()).resolve("downloads");
+        Path dir = Path.of(StringUtils.defaultIfBlank(properties.getDefaultOutputDir(), "./studio-output"))
+                .resolve("downloads");
         try {
             Files.createDirectories(dir);
             String name = downloadFileName(testCase, contentType, disposition);

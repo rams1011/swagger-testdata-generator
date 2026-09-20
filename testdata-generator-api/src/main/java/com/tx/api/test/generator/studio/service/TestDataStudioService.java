@@ -9,6 +9,7 @@ import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.studio.collection.CollectionDocuments;
 import com.tx.api.test.generator.studio.collection.CollectionExporter;
 import com.tx.api.test.generator.studio.collection.CollectionImporter;
+import com.tx.api.test.generator.studio.collection.ExcelExportPackage;
 import com.tx.api.test.generator.studio.collection.EnvironmentExporter;
 import com.tx.api.test.generator.studio.collection.EnvironmentImporter;
 import com.tx.api.test.generator.studio.collection.EnvironmentMapper;
@@ -53,8 +54,6 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -336,17 +335,23 @@ public class TestDataStudioService {
         }
 
         List<TestDataRow> rows = new ArrayList<>();
+        Map<String, byte[]> binaries = new LinkedHashMap<>();
         int testCaseNo = 1;
         for (StudioTestCase testCase : cases) {
             ExportPayload payload = exportPayload(testCase);
             rows.add(toExcelRow(testCaseNo++, testCase, payload.requestBody(), NA, payload.uploadFiles(),
                     payload.contentType()));
+            if (payload.files() != null) {
+                binaries.putAll(payload.files());
+            }
         }
         ByteArrayOutputStream output = new ByteArrayOutputStream();
         excelWriter.write(output, rows);
         String fileName = exportFileName(request, plan);
-        log.info("Prepared {} api-automation rows for plan {} as {}", rows.size(), plan.getName(), fileName);
-        return new ExcelExport(fileName, output.toByteArray(), rows.size());
+        ExcelExport exported = ExcelExportPackage.toDownload(fileName, output.toByteArray(), binaries, rows.size());
+        log.info("Prepared {} api-automation rows for plan {} as {} ({} files)",
+                rows.size(), plan.getName(), exported.fileName(), exported.fileCount());
+        return exported;
     }
 
     public CollectionExport exportCollection(ExportRequest request) {
@@ -379,11 +384,13 @@ public class TestDataStudioService {
         if (request == null || StringUtils.isBlank(request.specId())) {
             throw new IllegalArgumentException("specId is required to export an environment");
         }
-        specCatalogService.requireSpec(request.specId());
+        if (StringUtils.isBlank(request.environmentId())) {
+            throw new IllegalArgumentException("environmentId is required to export an environment");
+        }
+        StoredEnvironment stored = requireEnvironment(request.specId(), request.environmentId());
         var spec = studioStorage.findSpec(request.specId())
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + request.specId()));
-        EnvironmentExport exported = EnvironmentExporter.export(
-                studioStorage, spec, request.name(), request.authType());
+        EnvironmentExport exported = EnvironmentExporter.export(spec, stored);
         log.info("Prepared environment {} for spec {}", exported.fileName(), spec.getName());
         return exported;
     }
@@ -700,32 +707,22 @@ public class TestDataStudioService {
             } else if (XmlPayloadSupport.isXml(testCase.getContentType()) && !contentType.contains("/")) {
                 contentType = "application/xml";
             }
-            return new ExportPayload(contentType, inlineRequestBody(testCase), NA);
+            return new ExportPayload(contentType, inlineRequestBody(testCase), NA, Map.of());
         }
         String requestBody = inlineJson(RequestFileSupport.stripFileRefs(testCase.getRequestBody()));
-        Path dir = Path.of(properties.getDefaultOutputDir()).resolve("files");
-        try {
-            Files.createDirectories(dir);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to create upload files directory: " + dir, exception);
-        }
-        String prefix = StringUtils.defaultIfBlank(properties.getFilesPathPrefix(), "src/test/data/files")
-                .replace('\\', '/')
-                .replaceAll("/+$", "");
         List<String> entries = new ArrayList<>();
+        Map<String, byte[]> binaries = new LinkedHashMap<>();
         for (RequestFileSupport.FilePart part : files) {
             StudioRequestFile stored = studioStorage.findRequestFile(testCase.getId(), part.fileId())
                     .orElseThrow(() -> new IllegalStateException(
                             "Saved file for field '" + part.fieldName() + "' is missing. Re-upload it before export."));
-            String outputName = stored.getFileId() + "-" + RequestFileSupport.sanitizeFileName(stored.getFileName());
-            try {
-                Files.write(dir.resolve(outputName), stored.getContent() == null ? new byte[0] : stored.getContent());
-            } catch (IOException exception) {
-                throw new IllegalStateException("Failed to write upload file " + outputName, exception);
-            }
-            entries.add(part.fieldName() + "=file:" + prefix + "/" + outputName);
+            String relative = ExcelExportPackage.relativeFilePath(
+                    testCase.getId(), stored.getFileId(), stored.getFileName());
+            binaries.put(relative, stored.getContent() == null ? new byte[0] : stored.getContent());
+            entries.add(ExcelExportPackage.uploadReference(
+                    part.fieldName(), testCase.getId(), stored.getFileId(), stored.getFileName()));
         }
-        return new ExportPayload("MULTIPART", requestBody, String.join("|", entries));
+        return new ExportPayload("MULTIPART", requestBody, String.join("|", entries), binaries);
     }
 
     private String inlineJson(Object body) {
@@ -771,8 +768,7 @@ public class TestDataStudioService {
             headers.put("Cookie", cookie);
         }
         String downloadPath = "FILE".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getResponseType()))
-                ? StringUtils.defaultIfBlank(properties.getDownloadsPathPrefix(), "src/test/data/downloads")
-                .replace('\\', '/') + "/" + testCase.getId()
+                ? "downloads/" + testCase.getId()
                 : NA;
         return TestDataRow.builder()
                 .testCaseNo(testCaseNo)
@@ -964,6 +960,7 @@ public class TestDataStudioService {
         return StringUtils.defaultIfBlank(base, "upload.bin");
     }
 
-    private record ExportPayload(String contentType, String requestBody, String uploadFiles) {
+    private record ExportPayload(String contentType, String requestBody, String uploadFiles,
+                                 Map<String, byte[]> files) {
     }
 }

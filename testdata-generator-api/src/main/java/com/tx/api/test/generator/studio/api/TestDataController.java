@@ -46,9 +46,6 @@ import java.util.Map;
 @RequestMapping("/api/testdata")
 public class TestDataController {
 
-    private static final MediaType EXCEL = MediaType.parseMediaType(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-
     private final TestDataStudioService testDataStudioService;
 
     public TestDataController(TestDataStudioService testDataStudioService) {
@@ -119,7 +116,7 @@ public class TestDataController {
     public ResponseEntity<byte[]> export(@RequestBody ExportRequest request) {
         ExcelExport exported = testDataStudioService.export(request);
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(EXCEL);
+        headers.setContentType(MediaType.parseMediaType(exported.mediaType()));
         headers.setContentLength(exported.content().length);
         headers.setContentDisposition(ContentDisposition.attachment()
                 .filename(exported.fileName(), StandardCharsets.UTF_8)

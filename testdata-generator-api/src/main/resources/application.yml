@@ -35,9 +35,8 @@ testdata:
     password: ""
     console: true
     in-memory: false
-  default-output-dir: D:/code/api-automation/src/test/data
+  default-output-dir: ./studio-output
   default-excel-file-name: TestData.xlsx
-  files-path-prefix: src/test/data/files
   run-history:
     # Oldest batches are deleted after each write. 0 disables pruning.
     max-per-spec: 100

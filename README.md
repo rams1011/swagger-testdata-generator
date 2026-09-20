@@ -153,7 +153,7 @@ testdata:
     max-per-spec: 100
 ```
 
-On startup the API runs `classpath:ddl/schema.sql` (PostgreSQL-compatible H2 mode). Data is stored as `./studio-output/testdata.mv.db`. File H2 is opened with `AUTO_SERVER=TRUE` so api-automation can connect while Studio is running; restart Studio after upgrading for that to take effect. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file` keyed by `test_case_id` (the case already belongs to a spec) and written to `testdata.default-output-dir/files` on Excel export (`UploadFiles` column uses `testdata.files-path-prefix`).
+On startup the API runs `classpath:ddl/schema.sql` (PostgreSQL-compatible H2 mode). Data is stored as `./studio-output/testdata.mv.db`. File H2 is opened with `AUTO_SERVER=TRUE` so api-automation can connect while Studio is running; restart Studio after upgrading for that to take effect. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file`. Excel export downloads a zip (`workbook.xlsx` plus `files/<caseId>/`) when cases have uploads — it does not write into an api-automation checkout.
 
 After each Try / Run / Run plan, the oldest batches for that spec are deleted once the spec has more than `testdata.run-history.max-per-spec` runs (default `100`). Set `0` to keep history unbounded.
 

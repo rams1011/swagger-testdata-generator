@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.collection;
 import com.tx.api.test.generator.studio.config.H2Database;
 import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.EnvironmentSummary;
+import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.storage.JdbcStudioStorage;
 import org.h2.tools.RunScript;
@@ -53,8 +54,12 @@ class EnvironmentImportTest {
     }
 
     @Test
-    void exportKeepsAuthAsPlaceholders() {
-        EnvironmentExport exported = EnvironmentExporter.export(storage, localSpec(), "local", "BEARER");
+    void exportDownloadsStoredEnvironmentWithoutChangingAuth() {
+        StudioEnvironment created = EnvironmentMapper.fromInputs(
+                "local", "http://localhost:8080/employee-service", "BEARER");
+        StoredEnvironment stored = EnvironmentExporter.upsert(storage, "spec-local", created);
+
+        EnvironmentExport exported = EnvironmentExporter.export(localSpec(), stored);
         assertEquals("employee-service.local.environment.json", exported.fileName());
         StudioEnvironment environment = CollectionDocuments.parseEnvironment(
                 new String(exported.content(), StandardCharsets.UTF_8));
