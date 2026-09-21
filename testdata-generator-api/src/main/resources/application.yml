@@ -15,10 +15,14 @@ spring:
       schema-locations: classpath:ddl/schema.sql
   datasource:
     # Used when testdata.storage.type is database (PostgreSQL). Overridden automatically for h2.
-    url: jdbc:postgresql://localhost:5432/testdata_studio
-    username: testdata
-    password: testdata
+    url: jdbc:postgresql://34.170.44.243:5432/testdata_studio?sslmode=require
+    username: postgres
+    password: ")4eKf:74\\7CCcptU"
     driver-class-name: org.postgresql.Driver
+    hikari:
+      data-source-properties:
+        ssl: true
+        sslmode: require
   h2:
     console:
       enabled: false
@@ -27,7 +31,7 @@ spring:
 testdata:
   storage:
     # excel | h2 | database
-    type: ${TESTDATA_STORAGE_TYPE:h2}
+    type: ${TESTDATA_STORAGE_TYPE:database}
   excel:
     file: ./studio-output/studio-testdata.xlsx
   h2:
@@ -54,4 +58,4 @@ testdata:
 logging:
   level:
     com.tx.api.test.generator.studio: INFO
-    com.tx.api.test.generator.studio.logging.MethodLoggingAspect: INFO
+    com.tx.api.test.generator.studio.logging.MethodLoggingAspect: WARN
