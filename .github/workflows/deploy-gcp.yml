@@ -1,0 +1,74 @@
+name: Deploy to Google Cloud
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "testdata-generator-api/**"
+      - "testdata-generator-core/**"
+      - "pom.xml"
+      - "Dockerfile"
+      - ".github/workflows/deploy-gcp.yml"
+  workflow_dispatch:
+
+env:
+  REGION: ${{ vars.GCP_REGION || 'us-central1' }}
+  REPOSITORY: ${{ vars.GCP_ARTIFACT_REPO || 'observability' }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Image prefix
+        id: prefix
+        run: echo "value=${REGION}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${REPOSITORY}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push testdata-studio
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.prefix.outputs.value }}/testdata-studio:${{ github.sha }}
+            ${{ steps.prefix.outputs.value }}/testdata-studio:latest
+          cache-from: type=gha,scope=testdata-studio
+          cache-to: type=gha,mode=max,scope=testdata-studio
+
+      - name: Deploy testdata-studio to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        id: studio
+        with:
+          service: testdata-studio
+          image: ${{ steps.prefix.outputs.value }}/testdata-studio:${{ github.sha }}
+          region: ${{ env.REGION }}
+          flags: --port=8080 --allow-unauthenticated --cpu=1 --memory=1Gi --min-instances=0 --max-instances=1
+          env_vars: |
+            SERVER_PORT=8080
+            TESTDATA_STORAGE_TYPE=h2
+            TESTDATA_H2_FILE=/tmp/testdata
+            TESTDATA_H2_IN_MEMORY=false
+            TESTDATA_SAAS_ENABLED=false
+
+      - name: Service URL
+        run: echo "Studio API ${{ steps.studio.outputs.url }}"
