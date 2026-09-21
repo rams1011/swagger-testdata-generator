@@ -57,6 +57,13 @@ public class StudioProperties {
         return saas != null && saas.isEnabled();
     }
 
+    public void setSaasEnabled(boolean enabled) {
+        if (saas == null) {
+            saas = new Saas();
+        }
+        saas.setEnabled(enabled);
+    }
+
     public String getDefaultOutputDir() {
         return defaultOutputDir;
     }

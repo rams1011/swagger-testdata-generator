@@ -15,9 +15,9 @@ spring:
       schema-locations: classpath:ddl/schema.sql
   datasource:
     # Used when testdata.storage.type is database (PostgreSQL). Overridden automatically for h2.
-    url: jdbc:postgresql://34.170.44.243:5432/testdata_studio?sslmode=require
-    username: postgres
-    password: ")4eKf:74\\7CCcptU"
+    url: ${TESTDATA_DATASOURCE_URL:jdbc:postgresql://34.170.44.243:5432/testdata_studio?sslmode=require}
+    username: ${TESTDATA_DATASOURCE_USERNAME:postgres}
+    password: "${TESTDATA_DATASOURCE_PASSWORD:)4eKf:74\\7CCcptU}"
     driver-class-name: org.postgresql.Driver
     hikari:
       data-source-properties:
@@ -48,7 +48,7 @@ testdata:
   saas:
     # false: single local workspace, no login (desktop Studio).
     # true: hosted multi-tenant product — register/login and isolate specs by workspace.
-    enabled: false
+    enabled: ${TESTDATA_SAAS_ENABLED:true}
     session-days: 14
     cors-origins: ${TESTDATA_SAAS_CORS_ORIGINS:http://localhost:*,http://127.0.0.1:*,https://*.run.app,https://*.*.run.app}
     # Platform operator who enables customer workspaces. Change these in production.
