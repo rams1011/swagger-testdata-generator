@@ -65,10 +65,10 @@ jobs:
           flags: --port=8080 --allow-unauthenticated --cpu=1 --memory=1Gi --min-instances=0 --max-instances=1
           env_vars: |
             SERVER_PORT=8080
-            TESTDATA_STORAGE_TYPE=h2
+            TESTDATA_STORAGE_TYPE=database
             TESTDATA_H2_FILE=/tmp/testdata
             TESTDATA_H2_IN_MEMORY=false
-            TESTDATA_SAAS_ENABLED=false
+            TESTDATA_SAAS_ENABLED=true
             TESTDATA_SAAS_CORS_ORIGINS=http://localhost:*,http://127.0.0.1:*,https://*.run.app,https://*.*.run.app
 
       - name: Service URL
