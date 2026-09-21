@@ -1,7 +1,7 @@
 package com.tx.api.test.generator.studio.config;
 
 import org.springframework.boot.SpringApplication;
-import org.springframework.boot.env.EnvironmentPostProcessor;
+import org.springframework.boot.EnvironmentPostProcessor;
 import org.springframework.core.env.ConfigurableEnvironment;
 import org.springframework.core.env.MapPropertySource;
 
@@ -29,6 +29,15 @@ public class StorageEnvironmentPostProcessor implements EnvironmentPostProcessor
             values.put("testdata.storage.engine", "jdbc");
             values.put("spring.sql.init.mode", "always");
             values.put("spring.h2.console.enabled", false);
+            String instance = firstNonBlank(
+                    environment.getProperty("TESTDATA_ALLOYDB_INSTANCE"),
+                    environment.getProperty("ALLOYDB_INSTANCE_NAME"));
+            if (instance != null) {
+                String url = environment.getProperty("spring.datasource.url", "");
+                values.put("spring.datasource.url", alloyDbUrl(url, instance));
+                values.put("spring.datasource.hikari.data-source-properties.ssl", "false");
+                values.put("spring.datasource.hikari.data-source-properties.sslmode", "disable");
+            }
         } else {
             values.put("testdata.storage.engine", "excel");
             values.put("spring.autoconfigure.exclude", EXCEL_EXCLUDES);
@@ -54,6 +63,44 @@ public class StorageEnvironmentPostProcessor implements EnvironmentPostProcessor
         values.put("spring.h2.console.enabled", console);
         values.put("spring.h2.console.path", "/h2-console");
         values.put("spring.h2.console.settings.web-allow-others", false);
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
+    }
+
+    static String alloyDbUrl(String url, String instance) {
+        return "jdbc:postgresql:///" + databaseName(url)
+                + "?socketFactory=com.google.cloud.alloydb.SocketFactory"
+                + "&alloydbInstanceName=" + instance
+                + "&alloydbIpType=PUBLIC"
+                + "&alloydbRefreshStrategy=lazy";
+    }
+
+    static String databaseName(String url) {
+        if (url == null || url.isBlank()) {
+            return "testdata_studio";
+        }
+        int scheme = url.indexOf("://");
+        String rest = scheme >= 0 ? url.substring(scheme + 3) : url;
+        int slash = rest.indexOf('/');
+        if (slash < 0) {
+            return "testdata_studio";
+        }
+        String db = rest.substring(slash + 1);
+        int query = db.indexOf('?');
+        if (query >= 0) {
+            db = db.substring(0, query);
+        }
+        return db.isBlank() ? "testdata_studio" : db;
     }
 
     private String normalize(String rawType) {
