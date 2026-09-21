@@ -481,7 +481,7 @@ public class TestRunService {
         String base = StringUtils.trimToEmpty(baseUrl).replaceAll("/+$", "");
         String path = StringUtils.trimToEmpty(endpoint);
         if (path.startsWith("http://") || path.startsWith("https://")) {
-            return HttpPayloadSupport.appendQuery(path, query);
+            return preferHttps(HttpPayloadSupport.appendQuery(path, query));
         }
         if (base.isEmpty()) {
             throw new IllegalArgumentException("Base URL is required");
@@ -492,7 +492,21 @@ public class TestRunService {
         if (!path.isEmpty() && !path.startsWith("/")) {
             path = "/" + path;
         }
-        return HttpPayloadSupport.appendQuery(base + path, query);
+        return preferHttps(HttpPayloadSupport.appendQuery(base + path, query));
+    }
+
+    static String preferHttps(String url) {
+        if (url == null || !url.startsWith("http://")) {
+            return url;
+        }
+        String rest = url.substring("http://".length());
+        int slash = rest.indexOf('/');
+        String hostPort = slash < 0 ? rest : rest.substring(0, slash);
+        String host = hostPort.contains(":") ? hostPort.substring(0, hostPort.indexOf(':')) : hostPort;
+        if (host.endsWith(".run.app")) {
+            return "https://" + rest;
+        }
+        return url;
     }
 
     private static Map<String, String> copyMap(Map<String, String> source) {

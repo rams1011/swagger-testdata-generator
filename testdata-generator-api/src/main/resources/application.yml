@@ -46,7 +46,7 @@ testdata:
     # true: hosted multi-tenant product — register/login and isolate specs by workspace.
     enabled: false
     session-days: 14
-    cors-origins: "http://localhost:*,http://127.0.0.1:*"
+    cors-origins: ${TESTDATA_SAAS_CORS_ORIGINS:http://localhost:*,http://127.0.0.1:*,https://*.run.app,https://*.*.run.app}
     # Platform operator who enables customer workspaces. Change these in production.
     admin-email: saas.admin@local.test
     admin-password: saas-admin-1
