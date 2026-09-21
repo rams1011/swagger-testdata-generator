@@ -7,6 +7,7 @@ import com.tx.api.test.generator.studio.dto.AuthSessionView;
 import com.tx.api.test.generator.studio.dto.CreateTenantRequest;
 import com.tx.api.test.generator.studio.dto.LoginRequest;
 import com.tx.api.test.generator.studio.dto.MemberView;
+import com.tx.api.test.generator.studio.dto.OrganizationView;
 import com.tx.api.test.generator.studio.dto.RegisterRequest;
 import com.tx.api.test.generator.studio.dto.SubscriptionView;
 import com.tx.api.test.generator.studio.dto.TenantView;
@@ -39,10 +40,13 @@ public class AuthService {
 
     private final StudioProperties properties;
     private final ObjectProvider<TenantStore> tenantStores;
+    private final ObjectProvider<EntitlementService> entitlements;
 
-    public AuthService(StudioProperties properties, ObjectProvider<TenantStore> tenantStores) {
+    public AuthService(StudioProperties properties, ObjectProvider<TenantStore> tenantStores,
+                       ObjectProvider<EntitlementService> entitlements) {
         this.properties = properties;
         this.tenantStores = tenantStores;
+        this.entitlements = entitlements;
     }
 
     public AuthSessionView localSession() {
@@ -68,7 +72,10 @@ public class AuthService {
         account.setPlatformRole("USER");
         store.saveAccount(account);
 
-        Tenant tenant = newWorkspace(store, request == null ? null : request.workspace(), email, now);
+        Organization organization = newOrganization(store, request == null ? null : request.workspace(), email, now);
+        provisionTrial(store, organization, now);
+        Tenant tenant = newWorkspace(store, organization, request == null ? null : request.workspace(), email, now);
+        store.saveOrgMembership(organization.getId(), account.getId(), "OWNER");
         store.saveMembership(new Membership(tenant.getId(), account.getId(), "OWNER"));
         return issueSession(store, account, tenant, "OWNER");
     }
@@ -86,6 +93,9 @@ public class AuthService {
             if (isSaasAdmin(account)) {
                 Tenant platform = requirePlatformTenant(store);
                 store.saveMembership(new Membership(platform.getId(), account.getId(), "OWNER"));
+                if (store.findOrgRole(platform.getOrgId(), account.getId()).isEmpty()) {
+                    store.saveOrgMembership(platform.getOrgId(), account.getId(), "OWNER");
+                }
                 return issueSession(store, account, platform, "OWNER");
             }
             throw new ForbiddenException("This account has no workspace");
@@ -125,19 +135,18 @@ public class AuthService {
         TenantStore store = requireStore();
         ResolvedSession resolved = resolve(rawToken)
                 .orElseThrow(() -> new UnauthenticatedException("Sign in to continue"));
+        Organization organization = requireOrganization(store, resolved.tenant());
+        entitlements().requireWorkspace(organization.getId());
         String name = StringUtils.defaultIfBlank(request == null ? null : request.name(),
                 displayName(null, resolved.account().getEmail()) + " workspace").trim();
-        String slugSource = StringUtils.defaultIfBlank(request == null ? null : request.slug(), name);
-        Tenant tenant = new Tenant();
-        tenant.setId(UUID.randomUUID().toString());
-        tenant.setName(name);
-        tenant.setSlug(uniqueSlug(store, slugSource));
-        tenant.setCreatedAt(Instant.now());
-        tenant.setReady(false);
-        store.saveTenant(tenant);
+        Instant now = Instant.now();
+        Tenant tenant = newWorkspace(store, organization, name, resolved.account().getEmail(), now);
         store.saveMembership(new Membership(tenant.getId(), resolved.account().getId(), "OWNER"));
+        if (store.findOrgRole(organization.getId(), resolved.account().getId()).isEmpty()) {
+            store.saveOrgMembership(organization.getId(), resolved.account().getId(), "OWNER");
+        }
         store.switchSessionTenant(hashToken(rawToken), tenant.getId());
-        return toTenantView(tenant, "OWNER");
+        return toTenantView(store, tenant, "OWNER");
     }
 
     public void logout(String rawToken) {
@@ -186,7 +195,7 @@ public class AuthService {
         TenantStore store = requireStore();
         Tenant tenant = store.findTenant(tenantId)
                 .orElseThrow(() -> new ForbiddenException("Workspace not found"));
-        return toTenantView(tenant, null);
+        return toTenantView(store, tenant, null);
     }
 
     public List<MemberView> listMembers() {
@@ -200,6 +209,9 @@ public class AuthService {
         requireManager();
         TenantStore store = requireStore();
         String tenantId = TenantContext.tenantId();
+        Tenant tenant = store.findTenant(tenantId)
+                .orElseThrow(() -> new ForbiddenException("Workspace not found"));
+        entitlements().requireWritable(tenant);
         String email = normalizeEmail(request == null ? null : request.email());
         String role = normalizeAssignableRole(request == null ? null : request.role());
         assertCanAssign(role);
@@ -220,7 +232,12 @@ public class AuthService {
             account.setCreatedAt(now);
             store.saveAccount(account);
         }
+        String orgId = tenant.getOrgId();
+        entitlements().requireSeat(orgId, account.getId());
         store.saveMembership(new Membership(tenantId, account.getId(), role));
+        if (store.findOrgRole(orgId, account.getId()).isEmpty()) {
+            store.saveOrgMembership(orgId, account.getId(), "MEMBER");
+        }
         return new MemberView(account.getId(), account.getEmail(), account.getDisplayName(), role);
     }
 
@@ -266,7 +283,7 @@ public class AuthService {
         Tenant platform = requirePlatformTenant(store);
         String email = properties.getSaas().normalizedAdminEmail();
         if (email == null) {
-            log.warn("No testdata.saas.admin-email is set — nobody can enable customer workspaces");
+            log.warn("No testdata.saas.admin-email is set — nobody can manage subscriptions");
             return null;
         }
         Account account = store.findAccountByEmail(email).orElse(null);
@@ -289,44 +306,68 @@ public class AuthService {
         if (store.findMembership(platform.getId(), account.getId()).isEmpty()) {
             store.saveMembership(new Membership(platform.getId(), account.getId(), "OWNER"));
         }
+        if (store.findOrgRole(platform.getOrgId(), account.getId()).isEmpty()) {
+            store.saveOrgMembership(platform.getOrgId(), account.getId(), "OWNER");
+        }
         return email;
     }
 
     public List<SubscriptionView> listSubscriptions() {
         requireSaasAdmin();
-        return requireStore().listSubscriptions().stream()
-                .map(item -> new SubscriptionView(
-                        item.tenantId(), item.slug(), item.name(),
-                        item.ownerEmail(), item.ownerName(), item.ready(),
-                        item.createdAt(), item.enabledAt()))
+        TenantStore store = requireStore();
+        return store.listOrgSubscriptions().stream()
+                .map(item -> toSubscriptionView(store, item))
                 .toList();
     }
 
-    public SubscriptionView updateSubscription(String tenantId, UpdateSubscriptionRequest request) {
+    public SubscriptionView currentSubscription() {
+        TenantStore store = requireStore();
+        TenantContext.Scope scope = TenantContext.current();
+        if (scope == null || StringUtils.isBlank(scope.accountId())) {
+            throw new UnauthenticatedException("Sign in to continue");
+        }
+        Tenant tenant = store.findTenant(scope.tenantId())
+                .orElseThrow(() -> new ForbiddenException("Workspace not found"));
+        Organization organization = requireOrganization(store, tenant);
+        Subscription subscription = store.findSubscriptionByOrg(organization.getId())
+                .orElseThrow(() -> new NoSuchElementException("Subscription not found"));
+        return toSubscriptionView(store, organization, subscription);
+    }
+
+    public SubscriptionView updateSubscription(String orgId, UpdateSubscriptionRequest request) {
         requireSaasAdmin();
-        if (request == null || request.ready() == null) {
-            throw new IllegalArgumentException("ready is required");
+        if (request == null || (request.ready() == null && request.plan() == null && request.status() == null)) {
+            throw new IllegalArgumentException("plan, status, or ready is required");
         }
         TenantStore store = requireStore();
-        Tenant tenant = store.findTenant(tenantId)
-                .orElseThrow(() -> new NoSuchElementException("Workspace not found"));
-        if (isReservedTenant(tenant)) {
-            throw new ForbiddenException("The platform workspace cannot be disabled");
+        Organization organization = store.findOrganization(orgId)
+                .orElseThrow(() -> new NoSuchElementException("Organization not found"));
+        if (PlanCatalog.isReservedOrg(organization.getId())
+                || TenantContext.PLATFORM_SLUG.equals(organization.getSlug())) {
+            throw new ForbiddenException("The platform organization cannot be disabled");
         }
-        boolean ready = request.ready();
-        Instant enabledAt = ready ? Instant.now() : null;
-        store.updateTenantReady(tenantId, ready, enabledAt);
-        tenant.setReady(ready);
-        tenant.setEnabledAt(enabledAt);
-        String ownerEmail = null;
-        String ownerName = null;
-        for (SubscriptionView view : listSubscriptions()) {
-            if (tenantId.equals(view.tenantId())) {
-                return view;
+        Subscription subscription = store.findSubscriptionByOrg(orgId)
+                .orElseThrow(() -> new NoSuchElementException("Subscription not found"));
+        if (request.plan() != null) {
+            PlanCatalog.Limits limits = PlanCatalog.limits(request.plan());
+            PlanCatalog.applyLimits(subscription, limits);
+            if (PlanCatalog.TRIAL.equals(limits.planCode()) && subscription.getTrialEndsAt() == null) {
+                subscription.setTrialEndsAt(PlanCatalog.trialEndFrom(
+                        subscription.getCreatedAt() == null ? Instant.now() : subscription.getCreatedAt()));
+            }
+            if (!PlanCatalog.TRIAL.equals(limits.planCode())) {
+                subscription.setTrialEndsAt(null);
             }
         }
-        return new SubscriptionView(tenant.getId(), tenant.getSlug(), tenant.getName(),
-                ownerEmail, ownerName, tenant.isReady(), tenant.getCreatedAt(), tenant.getEnabledAt());
+        if (request.status() != null) {
+            subscription.setStatus(PlanCatalog.normalizeStatus(request.status()));
+        } else if (request.ready() != null) {
+            subscription.setStatus(request.ready() ? PlanCatalog.STATUS_ACTIVE : PlanCatalog.STATUS_SUSPENDED);
+        }
+        store.updateSubscription(subscription);
+        boolean writable = PlanCatalog.isWritable(subscription, Instant.now());
+        store.updateTenantsReadyForOrg(orgId, writable, writable ? Instant.now() : null);
+        return toSubscriptionView(store, organization, subscription);
     }
 
     public boolean isSaasAdmin(Account account) {
@@ -334,13 +375,7 @@ public class AuthService {
     }
 
     public boolean isTenantReady(Tenant tenant) {
-        if (tenant == null) {
-            return false;
-        }
-        if (!properties.isSaasEnabled() || TenantContext.LOCAL_TENANT_ID.equals(tenant.getId())) {
-            return true;
-        }
-        return tenant.isReady();
+        return entitlements().isWritable(tenant);
     }
 
     private AuthSessionView issueSession(TenantStore store, Account account, Tenant tenant, String role) {
@@ -362,28 +397,79 @@ public class AuthService {
                 .map(item -> {
                     String itemRole = store.findMembership(item.getId(), account.getId())
                             .map(Membership::role).orElse("MEMBER");
-                    return toTenantView(item, itemRole);
+                    return toTenantView(store, item, itemRole);
                 })
                 .toList();
+        Organization organization = tenant.getOrgId() == null
+                ? null
+                : store.findOrganization(tenant.getOrgId()).orElse(null);
+        Subscription subscription = organization == null
+                ? null
+                : store.findSubscriptionByOrg(organization.getId()).orElse(null);
         return new AuthSessionView(
                 true,
                 true,
                 token,
                 new AccountView(account.getId(), account.getEmail(), account.getDisplayName()),
-                toTenantView(tenant, role),
+                toTenantView(store, tenant, role),
                 tenants,
-                isSaasAdmin(account)
+                isSaasAdmin(account),
+                organization == null ? null : new OrganizationView(
+                        organization.getId(), organization.getSlug(), organization.getName()),
+                subscription == null || organization == null
+                        ? null
+                        : toSubscriptionView(store, organization, subscription)
         );
     }
 
-    private Tenant newWorkspace(TenantStore store, String workspaceName, String email, Instant now) {
+    private Organization newOrganization(TenantStore store, String workspaceName, String email, Instant now) {
+        String name = StringUtils.defaultIfBlank(workspaceName, displayName(null, email)).trim();
+        Organization organization = new Organization();
+        organization.setId(UUID.randomUUID().toString());
+        organization.setName(name);
+        organization.setSlug(uniqueOrgSlug(store, name));
+        organization.setCreatedAt(now);
+        store.saveOrganization(organization);
+        return organization;
+    }
+
+    private void provisionTrial(TenantStore store, Organization organization, Instant now) {
+        PlanCatalog.Limits limits = PlanCatalog.limits(PlanCatalog.TRIAL);
+        Subscription subscription = new Subscription();
+        subscription.setId(UUID.randomUUID().toString());
+        subscription.setOrgId(organization.getId());
+        subscription.setStatus(PlanCatalog.STATUS_TRIAL);
+        subscription.setCreatedAt(now);
+        subscription.setTrialEndsAt(PlanCatalog.trialEndFrom(now));
+        PlanCatalog.applyLimits(subscription, limits);
+        store.saveSubscription(subscription);
+    }
+
+    private void provisionEnterprise(TenantStore store, Organization organization, Instant now) {
+        if (store.findSubscriptionByOrg(organization.getId()).isPresent()) {
+            return;
+        }
+        PlanCatalog.Limits limits = PlanCatalog.limits(PlanCatalog.ENTERPRISE);
+        Subscription subscription = new Subscription();
+        subscription.setId(UUID.randomUUID().toString());
+        subscription.setOrgId(organization.getId());
+        subscription.setStatus(PlanCatalog.STATUS_ACTIVE);
+        subscription.setCreatedAt(now);
+        PlanCatalog.applyLimits(subscription, limits);
+        store.saveSubscription(subscription);
+    }
+
+    private Tenant newWorkspace(TenantStore store, Organization organization, String workspaceName,
+                                String email, Instant now) {
         String name = StringUtils.defaultIfBlank(workspaceName, displayName(null, email) + " workspace").trim();
         Tenant tenant = new Tenant();
         tenant.setId(UUID.randomUUID().toString());
+        tenant.setOrgId(organization.getId());
         tenant.setName(name);
         tenant.setSlug(uniqueSlug(store, name));
         tenant.setCreatedAt(now);
-        tenant.setReady(false);
+        tenant.setReady(true);
+        tenant.setEnabledAt(now);
         store.saveTenant(tenant);
         return tenant;
     }
@@ -393,6 +479,20 @@ public class AuthService {
         String candidate = base;
         int suffix = 2;
         while (store.findTenantBySlug(candidate).isPresent()) {
+            candidate = base + "-" + suffix;
+            suffix++;
+        }
+        return candidate;
+    }
+
+    private String uniqueOrgSlug(TenantStore store, String source) {
+        String base = slugify(source);
+        if ("workspace".equals(base)) {
+            base = "org";
+        }
+        String candidate = base;
+        int suffix = 2;
+        while (store.findOrganizationBySlug(candidate).isPresent()) {
             candidate = base + "-" + suffix;
             suffix++;
         }
@@ -438,17 +538,31 @@ public class AuthService {
     }
 
     private Tenant requirePlatformTenant(TenantStore store) {
+        Instant now = Instant.now();
+        Organization organization = store.findOrganization(TenantContext.PLATFORM_TENANT_ID).orElse(null);
+        if (organization == null) {
+            organization = new Organization();
+            organization.setId(TenantContext.PLATFORM_TENANT_ID);
+            organization.setSlug(TenantContext.PLATFORM_SLUG);
+            organization.setName("SaaS");
+            organization.setCreatedAt(now);
+            store.saveOrganization(organization);
+        }
+        provisionEnterprise(store, organization, now);
         Tenant existing = store.findTenant(TenantContext.PLATFORM_TENANT_ID).orElse(null);
         if (existing != null) {
             if (!existing.isReady()) {
-                store.updateTenantReady(existing.getId(), true, Instant.now());
+                store.updateTenantReady(existing.getId(), true, now);
                 existing.setReady(true);
+            }
+            if (StringUtils.isBlank(existing.getOrgId())) {
+                existing.setOrgId(organization.getId());
             }
             return existing;
         }
-        Instant now = Instant.now();
         Tenant platform = new Tenant();
         platform.setId(TenantContext.PLATFORM_TENANT_ID);
+        platform.setOrgId(organization.getId());
         platform.setSlug(TenantContext.PLATFORM_SLUG);
         platform.setName("SaaS");
         platform.setCreatedAt(now);
@@ -458,14 +572,73 @@ public class AuthService {
         return platform;
     }
 
-    private static boolean isReservedTenant(Tenant tenant) {
-        return TenantContext.LOCAL_TENANT_ID.equals(tenant.getId())
-                || TenantContext.PLATFORM_TENANT_ID.equals(tenant.getId())
-                || TenantContext.PLATFORM_SLUG.equals(tenant.getSlug());
+    private Organization requireOrganization(TenantStore store, Tenant tenant) {
+        if (tenant == null || StringUtils.isBlank(tenant.getOrgId())) {
+            throw new ForbiddenException("This workspace is not attached to an organization");
+        }
+        return store.findOrganization(tenant.getOrgId())
+                .orElseThrow(() -> new ForbiddenException("Organization not found"));
     }
 
-    private static TenantView toTenantView(Tenant tenant, String role) {
-        return new TenantView(tenant.getId(), tenant.getSlug(), tenant.getName(), role, tenant.isReady());
+    private TenantView toTenantView(TenantStore store, Tenant tenant, String role) {
+        boolean writable = entitlements().isWritable(tenant);
+        return new TenantView(tenant.getId(), tenant.getSlug(), tenant.getName(), role, writable);
+    }
+
+    private SubscriptionView toSubscriptionView(TenantStore store, TenantStore.OrgSubscriptionRecord item) {
+        Organization organization = new Organization();
+        organization.setId(item.orgId());
+        organization.setSlug(item.slug());
+        organization.setName(item.name());
+        organization.setCreatedAt(item.createdAt());
+        Subscription subscription = new Subscription();
+        subscription.setOrgId(item.orgId());
+        subscription.setPlanCode(item.planCode());
+        subscription.setStatus(item.status());
+        subscription.setSeatLimit(item.seatLimit());
+        subscription.setWorkspaceLimit(item.workspaceLimit());
+        subscription.setSpecLimit(item.specLimit());
+        subscription.setRunLimitMonth(item.runLimitMonth());
+        subscription.setTrialEndsAt(item.trialEndsAt());
+        subscription.setCurrentPeriodEnd(item.currentPeriodEnd());
+        subscription.setCreatedAt(item.createdAt());
+        SubscriptionView view = toSubscriptionView(store, organization, subscription);
+        return new SubscriptionView(
+                view.orgId(), view.slug(), view.name(), item.ownerEmail(), item.ownerName(),
+                view.plan(), view.status(), view.writable(), view.ready(), view.createdAt(),
+                view.trialEndsAt(), view.currentPeriodEnd(), view.seatLimit(), view.seatsUsed(),
+                view.workspaceLimit(), view.workspacesUsed(), view.specLimit(), view.specsUsed(),
+                view.runLimitMonth(), view.runsUsed(), view.yearMonth());
+    }
+
+    private SubscriptionView toSubscriptionView(TenantStore store, Organization organization,
+                                                Subscription subscription) {
+        Instant now = Instant.now();
+        boolean writable = PlanCatalog.isWritable(subscription, now);
+        String yearMonth = entitlements().currentYearMonth();
+        return new SubscriptionView(
+                organization.getId(),
+                organization.getSlug(),
+                organization.getName(),
+                null,
+                null,
+                subscription.getPlanCode(),
+                subscription.getStatus(),
+                writable,
+                writable,
+                organization.getCreatedAt() == null ? subscription.getCreatedAt() : organization.getCreatedAt(),
+                PlanCatalog.trialEndsAt(subscription),
+                subscription.getCurrentPeriodEnd(),
+                subscription.getSeatLimit(),
+                store.countOrgMembers(organization.getId()),
+                subscription.getWorkspaceLimit(),
+                store.countTenantsForOrg(organization.getId()),
+                subscription.getSpecLimit(),
+                store.countSpecsForOrg(organization.getId()),
+                subscription.getRunLimitMonth(),
+                store.runCount(organization.getId(), yearMonth),
+                yearMonth
+        );
     }
 
     private TenantStore requireStore() {
@@ -474,6 +647,14 @@ public class AuthService {
             throw new IllegalStateException("SaaS workspaces need H2 or database storage");
         }
         return store;
+    }
+
+    private EntitlementService entitlements() {
+        EntitlementService service = entitlements.getIfAvailable();
+        if (service == null) {
+            throw new IllegalStateException("Subscription entitlements are not configured");
+        }
+        return service;
     }
 
     private void requireManager() {

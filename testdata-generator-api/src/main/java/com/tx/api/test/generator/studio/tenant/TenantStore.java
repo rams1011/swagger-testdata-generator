@@ -14,9 +14,39 @@ public interface TenantStore {
 
     List<Tenant> listTenantsForAccount(String accountId);
 
-    List<SubscriptionRecord> listSubscriptions();
+    List<Tenant> listTenantsForOrg(String orgId);
+
+    int countTenantsForOrg(String orgId);
 
     void updateTenantReady(String tenantId, boolean ready, Instant enabledAt);
+
+    void updateTenantsReadyForOrg(String orgId, boolean ready, Instant enabledAt);
+
+    void saveOrganization(Organization organization);
+
+    Optional<Organization> findOrganization(String orgId);
+
+    Optional<Organization> findOrganizationBySlug(String slug);
+
+    void saveSubscription(Subscription subscription);
+
+    void updateSubscription(Subscription subscription);
+
+    Optional<Subscription> findSubscriptionByOrg(String orgId);
+
+    List<OrgSubscriptionRecord> listOrgSubscriptions();
+
+    void saveOrgMembership(String orgId, String accountId, String role);
+
+    Optional<String> findOrgRole(String orgId, String accountId);
+
+    int countOrgMembers(String orgId);
+
+    int countSpecsForOrg(String orgId);
+
+    int incrementRunCount(String orgId, String yearMonth);
+
+    int runCount(String orgId, String yearMonth);
 
     void saveAccount(Account account);
 
@@ -51,15 +81,21 @@ public interface TenantStore {
     record MemberRecord(String accountId, String email, String name, String role, Instant createdAt) {
     }
 
-    record SubscriptionRecord(
-            String tenantId,
+    record OrgSubscriptionRecord(
+            String orgId,
             String slug,
             String name,
             String ownerEmail,
             String ownerName,
-            boolean ready,
-            Instant createdAt,
-            Instant enabledAt
+            String planCode,
+            String status,
+            int seatLimit,
+            int workspaceLimit,
+            int specLimit,
+            int runLimitMonth,
+            Instant trialEndsAt,
+            Instant currentPeriodEnd,
+            Instant createdAt
     ) {
     }
 }

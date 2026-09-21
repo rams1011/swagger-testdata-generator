@@ -24,10 +24,12 @@ public class TenantFilter extends OncePerRequestFilter {
 
     private final StudioProperties properties;
     private final AuthService authService;
+    private final EntitlementService entitlements;
 
-    public TenantFilter(StudioProperties properties, AuthService authService) {
+    public TenantFilter(StudioProperties properties, AuthService authService, EntitlementService entitlements) {
         this.properties = properties;
         this.authService = authService;
+        this.entitlements = entitlements;
     }
 
     @Override
@@ -71,11 +73,11 @@ public class TenantFilter extends OncePerRequestFilter {
                         resolved.tenant().getId(), resolved.account().getId(),
                         resolved.account().getEmail(), resolved.role()));
             }
-            if (!isPendingAllowed(request)) {
+            if (!isReadOnlyAllowed(request)) {
                 Tenant tenant = authService.findTenant(tenantId).orElse(resolved.tenant());
                 if (!authService.isTenantReady(tenant)) {
-                    forbidden(response,
-                            "This workspace is not enabled yet. A SaaS admin must mark it ready for use.");
+                    forbidden(response, EntitlementService.readOnlyMessage(
+                            entitlements.subscriptionFor(tenant)));
                     return;
                 }
             }
@@ -98,22 +100,22 @@ public class TenantFilter extends OncePerRequestFilter {
                 && ("/api/auth/login".equals(path) || "/api/auth/register".equals(path));
     }
 
-    private static boolean isPendingAllowed(HttpServletRequest request) {
+    private static boolean isReadOnlyAllowed(HttpServletRequest request) {
         if (isPublic(request)) {
             return true;
         }
         String path = request.getRequestURI();
         String method = request.getMethod();
+        if ("GET".equalsIgnoreCase(method)) {
+            return true;
+        }
         if (path.startsWith("/api/saas/")) {
             return true;
         }
         if ("POST".equalsIgnoreCase(method) && "/api/auth/logout".equals(path)) {
             return true;
         }
-        if ("POST".equalsIgnoreCase(method) && "/api/auth/switch-tenant".equals(path)) {
-            return true;
-        }
-        return "POST".equalsIgnoreCase(method) && "/api/tenants".equals(path);
+        return "POST".equalsIgnoreCase(method) && "/api/auth/switch-tenant".equals(path);
     }
 
     private static boolean isStatic(HttpServletRequest request) {

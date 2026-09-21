@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.tenant;
 import com.tx.api.test.generator.studio.config.H2Database;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AddMemberRequest;
+import com.tx.api.test.generator.studio.dto.CreateTenantRequest;
 import com.tx.api.test.generator.studio.dto.LoginRequest;
 import com.tx.api.test.generator.studio.dto.MemberView;
 import com.tx.api.test.generator.studio.dto.RegisterRequest;
@@ -60,7 +61,8 @@ class TenantIsolationTest {
         properties = new StudioProperties();
         properties.getSaas().setEnabled(true);
         TenantContext.setSaasEnabled(true);
-        authService = new AuthService(properties, new FixedStore(new JdbcTenantStore(jdbcTemplate)));
+        FixedProvider<TenantStore> stores = new FixedProvider<>(new JdbcTenantStore(jdbcTemplate));
+        authService = new AuthService(properties, stores, new FixedProvider<>(new EntitlementService(properties, stores)));
     }
 
     @AfterEach
@@ -165,13 +167,37 @@ class TenantIsolationTest {
     }
 
     @Test
-    void newWorkspacesStayLockedUntilSaasAdminEnablesThem() {
+    void registerCreatesAnOrganizationTrialThatIsImmediatelyWritable() {
+        var customer = authService.register(new RegisterRequest("qa@acme.test", "password1", "Acme QA", "Acme"));
+        assertTrue(customer.tenant().ready());
+        assertEquals("trial", customer.subscription().plan());
+        assertEquals("trial", customer.subscription().status());
+        assertTrue(customer.subscription().writable());
+        assertEquals(1, customer.subscription().workspaceLimit());
+        assertEquals(2, customer.subscription().seatLimit());
+        assertEquals(customer.organization().id(), customer.subscription().orgId());
+        assertThrows(ForbiddenException.class, () ->
+                authService.createWorkspace(customer.token(), new CreateTenantRequest("Second", null)));
+    }
+
+    @Test
+    void trialSeatLimitAppliesAcrossTheOrganization() {
+        var owner = authService.register(new RegisterRequest("qa@acme.test", "password1", "Acme QA", "Acme"));
+        TenantContext.runAs(owner.tenant().id(), owner.account().id(), "OWNER", () -> {
+            authService.addMember(new AddMemberRequest("dev@acme.test", "Dev", "password1", "MEMBER"));
+            ForbiddenException denied = assertThrows(ForbiddenException.class, () ->
+                    authService.addMember(new AddMemberRequest("other@acme.test", "Other", "password1", "MEMBER")));
+            assertTrue(denied.getMessage().contains("seat"));
+        });
+    }
+
+    @Test
+    void saasAdminManagesOrganizationSubscriptions() {
         properties.getSaas().setAdminEmail("saas.admin@local.test");
         properties.getSaas().setAdminPassword("saas-admin-1");
         assertEquals("saas.admin@local.test", authService.ensureSaasAdmin());
 
         var customer = authService.register(new RegisterRequest("qa@acme.test", "password1", "Acme QA", "Acme"));
-        assertFalse(customer.tenant().ready());
         assertFalse(customer.saasAdmin());
 
         var admin = authService.login(new LoginRequest("saas.admin@local.test", "saas-admin-1", null));
@@ -179,19 +205,21 @@ class TenantIsolationTest {
         assertTrue(admin.tenant().ready());
 
         TenantContext.runAs(admin.tenant().id(), admin.account().id(), "OWNER", () -> {
-            var pending = authService.listSubscriptions().stream()
-                    .filter(item -> item.tenantId().equals(customer.tenant().id()))
+            var listed = authService.listSubscriptions().stream()
+                    .filter(item -> item.orgId().equals(customer.organization().id()))
                     .findFirst()
                     .orElseThrow();
-            assertFalse(pending.ready());
-            assertEquals("qa@acme.test", pending.ownerEmail());
-            var enabled = authService.updateSubscription(
-                    customer.tenant().id(), new UpdateSubscriptionRequest(true));
-            assertTrue(enabled.ready());
+            assertEquals("trial", listed.plan());
+            assertEquals("qa@acme.test", listed.ownerEmail());
+            var suspended = authService.updateSubscription(
+                    customer.organization().id(), new UpdateSubscriptionRequest(false, null, null));
+            assertFalse(suspended.writable());
+            assertEquals("suspended", suspended.status());
         });
 
-        var unlocked = authService.login(new LoginRequest("qa@acme.test", "password1", customer.tenant().id()));
-        assertTrue(unlocked.tenant().ready());
+        var locked = authService.login(new LoginRequest("qa@acme.test", "password1", customer.tenant().id()));
+        assertFalse(locked.tenant().ready());
+        assertFalse(locked.subscription().writable());
 
         TenantContext.runAs(customer.tenant().id(), customer.account().id(), "OWNER", () -> {
             assertThrows(ForbiddenException.class, authService::listSubscriptions);
@@ -199,14 +227,15 @@ class TenantIsolationTest {
     }
 
     @Test
-    void saasAdminCannotDisableThePlatformWorkspace() {
+    void saasAdminCannotDisableThePlatformOrganization() {
         properties.getSaas().setAdminEmail("saas.admin@local.test");
         properties.getSaas().setAdminPassword("saas-admin-1");
         authService.ensureSaasAdmin();
         var admin = authService.login(new LoginRequest("saas.admin@local.test", "saas-admin-1", null));
         TenantContext.runAs(admin.tenant().id(), admin.account().id(), "OWNER", () -> {
             ForbiddenException denied = assertThrows(ForbiddenException.class, () ->
-                    authService.updateSubscription(admin.tenant().id(), new UpdateSubscriptionRequest(false)));
+                    authService.updateSubscription(
+                            admin.organization().id(), new UpdateSubscriptionRequest(false, null, null)));
             assertTrue(denied.getMessage().contains("cannot be disabled"));
         });
     }
@@ -221,61 +250,61 @@ class TenantIsolationTest {
         return spec;
     }
 
-    private static final class FixedStore implements ObjectProvider<TenantStore> {
-        private final TenantStore store;
+    private static final class FixedProvider<T> implements ObjectProvider<T> {
+        private final T value;
 
-        private FixedStore(TenantStore store) {
-            this.store = store;
+        private FixedProvider(T value) {
+            this.value = value;
         }
 
         @Override
-        public TenantStore getObject(Object... args) throws BeansException {
-            return store;
+        public T getObject(Object... args) throws BeansException {
+            return value;
         }
 
         @Override
-        public TenantStore getIfAvailable() {
-            return store;
+        public T getIfAvailable() {
+            return value;
         }
 
         @Override
-        public TenantStore getIfAvailable(Supplier<TenantStore> defaultSupplier) {
-            return store;
+        public T getIfAvailable(Supplier<T> defaultSupplier) {
+            return value;
         }
 
         @Override
-        public TenantStore getIfUnique() {
-            return store;
+        public T getIfUnique() {
+            return value;
         }
 
         @Override
-        public TenantStore getIfUnique(Supplier<TenantStore> defaultSupplier) {
-            return store;
+        public T getIfUnique(Supplier<T> defaultSupplier) {
+            return value;
         }
 
         @Override
-        public Stream<TenantStore> stream() {
-            return Stream.of(store);
+        public Stream<T> stream() {
+            return Stream.of(value);
         }
 
         @Override
-        public Stream<TenantStore> orderedStream() {
-            return Stream.of(store);
+        public Stream<T> orderedStream() {
+            return Stream.of(value);
         }
 
         @Override
-        public TenantStore getObject() throws BeansException {
-            return store;
+        public T getObject() throws BeansException {
+            return value;
         }
 
         @Override
-        public Iterator<TenantStore> iterator() {
-            return List.of(store).iterator();
+        public Iterator<T> iterator() {
+            return List.of(value).iterator();
         }
 
         @Override
-        public void forEach(Consumer<? super TenantStore> action) {
-            action.accept(store);
+        public void forEach(Consumer<? super T> action) {
+            action.accept(value);
         }
     }
 }

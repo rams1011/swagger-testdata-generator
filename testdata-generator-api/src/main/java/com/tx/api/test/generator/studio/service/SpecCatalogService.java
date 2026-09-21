@@ -15,6 +15,7 @@ import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.openapi.ManualSpecDocument;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
+import com.tx.api.test.generator.studio.tenant.EntitlementService;
 import com.tx.api.test.generator.studio.tenant.TenantContext;
 import io.swagger.v3.oas.models.OpenAPI;
 import org.apache.commons.lang3.StringUtils;
@@ -38,10 +39,19 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SpecCatalogService {
 
     private final StudioStorage studioStorage;
+    private final EntitlementService entitlements;
     private final ConcurrentHashMap<String, LoadedSpec> specs = new ConcurrentHashMap<>();
 
     public SpecCatalogService(StudioStorage studioStorage) {
+        this(studioStorage, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SpecCatalogService(StudioStorage studioStorage,
+                             @org.springframework.beans.factory.annotation.Autowired(required = false)
+                             EntitlementService entitlements) {
         this.studioStorage = studioStorage;
+        this.entitlements = entitlements;
     }
 
     @PostConstruct
@@ -64,6 +74,7 @@ public class SpecCatalogService {
         if (request != null && Boolean.TRUE.equals(request.manual())) {
             return createManual(request);
         }
+        requireSpecSlot();
         String content = resolveContent(request);
         OpenAPI openApi = parseSpec(request, content);
         List<OperationPage> operations = TestdataGenerator.inspect(openApi, request.baseUrl());
@@ -90,6 +101,7 @@ public class SpecCatalogService {
     }
 
     public SpecSummary createManual(LoadSpecRequest request) {
+        requireSpecSlot();
         String name = requireUniqueName(request == null ? null : request.name(), null);
         String baseUrl = firstNonBlank(request == null ? null : request.baseUrl(), "http://localhost:8080");
         String content = ManualSpecDocument.emptyCatalog(name, baseUrl);
@@ -572,6 +584,12 @@ public class SpecCatalogService {
                         && (expectedPath.equals(operation.path()) || expectedPath.equals(operation.rawPath())))
                 .findFirst()
                 .orElseThrow(() -> new IllegalStateException("Added REST API was not found after save"));
+    }
+
+    private void requireSpecSlot() {
+        if (entitlements != null) {
+            entitlements.requireSpec();
+        }
     }
 
     private boolean isManualSpec(LoadedSpec spec) {

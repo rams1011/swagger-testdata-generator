@@ -109,17 +109,23 @@ public class AuthController {
         authService.removeMember(accountId);
     }
 
+    @GetMapping("/saas/subscription")
+    public SubscriptionView currentSubscription() {
+        requireSaas();
+        return authService.currentSubscription();
+    }
+
     @GetMapping("/saas/subscriptions")
     public List<SubscriptionView> listSubscriptions() {
         requireSaas();
         return authService.listSubscriptions();
     }
 
-    @PutMapping("/saas/subscriptions/{tenantId}")
-    public SubscriptionView updateSubscription(@PathVariable String tenantId,
+    @PutMapping("/saas/subscriptions/{orgId}")
+    public SubscriptionView updateSubscription(@PathVariable String orgId,
                                                @RequestBody UpdateSubscriptionRequest request) {
         requireSaas();
-        return authService.updateSubscription(tenantId, request);
+        return authService.updateSubscription(orgId, request);
     }
 
     private void requireSaas() {

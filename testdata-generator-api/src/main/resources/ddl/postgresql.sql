@@ -273,3 +273,117 @@ CREATE TABLE IF NOT EXISTS td_environment (
 
 CREATE INDEX IF NOT EXISTS ix_td_environment_spec ON td_environment (spec_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_td_environment_spec_name ON td_environment (spec_id, name);
+
+CREATE TABLE IF NOT EXISTS td_organization (
+    org_id      VARCHAR(36)   PRIMARY KEY,
+    slug        VARCHAR(64)   NOT NULL,
+    name        VARCHAR(255)  NOT NULL,
+    created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_td_organization_slug ON td_organization (slug);
+
+CREATE TABLE IF NOT EXISTS td_org_membership (
+    org_id      VARCHAR(36)  NOT NULL REFERENCES td_organization (org_id) ON DELETE CASCADE,
+    account_id  VARCHAR(36)  NOT NULL REFERENCES td_account (account_id) ON DELETE CASCADE,
+    role        VARCHAR(16)  NOT NULL,
+    created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (org_id, account_id)
+);
+
+CREATE INDEX IF NOT EXISTS ix_td_org_membership_account ON td_org_membership (account_id);
+
+CREATE TABLE IF NOT EXISTS td_subscription (
+    subscription_id     VARCHAR(36)  PRIMARY KEY,
+    org_id              VARCHAR(36)  NOT NULL REFERENCES td_organization (org_id) ON DELETE CASCADE,
+    plan_code           VARCHAR(32)  NOT NULL,
+    status              VARCHAR(32)  NOT NULL,
+    seat_limit          INTEGER      NOT NULL,
+    workspace_limit     INTEGER      NOT NULL,
+    spec_limit          INTEGER      NOT NULL,
+    run_limit_month     INTEGER      NOT NULL,
+    trial_ends_at       TIMESTAMP,
+    current_period_end  TIMESTAMP,
+    created_at          TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_td_subscription_org ON td_subscription (org_id);
+
+CREATE TABLE IF NOT EXISTS td_usage_month (
+    org_id      VARCHAR(36) NOT NULL REFERENCES td_organization (org_id) ON DELETE CASCADE,
+    year_month  VARCHAR(7)  NOT NULL,
+    run_count   INTEGER     NOT NULL DEFAULT 0,
+    PRIMARY KEY (org_id, year_month)
+);
+
+ALTER TABLE td_tenant ADD COLUMN IF NOT EXISTS org_id VARCHAR(36);
+
+INSERT INTO td_organization (org_id, slug, name, created_at)
+SELECT t.tenant_id, t.slug, t.name, t.created_at
+  FROM td_tenant t
+ WHERE NOT EXISTS (SELECT 1 FROM td_organization o WHERE o.org_id = t.tenant_id);
+
+UPDATE td_tenant
+   SET org_id = tenant_id
+ WHERE org_id IS NULL OR BTRIM(org_id) = '';
+
+INSERT INTO td_org_membership (org_id, account_id, role, created_at)
+SELECT t.org_id, m.account_id, 'OWNER', m.created_at
+  FROM td_membership m
+  JOIN td_tenant t ON t.tenant_id = m.tenant_id
+ WHERE m.role = 'OWNER'
+   AND t.org_id IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM td_org_membership om
+        WHERE om.org_id = t.org_id AND om.account_id = m.account_id
+   );
+
+INSERT INTO td_org_membership (org_id, account_id, role, created_at)
+SELECT t.org_id, m.account_id, 'MEMBER', m.created_at
+  FROM td_membership m
+  JOIN td_tenant t ON t.tenant_id = m.tenant_id
+ WHERE t.org_id IS NOT NULL
+   AND NOT EXISTS (
+       SELECT 1 FROM td_org_membership om
+        WHERE om.org_id = t.org_id AND om.account_id = m.account_id
+   );
+
+INSERT INTO td_subscription (
+    subscription_id, org_id, plan_code, status,
+    seat_limit, workspace_limit, spec_limit, run_limit_month,
+    created_at)
+SELECT t.tenant_id, t.org_id,
+       CASE
+         WHEN t.tenant_id IN (
+             '00000000-0000-0000-0000-000000000001',
+             '00000000-0000-0000-0000-000000000002') THEN 'enterprise'
+         WHEN t.ready THEN 'team'
+         ELSE 'trial'
+       END,
+       CASE
+         WHEN t.tenant_id IN (
+             '00000000-0000-0000-0000-000000000001',
+             '00000000-0000-0000-0000-000000000002') THEN 'active'
+         WHEN t.ready THEN 'active'
+         ELSE 'trial'
+       END,
+       CASE WHEN t.ready OR t.tenant_id IN (
+             '00000000-0000-0000-0000-000000000001',
+             '00000000-0000-0000-0000-000000000002') THEN 10 ELSE 2 END,
+       CASE WHEN t.ready OR t.tenant_id IN (
+             '00000000-0000-0000-0000-000000000001',
+             '00000000-0000-0000-0000-000000000002') THEN 5 ELSE 1 END,
+       CASE WHEN t.ready OR t.tenant_id IN (
+             '00000000-0000-0000-0000-000000000001',
+             '00000000-0000-0000-0000-000000000002') THEN 50 ELSE 3 END,
+       CASE WHEN t.ready OR t.tenant_id IN (
+             '00000000-0000-0000-0000-000000000001',
+             '00000000-0000-0000-0000-000000000002') THEN 5000 ELSE 100 END,
+       t.created_at
+  FROM td_tenant t
+ WHERE t.org_id IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM td_subscription s WHERE s.org_id = t.org_id);
+
+ALTER TABLE td_tenant DROP CONSTRAINT IF EXISTS fk_td_tenant_org;
+ALTER TABLE td_tenant ADD CONSTRAINT fk_td_tenant_org FOREIGN KEY (org_id)
+    REFERENCES td_organization (org_id);
