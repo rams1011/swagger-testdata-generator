@@ -65,6 +65,29 @@ jobs:
           cache-from: type=gha,scope=testdata-studio
           cache-to: type=gha,mode=max,scope=testdata-studio
 
+      - name: Cloud Run env file
+        run: |
+          {
+            echo "SERVER_PORT=8080"
+            echo "TESTDATA_STORAGE_TYPE=database"
+            echo "TESTDATA_H2_FILE=/tmp/testdata"
+            echo "TESTDATA_H2_IN_MEMORY=false"
+            echo "TESTDATA_SAAS_ENABLED=true"
+            echo "TESTDATA_SAAS_CORS_ORIGINS=*"
+            echo "TESTDATA_ALLOYDB_INSTANCE=${TESTDATA_ALLOYDB_INSTANCE}"
+            echo "SPRING_DATASOURCE_USERNAME=${TESTDATA_DATASOURCE_USERNAME:-postgres}"
+            if [ -n "${TESTDATA_DATASOURCE_URL}" ]; then
+              echo "TESTDATA_DATASOURCE_URL=${TESTDATA_DATASOURCE_URL}"
+            fi
+            if [ -n "${TESTDATA_DATASOURCE_USERNAME}" ]; then
+              echo "TESTDATA_DATASOURCE_USERNAME=${TESTDATA_DATASOURCE_USERNAME}"
+            fi
+            if [ -n "${TESTDATA_DATASOURCE_PASSWORD}" ]; then
+              echo "TESTDATA_DATASOURCE_PASSWORD=${TESTDATA_DATASOURCE_PASSWORD}"
+              echo "SPRING_DATASOURCE_PASSWORD=${TESTDATA_DATASOURCE_PASSWORD}"
+            fi
+          } > "${GITHUB_WORKSPACE}/cloudrun.env"
+
       - name: Deploy testdata-studio to Cloud Run
         uses: google-github-actions/deploy-cloudrun@v2
         id: studio
@@ -73,17 +96,7 @@ jobs:
           image: ${{ steps.prefix.outputs.value }}/testdata-studio:${{ github.sha }}
           region: ${{ env.REGION }}
           flags: --port=8080 --allow-unauthenticated --cpu=1 --memory=1Gi --min-instances=0 --max-instances=1
-          env_vars: |
-            SERVER_PORT=8080
-            TESTDATA_STORAGE_TYPE=database
-            TESTDATA_H2_FILE=/tmp/testdata
-            TESTDATA_H2_IN_MEMORY=false
-            TESTDATA_SAAS_ENABLED=true
-            TESTDATA_SAAS_CORS_ORIGINS=http://localhost:*,http://127.0.0.1:*,https://*.run.app,https://*.*.run.app
-            TESTDATA_DATASOURCE_URL=${{ env.TESTDATA_DATASOURCE_URL }}
-            TESTDATA_DATASOURCE_USERNAME=${{ env.TESTDATA_DATASOURCE_USERNAME }}
-            TESTDATA_DATASOURCE_PASSWORD=${{ env.TESTDATA_DATASOURCE_PASSWORD }}
-            TESTDATA_ALLOYDB_INSTANCE=${{ env.TESTDATA_ALLOYDB_INSTANCE }}
+          env_vars_file: cloudrun.env
 
       - name: Service URL
         run: echo "Studio API ${{ steps.studio.outputs.url }}"
