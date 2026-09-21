@@ -1,4 +1,4 @@
 package com.tx.api.test.generator.studio.dto;
 
-public record UpdateSubscriptionRequest(Boolean ready) {
+public record UpdateSubscriptionRequest(Boolean ready, String plan, String status) {
 }

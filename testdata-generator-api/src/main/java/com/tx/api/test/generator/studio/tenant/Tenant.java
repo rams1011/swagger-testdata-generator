@@ -5,6 +5,7 @@ import java.time.Instant;
 public class Tenant {
 
     private String id;
+    private String orgId;
     private String slug;
     private String name;
     private Instant createdAt;
@@ -17,6 +18,14 @@ public class Tenant {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public String getOrgId() {
+        return orgId;
+    }
+
+    public void setOrgId(String orgId) {
+        this.orgId = orgId;
     }
 
     public String getSlug() {

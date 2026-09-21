@@ -48,6 +48,7 @@ import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
+import com.tx.api.test.generator.studio.tenant.EntitlementService;
 import com.tx.api.test.generator.writer.TestDataExcelWriter;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -85,18 +86,22 @@ public class TestDataStudioService {
     private final StudioStorage studioStorage;
     private final TestRunService testRunService;
     private final RunHistoryService runHistoryService;
+    private final EntitlementService entitlements;
     private final TestDataExcelWriter excelWriter = new TestDataExcelWriter();
     private final String serverPort;
 
     public TestDataStudioService(SpecCatalogService specCatalogService, StudioProperties properties,
                                  StudioStorage studioStorage, TestRunService testRunService,
                                  RunHistoryService runHistoryService,
+                                 @org.springframework.beans.factory.annotation.Autowired(required = false)
+                                 EntitlementService entitlements,
                                  @Value("${server.port:8083}") String serverPort) {
         this.specCatalogService = specCatalogService;
         this.properties = properties;
         this.studioStorage = studioStorage;
         this.testRunService = testRunService;
         this.runHistoryService = runHistoryService;
+        this.entitlements = entitlements;
         this.serverPort = serverPort;
     }
 
@@ -321,6 +326,9 @@ public class TestDataStudioService {
     }
 
     public RunTestResult run(RunTestRequest request) {
+        if (entitlements != null) {
+            entitlements.requireAndIncrementRun();
+        }
         if (request == null) {
             throw new IllegalArgumentException("caseId or testCase is required");
         }
@@ -371,6 +379,9 @@ public class TestDataStudioService {
     }
 
     public RunPlanResult runPlan(RunPlanRequest request) {
+        if (entitlements != null) {
+            entitlements.requireAndIncrementRun();
+        }
         if (request == null || StringUtils.isBlank(request.specId()) || StringUtils.isBlank(request.planId())) {
             throw new IllegalArgumentException("specId and planId are required");
         }
