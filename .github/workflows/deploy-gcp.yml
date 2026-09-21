@@ -69,6 +69,7 @@ jobs:
             TESTDATA_H2_FILE=/tmp/testdata
             TESTDATA_H2_IN_MEMORY=false
             TESTDATA_SAAS_ENABLED=false
+            TESTDATA_SAAS_CORS_ORIGINS=http://localhost:*,http://127.0.0.1:*,https://*.run.app,https://*.*.run.app
 
       - name: Service URL
         run: echo "Studio API ${{ steps.studio.outputs.url }}"

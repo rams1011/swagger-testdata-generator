@@ -194,7 +194,7 @@ public class StudioProperties {
     public static class Saas {
         private boolean enabled = false;
         private int sessionDays = 14;
-        private String corsOrigins = "http://localhost:*,http://127.0.0.1:*";
+        private String corsOrigins = "http://localhost:*,http://127.0.0.1:*,https://*.run.app,https://*.*.run.app";
         private String adminEmail = "";
         private String adminPassword = "";
 
@@ -228,7 +228,12 @@ public class StudioProperties {
 
         public String[] originPatterns() {
             if (corsOrigins == null || corsOrigins.isBlank()) {
-                return new String[] {"http://localhost:*", "http://127.0.0.1:*"};
+                return new String[] {
+                        "http://localhost:*",
+                        "http://127.0.0.1:*",
+                        "https://*.run.app",
+                        "https://*.*.run.app"
+                };
             }
             return java.util.Arrays.stream(corsOrigins.split(","))
                     .map(String::trim)
