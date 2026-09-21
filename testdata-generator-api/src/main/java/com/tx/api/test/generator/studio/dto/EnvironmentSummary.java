@@ -4,6 +4,7 @@ public record EnvironmentSummary(
         String id,
         String specId,
         String name,
-        String baseUrl
+        String baseUrl,
+        String authType
 ) {
 }

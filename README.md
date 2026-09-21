@@ -83,21 +83,23 @@ API base: [http://localhost:8083](http://localhost:8083)
 | `GET` | `/api/specs` | List loaded specs |
 | `GET` | `/api/specs/{specId}` | Spec summary |
 | `GET` | `/api/specs/{specId}/operations` | Operation list (dynamic pages) |
+| `POST` | `/api/specs/{specId}/operations` | Add a REST API (manual catalogs and extra Swagger operations) |
 | `GET` | `/api/specs/{specId}/operations/{key}` | JSON Schema, samples, and defaults for one operation |
 | `GET` | `/api/specs/{specId}/plans` | List test plans for a spec (creates **Default** on first access) |
 | `POST` | `/api/specs/{specId}/plans` | Create a named test plan |
 | `PUT` | `/api/specs/{specId}/plans/{planId}` | Rename a test plan |
 | `DELETE` | `/api/specs/{specId}/plans/{planId}` | Delete a plan and its cases (the last plan cannot be deleted) |
-| `POST` | `/api/testdata` | Save a test case into a plan (`planId`) |
-| `POST` | `/api/testdata/generate` | Auto-generate positive and negative cases from the spec/operation schema into a plan |
+| `POST` | `/api/testdata` | Save a test case into a plan (`planId`). With `environmentId`, the case belongs to that environment |
+| `POST` | `/api/testdata/generate` | Auto-generate positive and negative cases from the spec/operation schema into a plan (`environmentId` scopes create/skip) |
 | `POST` | `/api/testdata/generate-plans` | Create/fill a **Smoke** plan (one happy path per operation) and an optional **Negative** plan |
 | `PUT` | `/api/testdata/{id}` | Update a test case |
-| `GET` | `/api/testdata?specId=&planId=&operationKey=` | List saved cases for a plan |
-| `DELETE` | `/api/testdata/{id}` | Delete a case |
-| `POST` | `/api/testdata/export` | Download Excel for one plan (`specId` + `planId`) |
+| `GET` | `/api/testdata?specId=&planId=&operationKey=&environmentId=` | List saved cases for a plan (environment filters the list) |
+| `POST` | `/api/testdata/{id}/duplicate` | Copy a case into another environment as a new id (`fromEnvironmentId`, `toEnvironmentId`) |
+| `DELETE` | `/api/testdata/{id}` | Delete a case (`?environmentId=` removes it from that environment only) |
+| `POST` | `/api/testdata/export` | Download Excel for one plan in the selected environment (`specId`, `planId`, `environmentId`) |
 | `POST` | `/api/testdata/run` | Run the current (unsaved) case; body is `{ testCase, auth }` |
 | `POST` | `/api/testdata/{id}/run` | Run a saved case with optional `{ auth }` |
-| `POST` | `/api/testdata/run-plan` | Run all enabled cases in a plan (`specId`, `planId`, `auth`) |
+| `POST` | `/api/testdata/run-plan` | Run enabled cases in a plan for one environment (`specId`, `planId`, `auth`, `environmentId`) |
 | `GET` | `/api/runs?specId=&planId=&caseId=&outcome=&trigger=&limit=` | List persisted run batches (H2/Postgres). Newest first |
 | `GET` | `/api/runs/{runId}` | One run plus request/response snapshots |
 | `GET` | `/api/runs/{runId}/results/{resultId}` | One HTTP snapshot (body still available after the case is edited) |
@@ -153,7 +155,7 @@ testdata:
     max-per-spec: 100
 ```
 
-On startup the API runs `classpath:ddl/schema.sql` (PostgreSQL-compatible H2 mode). Data is stored as `./studio-output/testdata.mv.db`. File H2 is opened with `AUTO_SERVER=TRUE` so api-automation can connect while Studio is running; restart Studio after upgrading for that to take effect. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file` keyed by `test_case_id` (the case already belongs to a spec) and written to `testdata.default-output-dir/files` on Excel export (`UploadFiles` column uses `testdata.files-path-prefix`).
+On startup the API runs `classpath:ddl/schema.sql` (PostgreSQL-compatible H2 mode). Data is stored as `./studio-output/testdata.mv.db`. File H2 is opened with `AUTO_SERVER=TRUE` so api-automation can connect while Studio is running; restart Studio after upgrading for that to take effect. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file`. Excel export downloads a zip (`workbook.xlsx` plus `files/<caseId>/`) when cases have uploads — it does not write into an api-automation checkout.
 
 After each Try / Run / Run plan, the oldest batches for that spec are deleted once the spec has more than `testdata.run-history.max-per-spec` runs (default `100`). Set `0` to keep history unbounded.
 
@@ -222,6 +224,8 @@ Use the **Test plan** control in the sidebar to switch plans, add a plan, or del
 **Reload spec** (home list or sidebar) replaces the OpenAPI document for that spec id. Plans and saved cases are not deleted. New and changed operations appear immediately. Cases whose `operationKey` disappeared stay in the plan as orphans (counted in the reload result) until you delete them. The stored base URL is kept unless you pass a new one. Change the spec **Base URL** in the workspace bar without reloading the document; saved cases that still used the previous spec URL are updated. **Load spec** still creates a *new* spec id and leaves existing data untouched. Each spec has a unique **name** (required when loading); the OpenAPI `info.title` is stored separately and can stay the same across specs.
 
 **Run** on an operation page executes the current form (save is not required). **Run plan** on the saved-cases page runs every enabled case. Set **Run authentication** to credentials (HTTP Basic), a bearer token, or an API key; the values stay in browser `sessionStorage` for that spec and are not written to Excel or the studio database. Choose **None** when a case already sends `Authorization` (for example generated 401 tests).
+
+**Environments** own their cases. Save, update, delete, generate, export, and run-plan apply to the selected environment. **Duplicate into** creates a new case (and files) in another environment. Uploads belong to the case, not a separate env column. Collection export is scoped to the selected environment and stores membership **names**. Restart testdata-generator-api so H2 picks up the latest schema.
 
 **History** lists saved Try / Run / Run plan snapshots (H2 or PostgreSQL). Oldest runs are pruned when a spec exceeds `testdata.run-history.max-per-spec` (default 100). Tick two runs to compare status, timing, assertions, and bodies (older vs newer).
 

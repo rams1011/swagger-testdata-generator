@@ -30,6 +30,24 @@
         "tokenUrl": { "type": ["string", "null"] },
         "grantType": { "type": ["string", "null"] }
       }
+    },
+    "cases": {
+      "type": "object",
+      "description": "Optional per-case overlays keyed by case id. Missing keys fall back to the collection case.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "body": true,
+          "expectedResponse": { "type": ["string", "null"] },
+          "pathParams": { "type": "object", "additionalProperties": { "type": "string" } },
+          "queryParams": { "type": "object", "additionalProperties": { "type": "string" } },
+          "headers": { "type": "object", "additionalProperties": { "type": "string" } },
+          "cookies": { "type": "object", "additionalProperties": { "type": "string" } },
+          "statusCode": { "type": ["integer", "null"] },
+          "jsonPathAssertions": { "type": ["string", "null"] }
+        }
+      }
     }
   }
 }

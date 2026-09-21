@@ -13,7 +13,12 @@ public final class CollectionExporter {
     }
 
     public static CollectionExport export(StudioStorage storage, String specId, String planId) {
-        StudioCollection collection = CollectionMapper.readFrom(storage, specId, planId);
+        return export(storage, specId, planId, null);
+    }
+
+    public static CollectionExport export(StudioStorage storage, String specId, String planId,
+                                          String environmentName) {
+        StudioCollection collection = CollectionMapper.readFrom(storage, specId, planId, environmentName);
         if (collection.cases().isEmpty()) {
             throw new IllegalStateException("No test cases have been saved for this plan yet");
         }

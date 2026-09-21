@@ -114,8 +114,8 @@ public class SpecCatalogService {
     }
 
     public OperationPage addOperation(String specId, ManualOperationRequest request) {
-        StoredSpec stored = requireManualSpec(specId);
-        String nextContent = ManualSpecDocument.addOperation(stored.getSourceContent(), request);
+        StoredSpec stored = requireStoredSpec(specId);
+        String nextContent = ManualSpecDocument.addOperation(jsonSource(stored.getSourceContent()), request);
         return persistManualContent(
                 stored,
                 nextContent,
@@ -124,9 +124,10 @@ public class SpecCatalogService {
     }
 
     public void deleteOperation(String specId, String operationKey) {
-        StoredSpec stored = requireManualSpec(specId);
+        StoredSpec stored = requireStoredSpec(specId);
         OperationPage page = getOperation(specId, operationKey);
-        String nextContent = ManualSpecDocument.removeOperation(stored.getSourceContent(), page.method(), page.path());
+        String nextContent = ManualSpecDocument.removeOperation(
+                jsonSource(stored.getSourceContent()), page.method(), page.path());
         persistManualContent(stored, nextContent, null, null);
     }
 
@@ -520,13 +521,25 @@ public class SpecCatalogService {
         return candidate;
     }
 
-    private StoredSpec requireManualSpec(String specId) {
-        StoredSpec stored = studioStorage.findSpec(specId)
+    private StoredSpec requireStoredSpec(String specId) {
+        return studioStorage.findSpec(specId)
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
-        if (!ManualSpecDocument.isManualContent(stored.getSourceContent())) {
-            throw new IllegalArgumentException("Add extra REST APIs on a REST catalog, not on a Swagger spec");
+    }
+
+    private String jsonSource(String content) {
+        if (StringUtils.isBlank(content)) {
+            throw new IllegalArgumentException("Spec source is missing");
         }
-        return stored;
+        String trimmed = content.trim();
+        if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+            return content;
+        }
+        try {
+            OpenAPI openApi = TestdataGenerator.loadSpecFromContent(content);
+            return io.swagger.v3.core.util.Json.pretty(openApi);
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("Spec source must be OpenAPI JSON or YAML to add an API", exception);
+        }
     }
 
     private OperationPage persistManualContent(StoredSpec stored, String content, String path, String method) {

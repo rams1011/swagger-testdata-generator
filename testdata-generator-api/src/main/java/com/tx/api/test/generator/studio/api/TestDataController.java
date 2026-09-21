@@ -2,6 +2,7 @@ package com.tx.api.test.generator.studio.api;
 
 import com.tx.api.test.generator.studio.dto.CollectionExport;
 import com.tx.api.test.generator.studio.dto.CollectionImportResult;
+import com.tx.api.test.generator.studio.dto.CopyEnvironmentOverlayRequest;
 import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
 import com.tx.api.test.generator.studio.dto.ExcelExport;
@@ -46,9 +47,6 @@ import java.util.Map;
 @RequestMapping("/api/testdata")
 public class TestDataController {
 
-    private static final MediaType EXCEL = MediaType.parseMediaType(
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-
     private final TestDataStudioService testDataStudioService;
 
     public TestDataController(TestDataStudioService testDataStudioService) {
@@ -84,7 +82,8 @@ public class TestDataController {
     @PostMapping("/{id}/run")
     public RunTestResult runSaved(@PathVariable String id, @RequestBody(required = false) RunTestRequest request) {
         RunAuth auth = request == null ? null : request.auth();
-        return testDataStudioService.run(new RunTestRequest(id, null, auth));
+        String environmentId = request == null ? null : request.environmentId();
+        return testDataStudioService.run(new RunTestRequest(id, null, auth, environmentId));
     }
 
     @PutMapping("/{id}")
@@ -94,8 +93,8 @@ public class TestDataController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void delete(@PathVariable String id) {
-        testDataStudioService.delete(id);
+    public void delete(@PathVariable String id, @RequestParam(required = false) String environmentId) {
+        testDataStudioService.delete(id, environmentId);
     }
 
     @GetMapping("/config")
@@ -104,22 +103,28 @@ public class TestDataController {
     }
 
     @GetMapping("/{id}")
-    public TestCaseView get(@PathVariable String id) {
-        return testDataStudioService.get(id);
+    public TestCaseView get(@PathVariable String id, @RequestParam(required = false) String environmentId) {
+        return testDataStudioService.get(id, environmentId);
     }
 
     @GetMapping
     public List<TestCaseView> list(@RequestParam(required = false) String specId,
                                    @RequestParam(required = false) String planId,
-                                   @RequestParam(required = false) String operationKey) {
-        return testDataStudioService.list(specId, planId, operationKey);
+                                   @RequestParam(required = false) String operationKey,
+                                   @RequestParam(required = false) String environmentId) {
+        return testDataStudioService.list(specId, planId, operationKey, environmentId);
+    }
+
+    @PostMapping("/{id}/duplicate")
+    public TestCaseView duplicate(@PathVariable String id, @RequestBody CopyEnvironmentOverlayRequest request) {
+        return testDataStudioService.duplicate(id, request);
     }
 
     @PostMapping("/export")
     public ResponseEntity<byte[]> export(@RequestBody ExportRequest request) {
         ExcelExport exported = testDataStudioService.export(request);
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(EXCEL);
+        headers.setContentType(MediaType.parseMediaType(exported.mediaType()));
         headers.setContentLength(exported.content().length);
         headers.setContentDisposition(ContentDisposition.attachment()
                 .filename(exported.fileName(), StandardCharsets.UTF_8)
@@ -141,20 +146,24 @@ public class TestDataController {
 
     @PostMapping(value = "/import-collection", consumes = MediaType.APPLICATION_JSON_VALUE)
     public CollectionImportResult importCollectionJson(@RequestParam(required = false) String specId,
+                                                       @RequestParam(required = false) String environmentId,
                                                        @RequestBody String json) {
         return testDataStudioService.importCollection(
                 json == null ? new byte[0] : json.getBytes(StandardCharsets.UTF_8),
                 "collection.json",
-                specId);
+                specId,
+                environmentId);
     }
 
     @PostMapping(value = "/import-collection", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public CollectionImportResult importCollectionFile(@RequestParam(required = false) String specId,
+                                                       @RequestParam(required = false) String environmentId,
                                                        @RequestPart("file") MultipartFile file) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("Collection JSON or zip is required");
         }
-        return testDataStudioService.importCollection(file.getBytes(), file.getOriginalFilename(), specId);
+        return testDataStudioService.importCollection(file.getBytes(), file.getOriginalFilename(), specId,
+                environmentId);
     }
 
     @PostMapping("/export-environment")

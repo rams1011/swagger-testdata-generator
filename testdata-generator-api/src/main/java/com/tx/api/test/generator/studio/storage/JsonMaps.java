@@ -5,7 +5,9 @@ import com.google.gson.GsonBuilder;
 import com.google.gson.reflect.TypeToken;
 
 import java.lang.reflect.Type;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 final class JsonMaps {
@@ -13,6 +15,7 @@ final class JsonMaps {
     private static final Gson GSON = new GsonBuilder().create();
     private static final Type STRING_MAP = new TypeToken<LinkedHashMap<String, String>>() { }.getType();
     private static final Type OBJECT_MAP = new TypeToken<LinkedHashMap<String, Object>>() { }.getType();
+    private static final Type STRING_LIST = new TypeToken<ArrayList<String>>() { }.getType();
 
     private JsonMaps() {
     }
@@ -45,5 +48,16 @@ final class JsonMaps {
         }
         Map<String, Object> map = GSON.fromJson(json, OBJECT_MAP);
         return map == null ? new LinkedHashMap<>() : map;
+    }
+
+    static List<String> toStringList(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        List<String> list = GSON.fromJson(json, STRING_LIST);
+        if (list == null || list.isEmpty()) {
+            return null;
+        }
+        return list;
     }
 }

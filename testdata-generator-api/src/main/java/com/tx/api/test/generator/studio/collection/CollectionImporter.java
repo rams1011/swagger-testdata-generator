@@ -22,12 +22,23 @@ public final class CollectionImporter {
 
     public static CollectionImportResult importInto(StudioStorage storage, byte[] bytes, String fileName,
                                                     String targetSpecId) {
+        return importInto(storage, bytes, fileName, targetSpecId, null);
+    }
+
+    public static CollectionImportResult importInto(StudioStorage storage, byte[] bytes, String fileName,
+                                                    String targetSpecId, String environmentName) {
         CollectionArchive archive = CollectionPackage.parse(bytes, fileName);
-        return importInto(storage, archive.collection(), archive.files(), targetSpecId);
+        return importInto(storage, archive.collection(), archive.files(), targetSpecId, environmentName);
     }
 
     public static CollectionImportResult importInto(StudioStorage storage, StudioCollection collection,
                                                     Map<String, byte[]> files, String targetSpecId) {
+        return importInto(storage, collection, files, targetSpecId, null);
+    }
+
+    public static CollectionImportResult importInto(StudioStorage storage, StudioCollection collection,
+                                                    Map<String, byte[]> files, String targetSpecId,
+                                                    String environmentName) {
         CollectionMapper.validate(collection);
         StoredSpec spec = resolveSpec(storage, collection, targetSpecId);
         PlanResolution plan = resolvePlan(storage, spec, collection.plan());
@@ -44,6 +55,9 @@ public final class CollectionImporter {
             testCase.setPlanId(plan.plan().getId());
             testCase.setBaseUrl(CollectionMapper.resolveStoredBaseUrl(
                     item.baseUrl(), collection.spec().baseUrl(), spec.getBaseUrl()));
+            if (StringUtils.isNotBlank(environmentName)) {
+                testCase.setEnvironments(EnvironmentScope.normalize(List.of(environmentName)));
+            }
             if (storage.findTestCase(testCase.getId()).isPresent()) {
                 updated++;
             } else {

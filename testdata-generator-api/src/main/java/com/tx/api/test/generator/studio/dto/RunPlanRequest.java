@@ -3,10 +3,12 @@ package com.tx.api.test.generator.studio.dto;
 public record RunPlanRequest(
         String specId,
         String planId,
-        RunAuth auth
+        RunAuth auth,
+        String environmentId
 ) {
     @Override
     public String toString() {
-        return "RunPlanRequest[specId=" + specId + ", planId=" + planId + ", auth=" + auth + "]";
+        return "RunPlanRequest[specId=" + specId + ", planId=" + planId + ", auth=" + auth
+                + ", environmentId=" + environmentId + "]";
     }
 }

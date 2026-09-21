@@ -4,6 +4,7 @@ public record GeneratePlansRequest(
         String specId,
         String smokePlanName,
         Boolean includeNegative,
-        String negativePlanName
+        String negativePlanName,
+        String environmentId
 ) {
 }

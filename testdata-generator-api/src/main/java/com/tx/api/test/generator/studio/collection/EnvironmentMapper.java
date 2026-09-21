@@ -21,27 +21,100 @@ public final class EnvironmentMapper {
         if (spec == null) {
             throw new CollectionFormatException("spec is required");
         }
+        return fromInputs(name, spec.getBaseUrl(), authType);
+    }
+
+    public static StudioEnvironment fromInputs(String name, String baseUrl, String authType) {
         String environmentName = StringUtils.defaultIfBlank(name, "local").trim();
         Map<String, String> values = new LinkedHashMap<>();
-        if (StringUtils.isNotBlank(spec.getBaseUrl())) {
-            values.put("baseUrl", spec.getBaseUrl().trim());
+        if (StringUtils.isNotBlank(baseUrl)) {
+            values.put("baseUrl", baseUrl.trim());
         }
         StudioEnvironment environment = new StudioEnvironment(
                 CollectionFormat.ENVIRONMENT_FORMAT,
                 CollectionFormat.VERSION,
                 environmentName,
                 values,
-                placeholderAuth(authType)
+                placeholderAuth(authType),
+                new LinkedHashMap<>()
         );
         CollectionMapper.validate(environment);
         rejectRawSecrets(environment);
         return environment;
     }
 
+    public static StudioEnvironment merge(StudioEnvironment existing, String name, String baseUrl, String authType) {
+        if (existing == null) {
+            return fromInputs(name, baseUrl, authType);
+        }
+        String environmentName = StringUtils.defaultIfBlank(name, existing.name()).trim();
+        Map<String, String> values = existing.values() == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(existing.values());
+        if (baseUrl == null) {
+            // keep existing baseUrl
+        } else if (StringUtils.isBlank(baseUrl)) {
+            values.remove("baseUrl");
+        } else {
+            values.put("baseUrl", baseUrl.trim());
+        }
+        String nextType = StringUtils.defaultIfBlank(authType, authType(existing));
+        StudioEnvironmentAuth auth = authType(existing).equalsIgnoreCase(nextType.trim())
+                ? existing.auth()
+                : placeholderAuth(nextType);
+        StudioEnvironment environment = new StudioEnvironment(
+                CollectionFormat.ENVIRONMENT_FORMAT,
+                CollectionFormat.VERSION,
+                environmentName,
+                values,
+                auth,
+                existing.caseOverlays().isEmpty() ? new LinkedHashMap<>() : new LinkedHashMap<>(existing.caseOverlays())
+        );
+        CollectionMapper.validate(environment);
+        rejectRawSecrets(environment);
+        return environment;
+    }
+
+    public static StudioEnvironment withoutOverlays(StudioEnvironment environment) {
+        if (environment == null) {
+            return null;
+        }
+        return new StudioEnvironment(
+                environment.format(),
+                environment.version(),
+                environment.name(),
+                environment.values() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(environment.values()),
+                environment.auth(),
+                new LinkedHashMap<>()
+        );
+    }
+
+    public static String authType(StudioEnvironment environment) {
+        if (environment == null || environment.auth() == null || StringUtils.isBlank(environment.auth().type())) {
+            return "NONE";
+        }
+        return environment.auth().type().trim().toUpperCase(Locale.ROOT);
+    }
+
+    public static String copyName(String source, java.util.function.Predicate<String> taken) {
+        String base = StringUtils.defaultIfBlank(source, "local").trim() + "-copy";
+        if (taken == null || !taken.test(base)) {
+            return base;
+        }
+        for (int index = 2; index < 100; index++) {
+            String candidate = base + "-" + index;
+            if (!taken.test(candidate)) {
+                return candidate;
+            }
+        }
+        return base + "-" + System.currentTimeMillis();
+    }
+
     public static EnvironmentSummary toSummary(StoredEnvironment stored) {
         StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
         String baseUrl = environment.values() == null ? null : environment.values().get("baseUrl");
-        return new EnvironmentSummary(stored.getId(), stored.getSpecId(), stored.getName(), baseUrl);
+        return new EnvironmentSummary(stored.getId(), stored.getSpecId(), stored.getName(), baseUrl,
+                authType(environment));
     }
 
     public static String baseUrl(StudioEnvironment environment) {

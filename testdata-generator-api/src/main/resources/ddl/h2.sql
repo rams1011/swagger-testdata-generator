@@ -3,13 +3,93 @@
 -- (H2 is started in PostgreSQL compatibility mode).
 --
 -- Use this file only if you apply the schema by hand in the H2 console:
---   http://localhost:8090/h2-console
+--   http://localhost:8083/h2-console
 --
 -- JDBC URL, user, and password are in testdata.h2.* / GET /api/testdata/config
+-- Keep this file aligned with schema.sql.
+
+CREATE TABLE IF NOT EXISTS td_tenant (
+    tenant_id   VARCHAR(36)   NOT NULL,
+    slug        VARCHAR(64)   NOT NULL,
+    name        VARCHAR(255)  NOT NULL,
+    ready       BOOLEAN       NOT NULL DEFAULT FALSE,
+    enabled_at  TIMESTAMP,
+    created_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_tenant PRIMARY KEY (tenant_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_td_tenant_slug ON td_tenant (slug);
+
+INSERT INTO td_tenant (tenant_id, slug, name, created_at)
+SELECT '00000000-0000-0000-0000-000000000001', 'local', 'Local', CURRENT_TIMESTAMP
+ WHERE NOT EXISTS (
+     SELECT 1 FROM td_tenant WHERE tenant_id = '00000000-0000-0000-0000-000000000001'
+ );
+
+INSERT INTO td_tenant (tenant_id, slug, name, created_at)
+SELECT '00000000-0000-0000-0000-000000000002', 'saas-platform', 'SaaS', CURRENT_TIMESTAMP
+ WHERE NOT EXISTS (
+     SELECT 1 FROM td_tenant WHERE tenant_id = '00000000-0000-0000-0000-000000000002'
+ );
+
+ALTER TABLE td_tenant ADD COLUMN IF NOT EXISTS ready BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE td_tenant ADD COLUMN IF NOT EXISTS enabled_at TIMESTAMP;
+
+UPDATE td_tenant
+   SET ready = TRUE
+ WHERE tenant_id IN (
+     '00000000-0000-0000-0000-000000000001',
+     '00000000-0000-0000-0000-000000000002'
+ );
+
+CREATE TABLE IF NOT EXISTS td_account (
+    account_id     VARCHAR(36)   NOT NULL,
+    email          VARCHAR(320)  NOT NULL,
+    password_hash  VARCHAR(255)  NOT NULL,
+    display_name   VARCHAR(255)  NOT NULL,
+    platform_role  VARCHAR(16)   NOT NULL DEFAULT 'USER',
+    created_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_account PRIMARY KEY (account_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_td_account_email ON td_account (email);
+
+ALTER TABLE td_account ADD COLUMN IF NOT EXISTS platform_role VARCHAR(16) NOT NULL DEFAULT 'USER';
+
+CREATE TABLE IF NOT EXISTS td_membership (
+    tenant_id   VARCHAR(36)  NOT NULL,
+    account_id  VARCHAR(36)  NOT NULL,
+    role        VARCHAR(16)  NOT NULL,
+    created_at  TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_membership PRIMARY KEY (tenant_id, account_id),
+    CONSTRAINT fk_td_membership_tenant FOREIGN KEY (tenant_id)
+        REFERENCES td_tenant (tenant_id) ON DELETE CASCADE,
+    CONSTRAINT fk_td_membership_account FOREIGN KEY (account_id)
+        REFERENCES td_account (account_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_td_membership_account ON td_membership (account_id);
+
+CREATE TABLE IF NOT EXISTS td_session (
+    token_hash   VARCHAR(64)  NOT NULL,
+    account_id   VARCHAR(36)  NOT NULL,
+    tenant_id    VARCHAR(36)  NOT NULL,
+    expires_at   TIMESTAMP    NOT NULL,
+    created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_session PRIMARY KEY (token_hash),
+    CONSTRAINT fk_td_session_account FOREIGN KEY (account_id)
+        REFERENCES td_account (account_id) ON DELETE CASCADE,
+    CONSTRAINT fk_td_session_tenant FOREIGN KEY (tenant_id)
+        REFERENCES td_tenant (tenant_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_td_session_account ON td_session (account_id);
 
 CREATE TABLE IF NOT EXISTS td_spec (
     spec_id           VARCHAR(36)   NOT NULL,
+    tenant_id         VARCHAR(36),
     name              VARCHAR(255),
+    label             VARCHAR(255),
     title             VARCHAR(255)  NOT NULL,
     version           VARCHAR(64),
     description       TEXT,
@@ -22,9 +102,24 @@ CREATE TABLE IF NOT EXISTS td_spec (
     CONSTRAINT pk_td_spec PRIMARY KEY (spec_id)
 );
 
+ALTER TABLE td_spec ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(36);
+
+UPDATE td_spec
+   SET tenant_id = '00000000-0000-0000-0000-000000000001'
+ WHERE tenant_id IS NULL OR TRIM(tenant_id) = '';
+
+ALTER TABLE td_spec DROP CONSTRAINT IF EXISTS fk_td_spec_tenant;
+ALTER TABLE td_spec ADD CONSTRAINT fk_td_spec_tenant FOREIGN KEY (tenant_id)
+    REFERENCES td_tenant (tenant_id);
+
+DROP INDEX IF EXISTS ux_td_spec_name;
+CREATE UNIQUE INDEX IF NOT EXISTS ux_td_spec_tenant_name ON td_spec (tenant_id, name);
+CREATE INDEX IF NOT EXISTS ix_td_spec_tenant ON td_spec (tenant_id);
+
 CREATE TABLE IF NOT EXISTS td_test_case (
     test_case_id           VARCHAR(36)   NOT NULL,
     spec_id                VARCHAR(36)   NOT NULL,
+    plan_id                VARCHAR(36),
     operation_key          VARCHAR(255)  NOT NULL,
     test_name              VARCHAR(255)  NOT NULL,
     http_method            VARCHAR(16)   NOT NULL,
@@ -40,7 +135,9 @@ CREATE TABLE IF NOT EXISTS td_test_case (
     enabled                VARCHAR(8)    NOT NULL DEFAULT 'Y',
     test_group             VARCHAR(128),
     json_path_assertions   TEXT,
+    extracts               TEXT,
     max_response_time_ms   BIGINT,
+    environment_names      TEXT,
     created_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     CONSTRAINT pk_td_test_case PRIMARY KEY (test_case_id),
@@ -61,7 +158,7 @@ CREATE TABLE IF NOT EXISTS td_test_plan (
 );
 
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS plan_id VARCHAR(36);
-
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS extracts TEXT;
 ALTER TABLE td_spec ADD COLUMN IF NOT EXISTS name VARCHAR(255);
 
 UPDATE td_spec
@@ -177,3 +274,36 @@ CREATE TABLE IF NOT EXISTS td_run_result (
     CONSTRAINT fk_td_run_result_case FOREIGN KEY (case_id)
         REFERENCES td_test_case (test_case_id) ON DELETE SET NULL
 );
+
+CREATE INDEX IF NOT EXISTS ix_td_run_spec
+    ON td_run (spec_id, started_at);
+
+CREATE INDEX IF NOT EXISTS ix_td_run_result_run
+    ON td_run_result (run_id);
+
+CREATE INDEX IF NOT EXISTS ix_td_run_result_spec
+    ON td_run_result (spec_id, created_at);
+
+CREATE INDEX IF NOT EXISTS ix_td_run_result_case
+    ON td_run_result (case_id);
+
+CREATE TABLE IF NOT EXISTS td_environment (
+    environment_id VARCHAR(36)   NOT NULL,
+    spec_id        VARCHAR(36)   NOT NULL,
+    name           VARCHAR(255)  NOT NULL,
+    document_json  TEXT          NOT NULL,
+    created_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_environment PRIMARY KEY (environment_id),
+    CONSTRAINT fk_td_environment_spec FOREIGN KEY (spec_id)
+        REFERENCES td_spec (spec_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS ix_td_environment_spec
+    ON td_environment (spec_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_td_environment_spec_name
+    ON td_environment (spec_id, name);
+
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS environment_names TEXT;
+ALTER TABLE td_request_file DROP COLUMN IF EXISTS environment_name;

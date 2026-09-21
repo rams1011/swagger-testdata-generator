@@ -1,5 +1,6 @@
 server:
-  port: 8083
+  port: ${SERVER_PORT:8083}
+  forward-headers-strategy: framework
 
 spring:
   application:
@@ -26,18 +27,17 @@ spring:
 testdata:
   storage:
     # excel | h2 | database
-    type: h2
+    type: ${TESTDATA_STORAGE_TYPE:h2}
   excel:
     file: ./studio-output/studio-testdata.xlsx
   h2:
-    file: ./studio-output/testdata
+    file: ${TESTDATA_H2_FILE:./studio-output/testdata}
     username: sa
     password: ""
     console: true
     in-memory: false
-  default-output-dir: D:/code/api-automation/src/test/data
+  default-output-dir: ./studio-output
   default-excel-file-name: TestData.xlsx
-  files-path-prefix: src/test/data/files
   run-history:
     # Oldest batches are deleted after each write. 0 disables pruning.
     max-per-spec: 100

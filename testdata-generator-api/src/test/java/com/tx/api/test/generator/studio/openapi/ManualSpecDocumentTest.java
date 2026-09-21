@@ -65,6 +65,7 @@ class ManualSpecDocumentTest {
         assertTrue(withPost.contains("requestBody"));
         assertTrue(withPost.contains("\"201\""));
         assertTrue(withPost.contains("Ada"));
+        assertFalse(withPost.contains("x-testdata-environments"));
 
         String cleared = ManualSpecDocument.removeOperation(withPost, "POST", "/users");
         assertFalse(cleared.contains("\"/users\""));
