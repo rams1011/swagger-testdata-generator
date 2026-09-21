@@ -14,6 +14,9 @@ on:
 env:
   REGION: ${{ vars.GCP_REGION || 'us-central1' }}
   REPOSITORY: ${{ vars.GCP_ARTIFACT_REPO || 'observability' }}
+  TESTDATA_DATASOURCE_URL: ${{ secrets.TESTDATA_DATASOURCE_URL }}
+  TESTDATA_DATASOURCE_USERNAME: ${{ secrets.TESTDATA_DATASOURCE_USERNAME }}
+  TESTDATA_DATASOURCE_PASSWORD: ${{ secrets.TESTDATA_DATASOURCE_PASSWORD }}
 
 jobs:
   deploy:
@@ -76,6 +79,9 @@ jobs:
             TESTDATA_H2_IN_MEMORY=false
             TESTDATA_SAAS_ENABLED=true
             TESTDATA_SAAS_CORS_ORIGINS=http://localhost:*,http://127.0.0.1:*,https://*.run.app,https://*.*.run.app
+            TESTDATA_DATASOURCE_URL=${{ env.TESTDATA_DATASOURCE_URL }}
+            TESTDATA_DATASOURCE_USERNAME=${{ env.TESTDATA_DATASOURCE_USERNAME }}
+            TESTDATA_DATASOURCE_PASSWORD=${{ env.TESTDATA_DATASOURCE_PASSWORD }}
 
       - name: Service URL
         run: echo "Studio API ${{ steps.studio.outputs.url }}"
