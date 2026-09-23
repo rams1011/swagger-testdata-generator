@@ -27,17 +27,16 @@ final class JsonPathEvaluator {
             return result;
         }
         for (String pair : serialized.split("\\|")) {
-            String trimmed = pair.trim();
-            if (trimmed.isEmpty()) {
-                continue;
-            }
-            int separator = trimmed.indexOf('=');
+            int separator = pair.indexOf('=');
             if (separator < 0) {
-                result.put(trimmed, "");
+                String path = pair.trim();
+                if (!path.isEmpty()) {
+                    result.put(path, "");
+                }
                 continue;
             }
-            String path = trimmed.substring(0, separator).trim();
-            String value = trimmed.substring(separator + 1).trim();
+            String path = pair.substring(0, separator).trim();
+            String value = pair.substring(separator + 1);
             if ("{}".equals(value)) {
                 value = "";
             }

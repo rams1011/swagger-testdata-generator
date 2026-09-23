@@ -34,18 +34,15 @@ public final class OpenApiSpecLoader {
         if (StringUtils.isBlank(specContent)) {
             throw new IllegalArgumentException("Swagger/OpenAPI content must not be blank");
         }
-        String suffix = looksLikeJson(specContent) ? ".json" : ".yaml";
-        try {
-            Path tempFile = Files.createTempFile("openapi-spec-", suffix);
-            try {
-                Files.writeString(tempFile, specContent, StandardCharsets.UTF_8);
-                return load(tempFile.toAbsolutePath().toString());
-            } finally {
-                Files.deleteIfExists(tempFile);
-            }
-        } catch (IOException exception) {
-            throw new IllegalArgumentException("Failed to parse uploaded Swagger/OpenAPI content", exception);
+        ParseOptions parseOptions = parseOptions();
+        SwaggerParseResult parseResult = new OpenAPIV3Parser().readContents(specContent, null, parseOptions);
+        if (parseResult.getOpenAPI() != null) {
+            return parseResult.getOpenAPI();
         }
+        if (isSwagger2Document(specContent)) {
+            return convertSwagger2(specContent, "uploaded content");
+        }
+        throw parseFailure(parseResult);
     }
 
     public static OpenAPI load(String location) {
@@ -54,32 +51,17 @@ public final class OpenApiSpecLoader {
         }
 
         String trimmedLocation = location.trim();
-        ParseOptions parseOptions = new ParseOptions();
-        parseOptions.setResolve(true);
-        parseOptions.setResolveFully(true);
-
-        SwaggerParseResult parseResult = new OpenAPIV3Parser().readLocation(trimmedLocation, null, parseOptions);
+        SwaggerParseResult parseResult = new OpenAPIV3Parser()
+                .readLocation(toParserLocation(trimmedLocation), null, parseOptions());
         if (parseResult.getOpenAPI() != null) {
             return parseResult.getOpenAPI();
         }
 
         String specContent = readSpecContent(trimmedLocation);
         if (isSwagger2Document(specContent)) {
-            SwaggerDeserializationResult swaggerResult = new SwaggerParser().readWithInfo(specContent);
-            if (swaggerResult == null || swaggerResult.getSwagger() == null) {
-                throw new IllegalArgumentException("Failed to parse Swagger 2.0 document: " + trimmedLocation);
-            }
-            SwaggerParseResult converted = new SwaggerConverter().convert(swaggerResult);
-            if (converted.getOpenAPI() == null) {
-                throw new IllegalArgumentException("Failed to convert Swagger 2.0 document: " + trimmedLocation);
-            }
-            return converted.getOpenAPI();
+            return convertSwagger2(specContent, trimmedLocation);
         }
-
-        String messages = parseResult.getMessages() == null
-                ? "Unknown parse error"
-                : parseResult.getMessages().stream().collect(Collectors.joining("; "));
-        throw new IllegalArgumentException("Failed to parse Swagger/OpenAPI spec: " + messages);
+        throw parseFailure(parseResult);
     }
 
     public static String readRaw(String location) {
@@ -87,6 +69,51 @@ public final class OpenApiSpecLoader {
             throw new IllegalArgumentException("Swagger location must not be blank");
         }
         return readSpecContent(location.trim());
+    }
+
+    private static OpenAPI convertSwagger2(String specContent, String source) {
+        SwaggerDeserializationResult swaggerResult = new SwaggerParser().readWithInfo(specContent);
+        if (swaggerResult == null || swaggerResult.getSwagger() == null) {
+            throw new IllegalArgumentException("Failed to parse Swagger 2.0 document: " + source);
+        }
+        SwaggerParseResult converted = new SwaggerConverter().convert(swaggerResult);
+        if (converted.getOpenAPI() == null) {
+            throw new IllegalArgumentException("Failed to convert Swagger 2.0 document: " + source);
+        }
+        return converted.getOpenAPI();
+    }
+
+    private static ParseOptions parseOptions() {
+        ParseOptions parseOptions = new ParseOptions();
+        parseOptions.setResolve(true);
+        parseOptions.setResolveFully(true);
+        return parseOptions;
+    }
+
+    /**
+     * swagger-parser 3.1 dereference builds a java.net.URI from the location.
+     * A Windows path such as C:\Users\... is not a URI (colon at index 2).
+     */
+    static String toParserLocation(String location) {
+        if (isRemoteLocation(location) || location.regionMatches(true, 0, "file:", 0, 5)) {
+            return location;
+        }
+        try {
+            Path path = Path.of(location);
+            if (Files.exists(path)) {
+                return path.toAbsolutePath().normalize().toUri().toASCIIString();
+            }
+        } catch (RuntimeException ignored) {
+            return location;
+        }
+        return location;
+    }
+
+    private static IllegalArgumentException parseFailure(SwaggerParseResult parseResult) {
+        String messages = parseResult.getMessages() == null
+                ? "Unknown parse error"
+                : parseResult.getMessages().stream().collect(Collectors.joining("; "));
+        return new IllegalArgumentException("Failed to parse Swagger/OpenAPI spec: " + messages);
     }
 
     private static boolean isSwagger2Document(String specContent) {
@@ -126,10 +153,5 @@ public final class OpenApiSpecLoader {
 
     private static boolean isRemoteLocation(String location) {
         return location.startsWith("http://") || location.startsWith("https://");
-    }
-
-    private static boolean looksLikeJson(String specContent) {
-        String trimmed = specContent.trim();
-        return trimmed.startsWith("{") || trimmed.startsWith("[");
     }
 }
