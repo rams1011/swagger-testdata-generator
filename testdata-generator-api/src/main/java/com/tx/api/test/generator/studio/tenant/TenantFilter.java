@@ -40,7 +40,7 @@ public class TenantFilter extends OncePerRequestFilter {
             return;
         }
         try {
-            if (!properties.isSaasEnabled()) {
+            if (!properties.isAuthEnabled()) {
                 TenantContext.set(new TenantContext.Scope(
                         TenantContext.LOCAL_TENANT_ID, null, null, "OWNER"));
                 filterChain.doFilter(request, response);
@@ -73,7 +73,7 @@ public class TenantFilter extends OncePerRequestFilter {
                         resolved.tenant().getId(), resolved.account().getId(),
                         resolved.account().getEmail(), resolved.role()));
             }
-            if (!isReadOnlyAllowed(request)) {
+            if (properties.isBillingEnabled() && !isReadOnlyAllowed(request)) {
                 Tenant tenant = authService.findTenant(tenantId).orElse(resolved.tenant());
                 if (!authService.isTenantReady(tenant)) {
                     forbidden(response, EntitlementService.readOnlyMessage(
@@ -93,7 +93,10 @@ public class TenantFilter extends OncePerRequestFilter {
         if (path.startsWith("/h2-console")) {
             return true;
         }
-        if ("GET".equalsIgnoreCase(method) && ("/api/testdata/config".equals(path) || "/api/auth/session".equals(path))) {
+        if ("GET".equalsIgnoreCase(method) && (
+                "/api/health".equals(path)
+                        || "/api/testdata/config".equals(path)
+                        || "/api/auth/session".equals(path))) {
             return true;
         }
         return "POST".equalsIgnoreCase(method)

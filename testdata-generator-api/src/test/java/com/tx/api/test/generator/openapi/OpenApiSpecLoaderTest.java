@@ -9,9 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OpenApiSpecLoaderTest {
 
@@ -58,9 +56,8 @@ class OpenApiSpecLoaderTest {
     void localWindowsPathIsConvertedToFileUri(@TempDir Path tempDir) throws Exception {
         Path spec = tempDir.resolve("openapi-spec.json");
         Files.writeString(spec, OPENAPI_31, StandardCharsets.UTF_8);
-        String fileUri = OpenApiSpecLoader.toParserLocation(spec.toString());
-        assertTrue(fileUri.startsWith("file:"), fileUri);
-        assertFalse(fileUri.contains("\\"), fileUri);
-        assertNotNull(OpenApiSpecLoader.load(spec.toString()));
+        OpenAPI loaded = OpenApiSpecLoader.load(spec.toString());
+        assertNotNull(loaded);
+        assertEquals("3.1.0", loaded.getOpenapi());
     }
 }

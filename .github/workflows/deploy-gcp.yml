@@ -18,6 +18,9 @@ env:
   TESTDATA_DATASOURCE_USERNAME: ${{ secrets.TESTDATA_DATASOURCE_USERNAME }}
   TESTDATA_DATASOURCE_PASSWORD: ${{ secrets.TESTDATA_DATASOURCE_PASSWORD }}
   TESTDATA_ALLOYDB_INSTANCE: ${{ vars.TESTDATA_ALLOYDB_INSTANCE }}
+  TESTDATA_SAAS_CORS_ORIGINS: ${{ vars.TESTDATA_SAAS_CORS_ORIGINS }}
+  TESTDATA_SAAS_ADMIN_EMAIL: ${{ secrets.TESTDATA_SAAS_ADMIN_EMAIL }}
+  TESTDATA_SAAS_ADMIN_PASSWORD: ${{ secrets.TESTDATA_SAAS_ADMIN_PASSWORD }}
 
 jobs:
   deploy:
@@ -72,10 +75,19 @@ jobs:
             echo "TESTDATA_STORAGE_TYPE=database"
             echo "TESTDATA_H2_FILE=/tmp/testdata"
             echo "TESTDATA_H2_IN_MEMORY=false"
-            echo "TESTDATA_SAAS_ENABLED=true"
-            echo "TESTDATA_SAAS_CORS_ORIGINS=*"
+            echo "TESTDATA_EDITION=saas"
+            echo "TESTDATA_H2_CONSOLE=false"
             echo "TESTDATA_ALLOYDB_INSTANCE=${TESTDATA_ALLOYDB_INSTANCE}"
             echo "SPRING_DATASOURCE_USERNAME=${TESTDATA_DATASOURCE_USERNAME:-postgres}"
+            if [ -n "${TESTDATA_SAAS_CORS_ORIGINS}" ]; then
+              echo "TESTDATA_SAAS_CORS_ORIGINS=${TESTDATA_SAAS_CORS_ORIGINS}"
+            fi
+            if [ -n "${TESTDATA_SAAS_ADMIN_EMAIL}" ]; then
+              echo "TESTDATA_SAAS_ADMIN_EMAIL=${TESTDATA_SAAS_ADMIN_EMAIL}"
+            fi
+            if [ -n "${TESTDATA_SAAS_ADMIN_PASSWORD}" ]; then
+              echo "TESTDATA_SAAS_ADMIN_PASSWORD=${TESTDATA_SAAS_ADMIN_PASSWORD}"
+            fi
             if [ -n "${TESTDATA_DATASOURCE_URL}" ]; then
               echo "TESTDATA_DATASOURCE_URL=${TESTDATA_DATASOURCE_URL}"
             fi

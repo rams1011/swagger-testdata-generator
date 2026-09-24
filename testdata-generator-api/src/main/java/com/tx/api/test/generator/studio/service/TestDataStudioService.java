@@ -684,14 +684,17 @@ public class TestDataStudioService {
     public Map<String, String> runtimeConfig() {
         Map<String, String> config = new LinkedHashMap<>();
         config.put("storageType", storageType());
-        config.put("saas", String.valueOf(properties.isSaasEnabled()));
+        config.put("edition", properties.editionName());
+        config.put("loginRequired", String.valueOf(properties.isAuthEnabled()));
+        config.put("plansEnabled", String.valueOf(properties.isBillingEnabled()));
+        config.put("auth", String.valueOf(properties.isAuthEnabled()));
+        config.put("billing", String.valueOf(properties.isBillingEnabled()));
+        config.put("saas", String.valueOf(properties.isAuthEnabled()));
         config.put("runHistoryMaxPerSpec", String.valueOf(properties.getRunHistory().resolvedMaxPerSpec()));
-        if (properties.isH2Storage()) {
+        if (properties.isH2Storage() && properties.getH2().isConsole()) {
             config.put("h2JdbcUrl", properties.getH2().jdbcUrl());
             config.put("h2Username", properties.getH2().getUsername());
-            if (properties.getH2().isConsole()) {
-                config.put("h2Console", "http://localhost:" + serverPort + "/h2-console");
-            }
+            config.put("h2Console", "http://localhost:" + serverPort + "/h2-console");
         }
         return config;
     }

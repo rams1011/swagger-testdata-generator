@@ -106,15 +106,15 @@ public class AuthService {
     }
 
     public AuthSessionView session(String rawToken) {
-        if (!properties.isSaasEnabled()) {
+        if (!properties.isAuthEnabled()) {
             return localSession();
         }
         if (StringUtils.isBlank(rawToken)) {
-            return AuthSessionView.anonymous();
+            return AuthSessionView.anonymous(properties.editionName(), properties.isBillingEnabled());
         }
         ResolvedSession resolved = resolve(rawToken).orElse(null);
         if (resolved == null) {
-            return AuthSessionView.anonymous();
+            return AuthSessionView.anonymous(properties.editionName(), properties.isBillingEnabled());
         }
         return toView(null, resolved.account(), resolved.tenant(), resolved.role());
     }
@@ -273,17 +273,19 @@ public class AuthService {
     }
 
     public String ensureSaasAdmin() {
-        if (!properties.isSaasEnabled()) {
+        if (!properties.isAuthEnabled()) {
             return null;
         }
         TenantStore store = tenantStores.getIfAvailable();
         if (store == null) {
             return null;
         }
-        Tenant platform = requirePlatformTenant(store);
+        Tenant home = properties.isBillingEnabled()
+                ? requirePlatformTenant(store)
+                : requireCompanyWorkspace(store);
         String email = properties.getSaas().normalizedAdminEmail();
         if (email == null) {
-            log.warn("No testdata.saas.admin-email is set — nobody can manage subscriptions");
+            log.warn("No testdata.saas.admin-email is set — nobody can administer Studio");
             return null;
         }
         Account account = store.findAccountByEmail(email).orElse(null);
@@ -295,7 +297,7 @@ public class AuthService {
             account.setId(UUID.randomUUID().toString());
             account.setEmail(email);
             account.setPasswordHash(PasswordHasher.hash(password));
-            account.setDisplayName("SaaS admin");
+            account.setDisplayName(properties.isDatacenter() ? "Studio admin" : "SaaS admin");
             account.setCreatedAt(now);
             account.setPlatformRole("SAAS_ADMIN");
             store.saveAccount(account);
@@ -303,11 +305,11 @@ public class AuthService {
             store.updatePlatformRole(account.getId(), "SAAS_ADMIN");
             account.setPlatformRole("SAAS_ADMIN");
         }
-        if (store.findMembership(platform.getId(), account.getId()).isEmpty()) {
-            store.saveMembership(new Membership(platform.getId(), account.getId(), "OWNER"));
+        if (store.findMembership(home.getId(), account.getId()).isEmpty()) {
+            store.saveMembership(new Membership(home.getId(), account.getId(), "OWNER"));
         }
-        if (store.findOrgRole(platform.getOrgId(), account.getId()).isEmpty()) {
-            store.saveOrgMembership(platform.getOrgId(), account.getId(), "OWNER");
+        if (store.findOrgRole(home.getOrgId(), account.getId()).isEmpty()) {
+            store.saveOrgMembership(home.getOrgId(), account.getId(), "OWNER");
         }
         return email;
     }
@@ -407,7 +409,7 @@ public class AuthService {
                 ? null
                 : store.findSubscriptionByOrg(organization.getId()).orElse(null);
         return new AuthSessionView(
-                true,
+                properties.isAuthEnabled(),
                 true,
                 token,
                 new AccountView(account.getId(), account.getEmail(), account.getDisplayName()),
@@ -416,9 +418,11 @@ public class AuthService {
                 isSaasAdmin(account),
                 organization == null ? null : new OrganizationView(
                         organization.getId(), organization.getSlug(), organization.getName()),
-                subscription == null || organization == null
+                !properties.isBillingEnabled() || subscription == null || organization == null
                         ? null
-                        : toSubscriptionView(store, organization, subscription)
+                        : toSubscriptionView(store, organization, subscription),
+                properties.editionName(),
+                properties.isBillingEnabled()
         );
     }
 
@@ -522,8 +526,27 @@ public class AuthService {
         return workspaces.get(0);
     }
 
+    private Tenant requireCompanyWorkspace(TenantStore store) {
+        Instant now = Instant.now();
+        String orgName = properties.getSaas().resolvedOrgName();
+        Organization organization = store.findOrganizationBySlug(slugify(orgName)).orElse(null);
+        if (organization == null) {
+            organization = new Organization();
+            organization.setId(UUID.randomUUID().toString());
+            organization.setName(orgName);
+            organization.setSlug(uniqueOrgSlug(store, orgName));
+            organization.setCreatedAt(now);
+            store.saveOrganization(organization);
+        }
+        List<Tenant> workspaces = store.listTenantsForOrg(organization.getId());
+        if (!workspaces.isEmpty()) {
+            return workspaces.get(0);
+        }
+        return newWorkspace(store, organization, properties.getSaas().resolvedWorkspaceName(), orgName, now);
+    }
+
     private void requireSaasAdmin() {
-        if (!properties.isSaasEnabled()) {
+        if (!properties.isBillingEnabled()) {
             throw new ForbiddenException("Subscription management is only available in SaaS mode");
         }
         TenantContext.Scope scope = TenantContext.current();
@@ -658,8 +681,8 @@ public class AuthService {
     }
 
     private void requireManager() {
-        if (!properties.isSaasEnabled()) {
-            throw new ForbiddenException("Member management is only available in SaaS mode");
+        if (!properties.isAuthEnabled()) {
+            throw new ForbiddenException("Member management is only available when login is enabled");
         }
         TenantContext.Scope scope = TenantContext.current();
         if (scope == null || StringUtils.isBlank(scope.accountId())) {

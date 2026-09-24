@@ -27,13 +27,17 @@ public class TenantBootstrap {
 
     @PostConstruct
     public void start() {
-        TenantContext.setSaasEnabled(properties.isSaasEnabled());
-        if (properties.isSaasEnabled() && tenantStores.getIfAvailable() == null) {
-            throw new IllegalStateException("testdata.saas.enabled=true requires testdata.storage.type=h2 or database");
+        TenantContext.setSaasEnabled(properties.isAuthEnabled());
+        if (properties.isAuthEnabled() && tenantStores.getIfAvailable() == null) {
+            throw new IllegalStateException("testdata.edition=" + properties.editionName()
+                    + " requires testdata.storage.type=h2 or database");
         }
-        if (properties.isSaasEnabled()) {
+        if (properties.isAuthEnabled()) {
             String adminEmail = authService.ensureSaasAdmin();
-            if (adminEmail != null) {
+            if (properties.isDatacenter()) {
+                log.info("Test Data Studio data-center mode — login is required, plans are off"
+                        + (adminEmail == null ? "" : "; " + adminEmail + " is the operator"));
+            } else if (adminEmail != null) {
                 log.info("Test Data Studio SaaS mode is on — {} can enable workspaces", adminEmail);
             } else {
                 log.info("Test Data Studio SaaS mode is on — workspaces isolate specs, plans, and environments");

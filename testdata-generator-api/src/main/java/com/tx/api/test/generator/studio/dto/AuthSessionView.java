@@ -11,13 +11,19 @@ public record AuthSessionView(
         List<TenantView> tenants,
         boolean saasAdmin,
         OrganizationView organization,
-        SubscriptionView subscription
+        SubscriptionView subscription,
+        String edition,
+        boolean billing
 ) {
     public static AuthSessionView local(TenantView tenant) {
-        return new AuthSessionView(false, true, null, null, tenant, List.of(tenant), false, null, null);
+        return new AuthSessionView(false, true, null, null, tenant, List.of(tenant), false, null, null, "local", false);
     }
 
     public static AuthSessionView anonymous() {
-        return new AuthSessionView(true, false, null, null, null, List.of(), false, null, null);
+        return anonymous("saas", true);
+    }
+
+    public static AuthSessionView anonymous(String edition, boolean billing) {
+        return new AuthSessionView(true, false, null, null, null, List.of(), false, null, null, edition, billing);
     }
 }

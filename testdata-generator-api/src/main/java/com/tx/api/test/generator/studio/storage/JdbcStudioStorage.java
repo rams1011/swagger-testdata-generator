@@ -578,8 +578,13 @@ public class JdbcStudioStorage implements StudioStorage {
     @Override
     public Optional<StudioRunResult> findRunResult(String runId, String resultId) {
         List<StudioRunResult> results = jdbcTemplate.query(
-                "SELECT * FROM td_run_result WHERE run_id = ? AND result_id = ?",
-                runResultMapper(), runId, resultId);
+                """
+                SELECT rr.* FROM td_run_result rr
+                  JOIN td_run r ON r.run_id = rr.run_id
+                  JOIN td_spec s ON s.spec_id = r.spec_id
+                 WHERE rr.run_id = ? AND rr.result_id = ? AND s.tenant_id = ?
+                """,
+                runResultMapper(), runId, resultId, tenantId());
         return results.stream().findFirst();
     }
 
@@ -616,8 +621,20 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void deleteRun(String runId) {
-        jdbcTemplate.update("DELETE FROM td_run_result WHERE run_id = ?", runId);
-        int deleted = jdbcTemplate.update("DELETE FROM td_run WHERE run_id = ?", runId);
+        jdbcTemplate.update("""
+                DELETE FROM td_run_result
+                 WHERE run_id = ?
+                   AND run_id IN (
+                       SELECT r.run_id FROM td_run r
+                         JOIN td_spec s ON s.spec_id = r.spec_id
+                        WHERE r.run_id = ? AND s.tenant_id = ?
+                   )
+                """, runId, runId, tenantId());
+        int deleted = jdbcTemplate.update("""
+                DELETE FROM td_run
+                 WHERE run_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, runId, tenantId());
         if (deleted == 0) {
             throw new NoSuchElementException("Run not found: " + runId);
         }
@@ -630,13 +647,14 @@ public class JdbcStudioStorage implements StudioStorage {
         }
         List<String> extra = jdbcTemplate.query("""
                         SELECT run_id FROM (
-                            SELECT run_id, ROW_NUMBER() OVER (ORDER BY started_at DESC) AS rn
-                            FROM td_run
-                            WHERE spec_id = ?
+                            SELECT r.run_id, ROW_NUMBER() OVER (ORDER BY r.started_at DESC) AS rn
+                            FROM td_run r
+                              JOIN td_spec s ON s.spec_id = r.spec_id
+                            WHERE r.spec_id = ? AND s.tenant_id = ?
                         ) ranked
                         WHERE rn > ?
                         """,
-                (rs, rowNum) -> rs.getString("run_id"), specId, keep);
+                (rs, rowNum) -> rs.getString("run_id"), specId, tenantId(), keep);
         if (extra.isEmpty()) {
             return 0;
         }
