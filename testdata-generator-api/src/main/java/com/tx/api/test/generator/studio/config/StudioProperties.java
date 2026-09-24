@@ -10,6 +10,12 @@ public class StudioProperties {
     private H2 h2 = new H2();
     private RunHistory runHistory = new RunHistory();
     private Saas saas = new Saas();
+    /**
+     * Hosting mode. The only switch operators should set:
+     * {@code local} (no login), {@code datacenter} (login, no plan), {@code saas} (login + plan).
+     * Blank defaults to {@code datacenter}.
+     */
+    private String edition = "";
     private String defaultOutputDir = "./studio-output";
     private String defaultExcelFileName = "TestData.xlsx";
 
@@ -51,6 +57,38 @@ public class StudioProperties {
 
     public void setSaas(Saas saas) {
         this.saas = saas;
+    }
+
+    public String getEdition() {
+        return edition;
+    }
+
+    public void setEdition(String edition) {
+        this.edition = edition;
+    }
+
+    public StudioEdition resolvedEdition() {
+        StudioEdition parsed = StudioEdition.from(edition);
+        if (parsed != null) {
+            return parsed;
+        }
+        return StudioEdition.DATACENTER;
+    }
+
+    public String editionName() {
+        return resolvedEdition().wireValue();
+    }
+
+    public boolean isAuthEnabled() {
+        return resolvedEdition() != StudioEdition.LOCAL;
+    }
+
+    public boolean isBillingEnabled() {
+        return resolvedEdition() == StudioEdition.SAAS;
+    }
+
+    public boolean isDatacenter() {
+        return resolvedEdition() == StudioEdition.DATACENTER;
     }
 
     public boolean isSaasEnabled() {
@@ -127,7 +165,7 @@ public class StudioProperties {
         private String file = H2Database.DEFAULT_FILE;
         private String username = H2Database.DEFAULT_USERNAME;
         private String password = "";
-        private boolean console = true;
+        private boolean console = false;
         private boolean inMemory = false;
 
         public String getFile() {
@@ -199,11 +237,16 @@ public class StudioProperties {
     }
 
     public static class Saas {
-        private boolean enabled = false;
+        /**
+         * Deprecated. Hosting mode is {@code testdata.edition} only.
+         */
+        private boolean enabled = true;
         private int sessionDays = 14;
-        private String corsOrigins = "http://localhost:*,http://127.0.0.1:*,https://*.run.app,https://*.*.run.app";
+        private String corsOrigins = "http://localhost:*,http://127.0.0.1:*";
         private String adminEmail = "";
         private String adminPassword = "";
+        private String orgName = "Studio";
+        private String workspaceName = "Default";
 
         public boolean isEnabled() {
             return enabled;
@@ -237,9 +280,7 @@ public class StudioProperties {
             if (corsOrigins == null || corsOrigins.isBlank()) {
                 return new String[] {
                         "http://localhost:*",
-                        "http://127.0.0.1:*",
-                        "https://*.run.app",
-                        "https://*.*.run.app"
+                        "http://127.0.0.1:*"
                 };
             }
             return java.util.Arrays.stream(corsOrigins.split(","))
@@ -269,6 +310,36 @@ public class StudioProperties {
                 return null;
             }
             return adminEmail.trim().toLowerCase(java.util.Locale.ROOT);
+        }
+
+        public String getOrgName() {
+            return orgName;
+        }
+
+        public void setOrgName(String orgName) {
+            this.orgName = orgName;
+        }
+
+        public String resolvedOrgName() {
+            if (orgName == null || orgName.isBlank()) {
+                return "Studio";
+            }
+            return orgName.trim();
+        }
+
+        public String getWorkspaceName() {
+            return workspaceName;
+        }
+
+        public void setWorkspaceName(String workspaceName) {
+            this.workspaceName = workspaceName;
+        }
+
+        public String resolvedWorkspaceName() {
+            if (workspaceName == null || workspaceName.isBlank()) {
+                return "Default";
+            }
+            return workspaceName.trim();
         }
     }
 }

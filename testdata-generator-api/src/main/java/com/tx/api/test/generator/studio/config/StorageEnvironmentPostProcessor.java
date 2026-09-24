@@ -16,7 +16,8 @@ public class StorageEnvironmentPostProcessor implements EnvironmentPostProcessor
             "org.springframework.boot.autoconfigure.jdbc.DataSourceTransactionManagerAutoConfiguration",
             "org.springframework.boot.autoconfigure.jdbc.JdbcTemplateAutoConfiguration",
             "org.springframework.boot.autoconfigure.sql.init.SqlInitializationAutoConfiguration",
-            "org.springframework.boot.autoconfigure.h2.H2ConsoleAutoConfiguration");
+            "org.springframework.boot.autoconfigure.h2.H2ConsoleAutoConfiguration",
+            "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration");
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment environment, SpringApplication application) {
@@ -27,7 +28,8 @@ public class StorageEnvironmentPostProcessor implements EnvironmentPostProcessor
             applyH2(environment, values);
         } else if ("database".equals(type)) {
             values.put("testdata.storage.engine", "jdbc");
-            values.put("spring.sql.init.mode", "always");
+            values.put("spring.sql.init.mode", "never");
+            values.put("spring.flyway.enabled", "true");
             values.put("spring.h2.console.enabled", false);
             String instance = firstNonBlank(
                     environment.getProperty("TESTDATA_ALLOYDB_INSTANCE"),
@@ -42,6 +44,7 @@ public class StorageEnvironmentPostProcessor implements EnvironmentPostProcessor
             values.put("testdata.storage.engine", "excel");
             values.put("spring.autoconfigure.exclude", EXCEL_EXCLUDES);
             values.put("spring.sql.init.mode", "never");
+            values.put("spring.flyway.enabled", "false");
             values.put("spring.h2.console.enabled", false);
         }
         environment.getPropertySources().addFirst(new MapPropertySource("testdataStorage", values));
@@ -49,13 +52,14 @@ public class StorageEnvironmentPostProcessor implements EnvironmentPostProcessor
 
     private void applyH2(ConfigurableEnvironment environment, Map<String, Object> values) {
         boolean inMemory = Boolean.parseBoolean(environment.getProperty("testdata.h2.in-memory", "false"));
-        boolean console = Boolean.parseBoolean(environment.getProperty("testdata.h2.console", "true"));
+        boolean console = Boolean.parseBoolean(environment.getProperty("testdata.h2.console", "false"));
         String file = environment.getProperty("testdata.h2.file", H2Database.DEFAULT_FILE);
         String username = environment.getProperty("testdata.h2.username", H2Database.DEFAULT_USERNAME);
         String password = environment.getProperty("testdata.h2.password", "");
 
         values.put("testdata.storage.engine", "jdbc");
-        values.put("spring.sql.init.mode", "always");
+        values.put("spring.sql.init.mode", "never");
+        values.put("spring.flyway.enabled", "true");
         values.put("spring.datasource.url", H2Database.jdbcUrl(file, inMemory));
         values.put("spring.datasource.username", username);
         values.put("spring.datasource.password", password);

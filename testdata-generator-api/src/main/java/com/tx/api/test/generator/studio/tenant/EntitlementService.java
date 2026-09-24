@@ -23,7 +23,7 @@ public class EntitlementService {
         if (tenant == null) {
             return false;
         }
-        if (!properties.isSaasEnabled() || TenantContext.LOCAL_TENANT_ID.equals(tenant.getId())) {
+        if (!properties.isBillingEnabled() || TenantContext.LOCAL_TENANT_ID.equals(tenant.getId())) {
             return true;
         }
         if (PlanCatalog.isReservedOrg(tenant.getId()) || PlanCatalog.isReservedOrg(tenant.getOrgId())) {
@@ -39,6 +39,9 @@ public class EntitlementService {
     }
 
     public void requireWorkspace(String orgId) {
+        if (!properties.isBillingEnabled()) {
+            return;
+        }
         TenantStore store = requireStore();
         Subscription subscription = requireSubscription(store, orgId);
         requireWritableSubscription(subscription);
@@ -52,6 +55,9 @@ public class EntitlementService {
     }
 
     public void requireSeat(String orgId, String accountId) {
+        if (!properties.isBillingEnabled()) {
+            return;
+        }
         TenantStore store = requireStore();
         if (store.findOrgRole(orgId, accountId).isPresent()) {
             return;
@@ -69,7 +75,7 @@ public class EntitlementService {
 
     public void requireSpec() {
         Tenant tenant = currentTenant();
-        if (tenant == null || !properties.isSaasEnabled() || PlanCatalog.isReservedOrg(tenant.getId())) {
+        if (tenant == null || !properties.isBillingEnabled() || PlanCatalog.isReservedOrg(tenant.getId())) {
             return;
         }
         TenantStore store = tenantStores.getIfAvailable();
@@ -89,7 +95,7 @@ public class EntitlementService {
 
     public void requireAndIncrementRun() {
         Tenant tenant = currentTenant();
-        if (tenant == null || !properties.isSaasEnabled() || PlanCatalog.isReservedOrg(tenant.getId())) {
+        if (tenant == null || !properties.isBillingEnabled() || PlanCatalog.isReservedOrg(tenant.getId())) {
             return;
         }
         TenantStore store = tenantStores.getIfAvailable();

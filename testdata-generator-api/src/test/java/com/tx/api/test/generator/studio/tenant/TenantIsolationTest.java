@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.tenant;
 
+import com.tx.api.test.generator.studio.api.AuthController;
 import com.tx.api.test.generator.studio.config.H2Database;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AddMemberRequest;
@@ -9,6 +10,8 @@ import com.tx.api.test.generator.studio.dto.MemberView;
 import com.tx.api.test.generator.studio.dto.RegisterRequest;
 import com.tx.api.test.generator.studio.dto.UpdateSubscriptionRequest;
 import com.tx.api.test.generator.studio.model.StoredSpec;
+import com.tx.api.test.generator.studio.model.StudioRun;
+import com.tx.api.test.generator.studio.model.StudioRunResult;
 import com.tx.api.test.generator.studio.storage.JdbcStudioStorage;
 import org.h2.tools.RunScript;
 import org.junit.jupiter.api.AfterEach;
@@ -19,20 +22,26 @@ import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.mock.web.MockFilterChain;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
 
 import javax.sql.DataSource;
 import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.time.Instant;
 import java.util.Iterator;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -59,6 +68,7 @@ class TenantIsolationTest {
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         storage = new JdbcStudioStorage(jdbcTemplate);
         properties = new StudioProperties();
+        properties.setEdition("saas");
         properties.getSaas().setEnabled(true);
         TenantContext.setSaasEnabled(true);
         FixedProvider<TenantStore> stores = new FixedProvider<>(new JdbcTenantStore(jdbcTemplate));
@@ -94,6 +104,41 @@ class TenantIsolationTest {
             assertEquals("spec-acme", storage.listSpecs().get(0).getSpecId());
             assertTrue(storage.findSpec("spec-globex").isEmpty());
         });
+    }
+
+    @Test
+    void runHistoryIsNotVisibleAcrossWorkspaces() {
+        var acme = authService.register(new RegisterRequest("qa@acme.test", "password1", "Acme QA", "Acme"));
+        var globex = authService.register(new RegisterRequest("qa@globex.test", "password1", "Globex QA", "Globex"));
+        String runId = "run-acme";
+        String resultId = "result-acme";
+
+        TenantContext.runAs(acme.tenant().id(), () -> {
+            storage.saveSpec(spec("spec-acme", "employee-service"));
+            storage.saveRun(run(runId, "spec-acme", resultId));
+            assertTrue(storage.findRun(runId).isPresent());
+            assertTrue(storage.findRunResult(runId, resultId).isPresent());
+        });
+        TenantContext.runAs(globex.tenant().id(), () -> {
+            assertTrue(storage.findRun(runId).isEmpty());
+            assertTrue(storage.findRunResult(runId, resultId).isEmpty());
+            assertThrows(NoSuchElementException.class, () -> storage.deleteRun(runId));
+        });
+        TenantContext.runAs(acme.tenant().id(), () -> {
+            assertTrue(storage.findRun(runId).isPresent());
+            storage.deleteRun(runId);
+            assertTrue(storage.findRun(runId).isEmpty());
+        });
+    }
+
+    @Test
+    void healthIsPublicWhenLoginIsRequired() throws Exception {
+        TenantFilter filter = new TenantFilter(properties, authService, new EntitlementService(
+                properties, new FixedProvider<>(new JdbcTenantStore(new JdbcTemplate(dataSource)))));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/health");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, new MockFilterChain());
+        assertEquals(200, response.getStatus());
     }
 
     @Test
@@ -227,6 +272,69 @@ class TenantIsolationTest {
     }
 
     @Test
+    void blankEditionIsDatacenter() {
+        StudioProperties props = new StudioProperties();
+        assertEquals("datacenter", props.editionName());
+        assertTrue(props.isAuthEnabled());
+        assertFalse(props.isBillingEnabled());
+        props.setEdition("saas");
+        assertEquals("saas", props.editionName());
+        assertTrue(props.isBillingEnabled());
+        props.setEdition("local");
+        assertEquals("local", props.editionName());
+        assertFalse(props.isAuthEnabled());
+    }
+
+    @Test
+    void datacenterLoginWorksWithoutAPlan() throws Exception {
+        properties.setEdition("datacenter");
+        properties.getSaas().setEnabled(false);
+        properties.getSaas().setAdminEmail("saas.admin@local.test");
+        properties.getSaas().setAdminPassword("saas-admin-1");
+        TenantStore store = new JdbcTenantStore(new JdbcTemplate(dataSource));
+        FixedProvider<TenantStore> stores = new FixedProvider<>(store);
+        EntitlementService entitlements = new EntitlementService(properties, stores);
+        TenantFilter filter = new TenantFilter(properties, authService, entitlements);
+        AuthController controller = new AuthController(properties, authService);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/specs");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, new MockFilterChain());
+        assertEquals(401, response.getStatus());
+
+        ForbiddenException register = assertThrows(ForbiddenException.class, () ->
+                controller.register(new RegisterRequest("qa@acme.test", "password1", "Acme", "Acme")));
+        assertTrue(register.getMessage().toLowerCase().contains("saas"));
+        ForbiddenException subscriptions = assertThrows(ForbiddenException.class, controller::listSubscriptions);
+        assertTrue(subscriptions.getMessage().toLowerCase().contains("saas"));
+
+        assertEquals("saas.admin@local.test", authService.ensureSaasAdmin());
+        var admin = controller.login(new LoginRequest("saas.admin@local.test", "saas-admin-1", null));
+        assertEquals("datacenter", admin.edition());
+        assertFalse(admin.billing());
+        assertTrue(admin.saas());
+        assertTrue(admin.authenticated());
+        assertTrue(admin.saasAdmin());
+        assertNull(admin.subscription());
+        assertTrue(admin.tenant().ready());
+
+        TenantContext.runAs(admin.tenant().id(), admin.account().id(), "OWNER", () -> {
+            MemberView member = authService.addMember(
+                    new AddMemberRequest("dev@studio.test", "Dev", "password1", "MEMBER"));
+            assertEquals("dev@studio.test", member.email());
+            storage.saveSpec(spec("spec-dc", "employee-service"));
+            assertEquals(1, storage.listSpecs().size());
+            assertEquals("Second", authService.createWorkspace(
+                    admin.token(), new CreateTenantRequest("Second", null)).name());
+        });
+
+        var member = authService.login(new LoginRequest("dev@studio.test", "password1", admin.tenant().id()));
+        assertTrue(member.tenant().ready());
+        assertNull(member.subscription());
+        assertFalse(member.billing());
+    }
+
+    @Test
     void saasAdminCannotDisableThePlatformOrganization() {
         properties.getSaas().setAdminEmail("saas.admin@local.test");
         properties.getSaas().setAdminPassword("saas-admin-1");
@@ -238,6 +346,25 @@ class TenantIsolationTest {
                             admin.organization().id(), new UpdateSubscriptionRequest(false, null, null)));
             assertTrue(denied.getMessage().contains("cannot be disabled"));
         });
+    }
+
+    private static StudioRun run(String runId, String specId, String resultId) {
+        Instant now = Instant.parse("2026-01-15T12:00:00Z");
+        StudioRun run = new StudioRun();
+        run.setId(runId);
+        run.setSpecId(specId);
+        run.setTrigger("case");
+        run.setPassed(1);
+        run.setStartedAt(now);
+        StudioRunResult result = new StudioRunResult();
+        result.setId(resultId);
+        result.setRunId(runId);
+        result.setSpecId(specId);
+        result.setTrigger("case");
+        result.setOutcome("passed");
+        result.setCreatedAt(now);
+        run.setResults(List.of(result));
+        return run;
     }
 
     private static StoredSpec spec(String id, String name) {

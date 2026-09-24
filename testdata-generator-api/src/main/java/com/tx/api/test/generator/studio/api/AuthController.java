@@ -44,19 +44,19 @@ public class AuthController {
 
     @PostMapping("/auth/register")
     public AuthSessionView register(@RequestBody RegisterRequest request) {
-        requireSaas();
+        requireBilling();
         return authService.register(request);
     }
 
     @PostMapping("/auth/login")
     public AuthSessionView login(@RequestBody LoginRequest request) {
-        requireSaas();
+        requireAuth();
         return authService.login(request);
     }
 
     @GetMapping("/auth/session")
     public AuthSessionView session(HttpServletRequest request) {
-        if (!properties.isSaasEnabled()) {
+        if (!properties.isAuthEnabled()) {
             return authService.localSession();
         }
         return authService.session(bearerToken(request));
@@ -70,7 +70,7 @@ public class AuthController {
 
     @PostMapping("/auth/switch-tenant")
     public AuthSessionView switchTenant(HttpServletRequest request, @RequestBody SwitchTenantRequest body) {
-        requireSaas();
+        requireAuth();
         if (body == null || StringUtils.isBlank(body.tenantId())) {
             throw new IllegalArgumentException("tenantId is required");
         }
@@ -79,58 +79,64 @@ public class AuthController {
 
     @PostMapping("/tenants")
     public TenantView createTenant(HttpServletRequest request, @RequestBody CreateTenantRequest body) {
-        requireSaas();
+        requireAuth();
         return authService.createWorkspace(bearerToken(request), body);
     }
 
     @GetMapping("/tenants/current/members")
     public List<MemberView> listMembers() {
-        requireSaas();
+        requireAuth();
         return authService.listMembers();
     }
 
     @PostMapping("/tenants/current/members")
     @ResponseStatus(HttpStatus.CREATED)
     public MemberView addMember(@RequestBody AddMemberRequest request) {
-        requireSaas();
+        requireAuth();
         return authService.addMember(request);
     }
 
     @PutMapping("/tenants/current/members/{accountId}")
     public MemberView updateMember(@PathVariable String accountId, @RequestBody UpdateMemberRequest request) {
-        requireSaas();
+        requireAuth();
         return authService.updateMember(accountId, request);
     }
 
     @DeleteMapping("/tenants/current/members/{accountId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void removeMember(@PathVariable String accountId) {
-        requireSaas();
+        requireAuth();
         authService.removeMember(accountId);
     }
 
     @GetMapping("/saas/subscription")
     public SubscriptionView currentSubscription() {
-        requireSaas();
+        requireBilling();
         return authService.currentSubscription();
     }
 
     @GetMapping("/saas/subscriptions")
     public List<SubscriptionView> listSubscriptions() {
-        requireSaas();
+        requireBilling();
         return authService.listSubscriptions();
     }
 
     @PutMapping("/saas/subscriptions/{orgId}")
     public SubscriptionView updateSubscription(@PathVariable String orgId,
                                                @RequestBody UpdateSubscriptionRequest request) {
-        requireSaas();
+        requireBilling();
         return authService.updateSubscription(orgId, request);
     }
 
-    private void requireSaas() {
-        if (!properties.isSaasEnabled()) {
-            throw new ForbiddenException("SaaS mode is off. Set testdata.saas.enabled=true to host multiple workspaces.");
+    private void requireAuth() {
+        if (!properties.isAuthEnabled()) {
+            throw new ForbiddenException("Login is off. Set TESTDATA_EDITION=datacenter or saas.");
+        }
+    }
+
+    private void requireBilling() {
+        if (!properties.isBillingEnabled()) {
+            throw new ForbiddenException("Plans and self-service signup are only available when TESTDATA_EDITION=saas");
         }
     }
 

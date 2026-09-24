@@ -70,8 +70,34 @@ mvn -pl testdata-generator-api -am spring-boot:run
 
 API base: [http://localhost:8083](http://localhost:8083)
 
+### Hosting mode
+
+Set **one** variable: `TESTDATA_EDITION`. Do not also set a SaaS on/off flag.
+
+| `TESTDATA_EDITION` | Login | Plan | Typical use |
+|--------------------|-------|------|-------------|
+| `local` | No | No | Desktop |
+| `datacenter` (default) | Yes | No | On-prem / data center |
+| `saas` | Yes | Yes | Hosted product |
+
+```bash
+# Desktop
+TESTDATA_EDITION=local
+
+# Data center (login + admin, no plan)
+TESTDATA_EDITION=datacenter
+TESTDATA_STORAGE_TYPE=database
+TESTDATA_SAAS_ADMIN_EMAIL=admin@company.example
+TESTDATA_SAAS_ADMIN_PASSWORD=change-me
+```
+
+If `TESTDATA_EDITION` is blank or unset, Studio uses `datacenter`. Cloud Run must set `TESTDATA_EDITION=saas`.
+
+Public register is off in `datacenter`. The bootstrap admin adds people from **Admin**.
+
 | Method | Path | Purpose |
 |--------|------|---------|
+| `GET` | `/api/health` | Liveness. Adds a JDBC ping (`database: UP`) when storage is H2 or PostgreSQL |
 | `POST` | `/api/specs` | Load spec from `location` or `content` (requires unique `name`) |
 | `POST` | `/api/specs/upload` | Upload a Swagger/OpenAPI file (requires unique `name`) |
 | `PUT` | `/api/specs/{specId}` | Update spec `name` (must stay unique) and/or `baseUrl`. Saved cases that still used the previous spec URL are updated |
@@ -149,27 +175,27 @@ testdata:
     file: ./studio-output/testdata
     username: sa
     password: ""
-    console: true
+    console: false
     in-memory: false
   run-history:
     max-per-spec: 100
 ```
 
-On startup the API runs `classpath:ddl/schema.sql` (PostgreSQL-compatible H2 mode). Data is stored as `./studio-output/testdata.mv.db`. File H2 is opened with `AUTO_SERVER=TRUE` so api-automation can connect while Studio is running; restart Studio after upgrading for that to take effect. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file`. Excel export downloads a zip (`workbook.xlsx` plus `files/<caseId>/`) when cases have uploads — it does not write into an api-automation checkout.
+On startup Flyway applies `classpath:db/migration` (`V1__studio.sql`, same as `ddl/schema.sql`). Existing databases are baselined at version 1. Data is stored as `./studio-output/testdata.mv.db`. File H2 is opened with `AUTO_SERVER=TRUE` so api-automation can connect while Studio is running; restart Studio after upgrading for that to take effect. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file`. Excel export downloads a zip (`workbook.xlsx` plus `files/<caseId>/`) when cases have uploads — it does not write into an api-automation checkout.
 
 After each Try / Run / Run plan, the oldest batches for that spec are deleted once the spec has more than `testdata.run-history.max-per-spec` runs (default `100`). Set `0` to keep history unbounded.
 
-H2 console: [http://localhost:8083/h2-console](http://localhost:8083/h2-console)
+The H2 console is off by default. Set `testdata.h2.console: true` (or `TESTDATA_H2_CONSOLE=true`) for local debugging only, then open [http://localhost:8083/h2-console](http://localhost:8083/h2-console).
 
-Do not use the console default `jdbc:h2:~/test`. That path is `C:/Users/<you>/test` and H2 2.x will refuse to create it from the console (error 90149). Start the API first, then paste the JDBC URL from the startup log or `GET /api/testdata/config`.
+Do not use the console default `jdbc:h2:~/test`. That path is `C:/Users/<you>/test` and H2 2.x will refuse to create it from the console (error 90149). Start the API first, then paste the JDBC URL from the startup log or `GET /api/testdata/config` (those fields are only returned when the console is on).
 
 | Field | Value |
 |-------|-------|
-| JDBC URL | logged at startup, also `h2JdbcUrl` from `GET /api/testdata/config` |
+| JDBC URL | logged at startup, also `h2JdbcUrl` from `GET /api/testdata/config` when the console is on |
 | User | `sa` |
 | Password | empty |
 
-Set `testdata.h2.in-memory: true` for a throwaway database that is wiped on restart. Set `testdata.h2.console: false` to disable the console.
+Set `testdata.h2.in-memory: true` for a throwaway database that is wiped on restart.
 
 ### PostgreSQL
 
@@ -184,7 +210,9 @@ spring:
     password: testdata
 ```
 
-On startup the API runs `classpath:ddl/schema.sql`. PostgreSQL-specific DDL (comments, grants) is in `testdata-generator-api/src/main/resources/ddl/postgresql.sql`.
+On startup Flyway applies `classpath:db/migration`. `baseline-on-migrate=true` marks version 1 as applied on an existing AlloyDB/Postgres schema so V1 is not re-run. PostgreSQL-specific DDL (comments, grants) is in `testdata-generator-api/src/main/resources/ddl/postgresql.sql`. Set `TESTDATA_DATASOURCE_URL`, `TESTDATA_DATASOURCE_USERNAME`, and `TESTDATA_DATASOURCE_PASSWORD` in the environment — they are not committed.
+
+Set `TESTDATA_SAAS_CORS_ORIGINS` to the Studio UI origin(s) in Cloud Run (`vars.TESTDATA_SAAS_CORS_ORIGINS`). Do not use `*`. Set `TESTDATA_SAAS_ADMIN_EMAIL` and `TESTDATA_SAAS_ADMIN_PASSWORD` as GitHub secrets so the bootstrap admin is created.
 
 ### Tables
 

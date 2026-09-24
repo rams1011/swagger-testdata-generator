@@ -11,13 +11,17 @@ spring:
       max-request-size: 20MB
   sql:
     init:
-      mode: update
-      schema-locations: classpath:ddl/schema.sql
+      mode: never
+  flyway:
+    enabled: false
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 1
   datasource:
-    # Used when testdata.storage.type is database (PostgreSQL). Overridden automatically for h2.
-    url: ${TESTDATA_DATASOURCE_URL:jdbc:postgresql://34.170.44.243:5432/testdata_studio?sslmode=require}
+    # Set TESTDATA_DATASOURCE_* in the environment. No production secrets in this file.
+    url: ${TESTDATA_DATASOURCE_URL:jdbc:postgresql://localhost:5432/testdata_studio?sslmode=require}
     username: ${TESTDATA_DATASOURCE_USERNAME:postgres}
-    password: "${TESTDATA_DATASOURCE_PASSWORD:)4eKf:74\\7CCcptU}"
+    password: ${TESTDATA_DATASOURCE_PASSWORD:}
     driver-class-name: org.postgresql.Driver
     hikari:
       data-source-properties:
@@ -29,6 +33,11 @@ spring:
       path: /h2-console
 
 testdata:
+  # Hosting mode — set only this:
+  #   local      desktop, no login
+  #   datacenter login + admin, no plan (default when blank)
+  #   saas       login + plan
+  edition: ${TESTDATA_EDITION:local}
   storage:
     # excel | h2 | database
     type: ${TESTDATA_STORAGE_TYPE:h2}
@@ -38,7 +47,7 @@ testdata:
     file: ${TESTDATA_H2_FILE:./studio-output/testdata}
     username: sa
     password: ""
-    console: true
+    console: ${TESTDATA_H2_CONSOLE:true}
     in-memory: false
   default-output-dir: ./studio-output
   default-excel-file-name: TestData.xlsx
@@ -46,14 +55,14 @@ testdata:
     # Oldest batches are deleted after each write. 0 disables pruning.
     max-per-spec: 100
   saas:
-    # false: single local workspace, no login (desktop Studio).
-    # true: hosted multi-tenant product — register/login and isolate specs by workspace.
-    enabled: ${TESTDATA_SAAS_ENABLED:true}
+    # Operator/session settings — not the hosting mode. Use testdata.edition for that.
     session-days: 14
-    cors-origins: ${TESTDATA_SAAS_CORS_ORIGINS:http://localhost:*,http://127.0.0.1:*,https://*.run.app,https://*.*.run.app}
-    # Platform operator who enables customer workspaces. Change these in production.
-    admin-email: saas.admin@local.test
-    admin-password: saas-admin-1
+    cors-origins: ${TESTDATA_SAAS_CORS_ORIGINS:http://localhost:*,http://127.0.0.1:*}
+    # Set both in the environment. Empty means no bootstrap admin is created.
+    admin-email: ${TESTDATA_SAAS_ADMIN_EMAIL:saas.admin@local.test}
+    admin-password: ${TESTDATA_SAAS_ADMIN_PASSWORD:saas-admin-1}
+    org-name: ${TESTDATA_SAAS_ORG_NAME:Studio}
+    workspace-name: ${TESTDATA_SAAS_WORKSPACE_NAME:Default}
 
 logging:
   level:
