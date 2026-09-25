@@ -9,9 +9,12 @@ import com.tx.api.test.generator.studio.dto.LoginRequest;
 import com.tx.api.test.generator.studio.dto.MemberView;
 import com.tx.api.test.generator.studio.dto.RegisterRequest;
 import com.tx.api.test.generator.studio.dto.UpdateSubscriptionRequest;
+import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRun;
 import com.tx.api.test.generator.studio.model.StudioRunResult;
+import com.tx.api.test.generator.studio.model.StudioTestCase;
+import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import com.tx.api.test.generator.studio.storage.JdbcStudioStorage;
 import org.h2.tools.RunScript;
 import org.junit.jupiter.api.AfterEach;
@@ -103,6 +106,54 @@ class TenantIsolationTest {
             assertEquals(1, storage.listSpecs().size());
             assertEquals("spec-acme", storage.listSpecs().get(0).getSpecId());
             assertTrue(storage.findSpec("spec-globex").isEmpty());
+        });
+    }
+
+    @Test
+    void foreignTenantCannotDeletePlansCasesOrEnvironments() {
+        var acme = authService.register(new RegisterRequest("qa@acme.test", "password1", "Acme QA", "Acme"));
+        var globex = authService.register(new RegisterRequest("qa@globex.test", "password1", "Globex QA", "Globex"));
+        String planId = "plan-acme";
+        String caseId = "case-acme";
+        String environmentId = "env-acme";
+
+        TenantContext.runAs(acme.tenant().id(), () -> {
+            storage.saveSpec(spec("spec-acme", "employee-service"));
+            StudioTestPlan plan = new StudioTestPlan();
+            plan.setId(planId);
+            plan.setSpecId("spec-acme");
+            plan.setName("Default");
+            storage.savePlan(plan);
+            StudioTestCase testCase = new StudioTestCase();
+            testCase.setId(caseId);
+            testCase.setSpecId("spec-acme");
+            testCase.setPlanId(planId);
+            testCase.setOperationKey("GET /employees");
+            testCase.setTestName("list employees");
+            testCase.setMethod("GET");
+            testCase.setRawPath("/employees");
+            testCase.setEndpoint("/employees");
+            testCase.setStatusCode(200);
+            testCase.setEnabled("Y");
+            storage.saveTestCase(testCase);
+            StoredEnvironment environment = new StoredEnvironment();
+            environment.setId(environmentId);
+            environment.setSpecId("spec-acme");
+            environment.setName("local");
+            environment.setDocumentJson("{}");
+            storage.saveEnvironment(environment);
+        });
+
+        TenantContext.runAs(globex.tenant().id(), () -> {
+            assertThrows(NoSuchElementException.class, () -> storage.deletePlan(planId));
+            assertThrows(NoSuchElementException.class, () -> storage.deleteTestCase(caseId));
+            assertThrows(NoSuchElementException.class, () -> storage.deleteEnvironment(environmentId));
+        });
+
+        TenantContext.runAs(acme.tenant().id(), () -> {
+            assertTrue(storage.findPlan(planId).isPresent());
+            assertTrue(storage.findTestCase(caseId).isPresent());
+            assertTrue(storage.findEnvironment(environmentId).isPresent());
         });
     }
 
