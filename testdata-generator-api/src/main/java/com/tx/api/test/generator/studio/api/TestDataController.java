@@ -8,10 +8,6 @@ import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
 import com.tx.api.test.generator.studio.dto.ExcelExport;
 import com.tx.api.test.generator.studio.dto.ExportEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.ExportRequest;
-import com.tx.api.test.generator.studio.dto.GeneratePlansRequest;
-import com.tx.api.test.generator.studio.dto.GeneratePlansResult;
-import com.tx.api.test.generator.studio.dto.GenerateTestDataRequest;
-import com.tx.api.test.generator.studio.dto.GenerateTestDataResult;
 import com.tx.api.test.generator.studio.dto.RunAuth;
 import com.tx.api.test.generator.studio.dto.RunPlanRequest;
 import com.tx.api.test.generator.studio.dto.RunPlanResult;
@@ -57,16 +53,6 @@ public class TestDataController {
     @ResponseStatus(HttpStatus.CREATED)
     public TestCaseView create(@RequestBody SaveTestDataRequest request) {
         return testDataStudioService.create(request);
-    }
-
-    @PostMapping("/generate")
-    public GenerateTestDataResult generate(@RequestBody GenerateTestDataRequest request) {
-        return testDataStudioService.generate(request);
-    }
-
-    @PostMapping("/generate-plans")
-    public GeneratePlansResult generatePlans(@RequestBody GeneratePlansRequest request) {
-        return testDataStudioService.generatePlans(request);
     }
 
     @PostMapping("/run")

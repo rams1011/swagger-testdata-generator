@@ -116,8 +116,6 @@ Public register is off in `datacenter`. The bootstrap admin adds people from **A
 | `PUT` | `/api/specs/{specId}/plans/{planId}` | Rename a test plan |
 | `DELETE` | `/api/specs/{specId}/plans/{planId}` | Delete a plan and its cases (the last plan cannot be deleted) |
 | `POST` | `/api/testdata` | Save a test case into a plan (`planId`). With `environmentId`, the case belongs to that environment |
-| `POST` | `/api/testdata/generate` | Auto-generate positive and negative cases from the spec/operation schema into a plan (`environmentId` scopes create/skip) |
-| `POST` | `/api/testdata/generate-plans` | Create/fill a **Smoke** plan (one happy path per operation) and an optional **Negative** plan |
 | `PUT` | `/api/testdata/{id}` | Update a test case |
 | `GET` | `/api/testdata?specId=&planId=&operationKey=&environmentId=` | List saved cases for a plan (environment filters the list) |
 | `POST` | `/api/testdata/{id}/duplicate` | Copy a case into another environment as a new id (`fromEnvironmentId`, `toEnvironmentId`) |
@@ -133,21 +131,6 @@ Public register is off in `datacenter`. The bootstrap admin adds people from **A
 | `DELETE` | `/api/runs/{runId}` | Delete a run batch and its snapshots |
 
 Auth is applied only for that run and is not stored with the case. `auth.type` is `NONE`, `BASIC` (credentials: `username` / `password`), `BEARER` (`token`), or `API_KEY` (`apiKey`, optional `apiKeyName`, `apiKeyIn` of `header` or `query`). The runner checks expected status, max response time, and JSONPath assertions against the live response.
-
-### Auto-generate cases
-
-`POST /api/testdata/generate` walks each selected operation schema and saves a bounded set of cases into the current plan:
-
-- Happy path with sample params/body and the first documented 2xx status
-- Missing required body, query, and header fields (up to five each)
-- Invalid enum and type on the first matching field
-- minLength / maxLength / minimum / maximum violations
-- Extra property when `additionalProperties: false`
-- Documented 404 (bogus path id) and 401/403 (invalid `Authorization`)
-
-Pass `operationKey` to generate for one operation, or omit it for every operation in the spec. Existing case names in the plan are skipped. The studio UI exposes this as **Generate cases** on an operation page and **Fill this plan** on the saved-cases page.
-
-`POST /api/testdata/generate-plans` find-or-creates a **Smoke** plan with one happy-path case per operation, and optionally a **Negative** plan with schema-derived negatives. Existing plan names are reused and duplicate case names are skipped. The studio UI exposes this as **Generate Smoke plan** (with **Also Negative plan**) in the sidebar and on the saved-cases page.
 
 ## Storage (Excel, H2, or PostgreSQL)
 

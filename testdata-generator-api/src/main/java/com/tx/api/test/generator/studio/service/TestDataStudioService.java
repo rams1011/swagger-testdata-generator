@@ -1,8 +1,6 @@
 package com.tx.api.test.generator.studio.service;
 
 import com.google.gson.Gson;
-import com.tx.api.test.generator.TestdataGenerator;
-import com.tx.api.test.generator.generate.GeneratedTestCase;
 import com.tx.api.test.generator.model.TestDataRow;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.catalog.OperationPage;
@@ -27,10 +25,6 @@ import com.tx.api.test.generator.studio.dto.SaveEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.ExcelExport;
 import com.tx.api.test.generator.studio.dto.ExportEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.ExportRequest;
-import com.tx.api.test.generator.studio.dto.GeneratePlansRequest;
-import com.tx.api.test.generator.studio.dto.GeneratePlansResult;
-import com.tx.api.test.generator.studio.dto.GenerateTestDataRequest;
-import com.tx.api.test.generator.studio.dto.GenerateTestDataResult;
 import com.tx.api.test.generator.studio.dto.RequestFileView;
 import com.tx.api.test.generator.studio.dto.RunAuth;
 import com.tx.api.test.generator.studio.dto.RunPlanRequest;
@@ -75,8 +69,6 @@ import java.util.UUID;
 public class TestDataStudioService {
 
     private static final String NA = "NA";
-    private static final String DEFAULT_SMOKE_PLAN = "Smoke";
-    private static final String DEFAULT_NEGATIVE_PLAN = "Negative";
     private static final long MAX_REQUEST_FILE_BYTES = 20L * 1024 * 1024;
     private static final Gson JSON = new Gson();
     private static final Logger log = LoggerFactory.getLogger(TestDataStudioService.class);
@@ -162,92 +154,6 @@ public class TestDataStudioService {
         bindCaseFiles(testCase);
         saveOverlay(testCase, request);
         return toView(testCase, request == null ? null : request.environmentId());
-    }
-
-    public GenerateTestDataResult generate(GenerateTestDataRequest request) {
-        if (request == null || StringUtils.isBlank(request.specId())) {
-            throw new IllegalArgumentException("specId is required");
-        }
-        LoadedSpec spec = specCatalogService.requireSpec(request.specId());
-        String planId = resolvePlanId(request.specId(), request.planId());
-        boolean includePositive = request.includePositive() == null || request.includePositive();
-        boolean includeNegative = request.includeNegative() == null || request.includeNegative();
-        if (!includePositive && !includeNegative) {
-            throw new IllegalArgumentException("Select positive or negative cases to generate");
-        }
-
-        List<OperationPage> operations;
-        if (StringUtils.isBlank(request.operationKey())) {
-            operations = spec.getOperations();
-        } else {
-            OperationPage operation = spec.getOperation(request.operationKey());
-            if (operation == null) {
-                throw new NoSuchElementException("Operation not found: " + request.operationKey());
-            }
-            operations = List.of(operation);
-        }
-
-        String environmentName = environmentName(request.specId(), request.environmentId());
-        Set<String> existing = new HashSet<>();
-        for (StudioTestCase testCase : studioStorage.listTestCases(request.specId(), planId, null)) {
-            if (!EnvironmentScope.visible(testCase.getEnvironments(), environmentName)) {
-                continue;
-            }
-            existing.add(caseKey(testCase.getOperationKey(), testCase.getTestName()));
-        }
-
-        int created = 0;
-        int skipped = 0;
-        for (OperationPage operation : operations) {
-            for (GeneratedTestCase generated : TestdataGenerator.generateCases(operation)) {
-                if ((generated.positive() && !includePositive) || (!generated.positive() && !includeNegative)) {
-                    continue;
-                }
-                String key = caseKey(generated.operationKey(), generated.testName());
-                if (!existing.add(key)) {
-                    skipped++;
-                    continue;
-                }
-                create(toSaveRequest(request.specId(), planId, generated,
-                        membershipFor(request.specId(), request.environmentId(), null),
-                        request.environmentId()));
-                created++;
-            }
-        }
-        log.info("Generated {} test cases ({} skipped) for spec {} plan {}", created, skipped, request.specId(), planId);
-        return new GenerateTestDataResult(created, skipped, operations.size());
-    }
-
-    public GeneratePlansResult generatePlans(GeneratePlansRequest request) {
-        if (request == null || StringUtils.isBlank(request.specId())) {
-            throw new IllegalArgumentException("specId is required");
-        }
-        specCatalogService.requireSpec(request.specId());
-        boolean includeNegative = request.includeNegative() == null || request.includeNegative();
-        String smokeName = StringUtils.defaultIfBlank(request.smokePlanName(), DEFAULT_SMOKE_PLAN).trim();
-        String negativeName = StringUtils.defaultIfBlank(request.negativePlanName(), DEFAULT_NEGATIVE_PLAN).trim();
-        if (includeNegative && smokeName.equalsIgnoreCase(negativeName)) {
-            throw new IllegalArgumentException("Smoke and Negative plans must use different names");
-        }
-
-        StudioTestPlan smokePlan = findOrCreatePlan(request.specId(), smokeName,
-                "Happy path for every operation");
-        GenerateTestDataResult smoke = generate(new GenerateTestDataRequest(
-                request.specId(), smokePlan.getId(), null, true, false, request.environmentId()));
-
-        TestPlanView negativePlanView = null;
-        GenerateTestDataResult negative = null;
-        if (includeNegative) {
-            StudioTestPlan negativePlan = findOrCreatePlan(request.specId(), negativeName,
-                    "Schema-derived negative cases for every operation");
-            negative = generate(new GenerateTestDataRequest(
-                    request.specId(), negativePlan.getId(), null, false, true, request.environmentId()));
-            negativePlanView = toPlanView(negativePlan);
-        }
-        log.info("Generated plans for spec {}: smoke={} created={} skipped={}; negative={}",
-                request.specId(), smokePlan.getName(), smoke.created(), smoke.skipped(),
-                includeNegative ? negativeName : "omitted");
-        return new GeneratePlansResult(toPlanView(smokePlan), smoke, negativePlanView, negative);
     }
 
     public void delete(String id) {
@@ -809,38 +715,6 @@ public class TestDataStudioService {
         testCase.setEnvironments(membershipFor(request.specId(), request.environmentId(), request.environments()));
     }
 
-    private SaveTestDataRequest toSaveRequest(String specId, String planId, GeneratedTestCase generated,
-                                              List<String> environments, String environmentId) {
-        return new SaveTestDataRequest(
-                specId,
-                planId,
-                generated.operationKey(),
-                generated.testName(),
-                null,
-                generated.pathParams(),
-                generated.queryParams(),
-                generated.headers(),
-                generated.cookieParams(),
-                generated.requestBody(),
-                generated.statusCode(),
-                generated.responseType(),
-                generated.expectedResponse(),
-                generated.enabled(),
-                generated.testGroup(),
-                generated.jsonPathAssertions(),
-                NA,
-                generated.maxResponseTimeMs(),
-                generated.contentType(),
-                environmentId,
-                EnvironmentScope.normalize(environments)
-        );
-    }
-
-    private String caseKey(String operationKey, String testName) {
-        return StringUtils.defaultString(operationKey) + "\0"
-                + StringUtils.defaultString(testName).toLowerCase(Locale.ROOT);
-    }
-
     private String inlineRequestBody(StudioTestCase testCase) {
         if (testCase.getRequestBody() == null || NA.equalsIgnoreCase(String.valueOf(testCase.getContentType()))) {
             return NA;
@@ -1224,22 +1098,6 @@ public class TestDataStudioService {
             throw new IllegalArgumentException("Plan name is required");
         }
         return name.trim();
-    }
-
-    private StudioTestPlan findOrCreatePlan(String specId, String name, String description) {
-        ensureDefaultPlan(specId);
-        return studioStorage.listPlans(specId).stream()
-                .filter(plan -> name.equalsIgnoreCase(plan.getName()))
-                .findFirst()
-                .orElseGet(() -> {
-                    StudioTestPlan plan = new StudioTestPlan();
-                    plan.setId(UUID.randomUUID().toString());
-                    plan.setSpecId(specId);
-                    plan.setName(name);
-                    plan.setDescription(description);
-                    studioStorage.savePlan(plan);
-                    return plan;
-                });
     }
 
     private void rejectDuplicatePlanName(String specId, String name, String excludePlanId) {
