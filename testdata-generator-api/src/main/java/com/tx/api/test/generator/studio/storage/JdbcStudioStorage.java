@@ -104,14 +104,18 @@ public class JdbcStudioStorage implements StudioStorage {
         Optional<StudioTestPlan> existing = findPlan(plan.getId());
         plan.setCreatedAt(existing.map(StudioTestPlan::getCreatedAt).orElse(now));
         plan.setUpdatedAt(now);
-        Timestamp updated = Timestamp.from(plan.getUpdatedAt());
+        Timestamp updatedAt = Timestamp.from(plan.getUpdatedAt());
         if (existing.isPresent()) {
-            jdbcTemplate.update("""
+            int rows = jdbcTemplate.update("""
                             UPDATE td_test_plan
                                SET spec_id = ?, name = ?, description = ?, updated_at = ?
                              WHERE plan_id = ?
+                               AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
                             """,
-                    plan.getSpecId(), plan.getName(), plan.getDescription(), updated, plan.getId());
+                    plan.getSpecId(), plan.getName(), plan.getDescription(), updatedAt, plan.getId(), tenantId());
+            if (rows == 0) {
+                throw new NoSuchElementException("Test plan not found: " + plan.getId());
+            }
             return;
         }
         jdbcTemplate.update("""
@@ -119,16 +123,39 @@ public class JdbcStudioStorage implements StudioStorage {
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
                 plan.getId(), plan.getSpecId(), plan.getName(), plan.getDescription(),
-                Timestamp.from(plan.getCreatedAt()), updated);
+                Timestamp.from(plan.getCreatedAt()), updatedAt);
     }
 
     @Override
     public void deletePlan(String planId) {
-        jdbcTemplate.update(
-                "DELETE FROM td_request_file WHERE test_case_id IN (SELECT test_case_id FROM td_test_case WHERE plan_id = ?)",
-                planId);
-        jdbcTemplate.update("DELETE FROM td_test_case WHERE plan_id = ?", planId);
-        int deleted = jdbcTemplate.update("DELETE FROM td_test_plan WHERE plan_id = ?", planId);
+        requireOwnedPlan(planId);
+        String tenant = tenantId();
+        jdbcTemplate.update("""
+                DELETE FROM td_request_file
+                 WHERE test_case_id IN (
+                       SELECT c.test_case_id FROM td_test_case c
+                         JOIN td_spec s ON s.spec_id = c.spec_id
+                        WHERE c.plan_id = ? AND s.tenant_id = ?
+                 )
+                """, planId, tenant);
+        jdbcTemplate.update("""
+                DELETE FROM td_test_case_param
+                 WHERE test_case_id IN (
+                       SELECT c.test_case_id FROM td_test_case c
+                         JOIN td_spec s ON s.spec_id = c.spec_id
+                        WHERE c.plan_id = ? AND s.tenant_id = ?
+                 )
+                """, planId, tenant);
+        jdbcTemplate.update("""
+                DELETE FROM td_test_case
+                 WHERE plan_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, planId, tenant);
+        int deleted = jdbcTemplate.update("""
+                DELETE FROM td_test_plan
+                 WHERE plan_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, planId, tenant);
         if (deleted == 0) {
             throw new NoSuchElementException("Test plan not found: " + planId);
         }
@@ -204,15 +231,19 @@ public class JdbcStudioStorage implements StudioStorage {
         Optional<StoredEnvironment> existing = findEnvironment(environment.getId());
         environment.setCreatedAt(existing.map(StoredEnvironment::getCreatedAt).orElse(now));
         environment.setUpdatedAt(now);
-        Timestamp updated = Timestamp.from(environment.getUpdatedAt());
+        Timestamp updatedAt = Timestamp.from(environment.getUpdatedAt());
         if (existing.isPresent()) {
-            jdbcTemplate.update("""
+            int rows = jdbcTemplate.update("""
                             UPDATE td_environment
                                SET spec_id = ?, name = ?, document_json = ?, updated_at = ?
                              WHERE environment_id = ?
+                               AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
                             """,
                     environment.getSpecId(), environment.getName(), environment.getDocumentJson(),
-                    updated, environment.getId());
+                    updatedAt, environment.getId(), tenantId());
+            if (rows == 0) {
+                throw new NoSuchElementException("Environment not found: " + environment.getId());
+            }
             return;
         }
         jdbcTemplate.update("""
@@ -220,12 +251,17 @@ public class JdbcStudioStorage implements StudioStorage {
                         VALUES (?, ?, ?, ?, ?, ?)
                         """,
                 environment.getId(), environment.getSpecId(), environment.getName(), environment.getDocumentJson(),
-                Timestamp.from(environment.getCreatedAt()), updated);
+                Timestamp.from(environment.getCreatedAt()), updatedAt);
     }
 
     @Override
     public void deleteEnvironment(String environmentId) {
-        int deleted = jdbcTemplate.update("DELETE FROM td_environment WHERE environment_id = ?", environmentId);
+        requireOwnedEnvironment(environmentId);
+        int deleted = jdbcTemplate.update("""
+                DELETE FROM td_environment
+                 WHERE environment_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, environmentId, tenantId());
         if (deleted == 0) {
             throw new NoSuchElementException("Environment not found: " + environmentId);
         }
@@ -236,9 +272,9 @@ public class JdbcStudioStorage implements StudioStorage {
         requireOwnedSpec(testCase.getSpecId());
         boolean exists = findTestCase(testCase.getId()).isPresent();
         Instant now = Instant.now();
-        Timestamp updated = Timestamp.from(now);
+        Timestamp updatedAt = Timestamp.from(now);
         if (exists) {
-            jdbcTemplate.update("""
+            int rows = jdbcTemplate.update("""
                             UPDATE td_test_case
                                SET spec_id = ?, plan_id = ?, operation_key = ?, test_name = ?, http_method = ?, raw_path = ?,
                                    endpoint = ?, base_url = ?, content_type = ?, request_body_json = ?,
@@ -246,6 +282,7 @@ public class JdbcStudioStorage implements StudioStorage {
                                    enabled = ?, test_group = ?, json_path_assertions = ?, extracts = ?, max_response_time_ms = ?,
                                    environment_names = ?, updated_at = ?
                              WHERE test_case_id = ?
+                               AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
                             """,
                     testCase.getSpecId(), testCase.getPlanId(), testCase.getOperationKey(), testCase.getTestName(),
                     testCase.getMethod(), testCase.getRawPath(), testCase.getEndpoint(), testCase.getBaseUrl(),
@@ -254,8 +291,19 @@ public class JdbcStudioStorage implements StudioStorage {
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getEnabled(),
                     testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
                     testCase.getMaxResponseTimeMs(), JsonMaps.toJson(testCase.getEnvironments()),
-                    updated, testCase.getId());
-            jdbcTemplate.update("DELETE FROM td_test_case_param WHERE test_case_id = ?", testCase.getId());
+                    updatedAt, testCase.getId(), tenantId());
+            if (rows == 0) {
+                throw new NoSuchElementException("Test case not found: " + testCase.getId());
+            }
+            jdbcTemplate.update("""
+                    DELETE FROM td_test_case_param
+                     WHERE test_case_id = ?
+                       AND test_case_id IN (
+                           SELECT c.test_case_id FROM td_test_case c
+                             JOIN td_spec s ON s.spec_id = c.spec_id
+                            WHERE c.test_case_id = ? AND s.tenant_id = ?
+                       )
+                    """, testCase.getId(), testCase.getId(), tenantId());
         } else {
             jdbcTemplate.update("""
                             INSERT INTO td_test_case (
@@ -272,15 +320,38 @@ public class JdbcStudioStorage implements StudioStorage {
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getEnabled(),
                     testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
                     testCase.getMaxResponseTimeMs(), JsonMaps.toJson(testCase.getEnvironments()),
-                    updated, updated);
+                    updatedAt, updatedAt);
         }
         insertParams(testCase);
     }
 
     @Override
     public void deleteTestCase(String testCaseId) {
-        jdbcTemplate.update("DELETE FROM td_request_file WHERE test_case_id = ?", testCaseId);
-        int deleted = jdbcTemplate.update("DELETE FROM td_test_case WHERE test_case_id = ?", testCaseId);
+        requireOwnedTestCase(testCaseId);
+        String tenant = tenantId();
+        jdbcTemplate.update("""
+                DELETE FROM td_request_file
+                 WHERE test_case_id = ?
+                   AND test_case_id IN (
+                       SELECT c.test_case_id FROM td_test_case c
+                         JOIN td_spec s ON s.spec_id = c.spec_id
+                        WHERE c.test_case_id = ? AND s.tenant_id = ?
+                   )
+                """, testCaseId, testCaseId, tenant);
+        jdbcTemplate.update("""
+                DELETE FROM td_test_case_param
+                 WHERE test_case_id = ?
+                   AND test_case_id IN (
+                       SELECT c.test_case_id FROM td_test_case c
+                         JOIN td_spec s ON s.spec_id = c.spec_id
+                        WHERE c.test_case_id = ? AND s.tenant_id = ?
+                   )
+                """, testCaseId, testCaseId, tenant);
+        int deleted = jdbcTemplate.update("""
+                DELETE FROM td_test_case
+                 WHERE test_case_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, testCaseId, tenant);
         if (deleted == 0) {
             throw new NoSuchElementException("Test case not found: " + testCaseId);
         }
@@ -332,6 +403,7 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void saveRequestFile(StudioRequestFile file) {
+        requireOwnedTestCase(file.getTestCaseId());
         Instant now = Instant.now();
         file.setCreatedAt(file.getCreatedAt() == null ? now : file.getCreatedAt());
         jdbcTemplate.update("""
@@ -358,8 +430,18 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void deleteRequestFile(String testCaseId, String fileId) {
-        int deleted = jdbcTemplate.update(
-                "DELETE FROM td_request_file WHERE test_case_id = ? AND file_id = ?", testCaseId, fileId);
+        if (findRequestFile(testCaseId, fileId).isEmpty()) {
+            throw new NoSuchElementException("Request file not found: " + fileId);
+        }
+        int deleted = jdbcTemplate.update("""
+                DELETE FROM td_request_file
+                 WHERE test_case_id = ? AND file_id = ?
+                   AND test_case_id IN (
+                       SELECT c.test_case_id FROM td_test_case c
+                         JOIN td_spec s ON s.spec_id = c.spec_id
+                        WHERE c.test_case_id = ? AND s.tenant_id = ?
+                   )
+                """, testCaseId, fileId, testCaseId, tenantId());
         if (deleted == 0) {
             throw new NoSuchElementException("Request file not found: " + fileId);
         }
@@ -369,41 +451,79 @@ public class JdbcStudioStorage implements StudioStorage {
     public List<StudioRequestFile> listRequestFiles(String testCaseId) {
         return jdbcTemplate.query(
                 """
-                SELECT file_id, test_case_id, file_name, content_type, size_bytes, created_at
-                  FROM td_request_file
-                 WHERE test_case_id = ?
-                 ORDER BY created_at
+                SELECT f.file_id, f.test_case_id, f.file_name, f.content_type, f.size_bytes, f.created_at
+                  FROM td_request_file f
+                  JOIN td_test_case c ON c.test_case_id = f.test_case_id
+                  JOIN td_spec s ON s.spec_id = c.spec_id
+                 WHERE f.test_case_id = ? AND s.tenant_id = ?
+                 ORDER BY f.created_at
                 """,
-                requestFileMapper(false), testCaseId);
+                requestFileMapper(false), testCaseId, tenantId());
     }
 
     @Override
     public void assignRequestFiles(String testCaseId, List<String> fileIds) {
+        requireOwnedTestCase(testCaseId);
         List<String> ids = fileIds == null ? List.of() : fileIds.stream()
                 .filter(id -> id != null && !id.isBlank())
                 .distinct()
                 .toList();
+        String tenant = tenantId();
         for (String fileId : ids) {
-            jdbcTemplate.update(
-                    "UPDATE td_request_file SET test_case_id = ? WHERE file_id = ?",
-                    testCaseId, fileId);
+            jdbcTemplate.update("""
+                    UPDATE td_request_file
+                       SET test_case_id = ?
+                     WHERE file_id = ?
+                       AND (test_case_id IS NULL OR test_case_id IN (
+                           SELECT c.test_case_id FROM td_test_case c
+                             JOIN td_spec s ON s.spec_id = c.spec_id
+                            WHERE c.test_case_id = ? AND s.tenant_id = ?
+                       ))
+                    """, testCaseId, fileId, testCaseId, tenant);
         }
         if (ids.isEmpty()) {
-            jdbcTemplate.update("DELETE FROM td_request_file WHERE test_case_id = ?", testCaseId);
+            jdbcTemplate.update("""
+                    DELETE FROM td_request_file
+                     WHERE test_case_id = ?
+                       AND test_case_id IN (
+                           SELECT c.test_case_id FROM td_test_case c
+                             JOIN td_spec s ON s.spec_id = c.spec_id
+                            WHERE c.test_case_id = ? AND s.tenant_id = ?
+                       )
+                    """, testCaseId, testCaseId, tenant);
             return;
         }
         String placeholders = String.join(",", ids.stream().map(id -> "?").toList());
         List<Object> args = new ArrayList<>();
         args.add(testCaseId);
+        args.add(testCaseId);
+        args.add(tenant);
         args.addAll(ids);
         jdbcTemplate.update(
-                "DELETE FROM td_request_file WHERE test_case_id = ? AND file_id NOT IN (" + placeholders + ")",
+                """
+                DELETE FROM td_request_file
+                 WHERE test_case_id = ?
+                   AND test_case_id IN (
+                       SELECT c.test_case_id FROM td_test_case c
+                         JOIN td_spec s ON s.spec_id = c.spec_id
+                        WHERE c.test_case_id = ? AND s.tenant_id = ?
+                   )
+                   AND file_id NOT IN (""" + placeholders + ")",
                 args.toArray());
     }
 
     @Override
     public void deleteRequestFilesForCase(String testCaseId) {
-        jdbcTemplate.update("DELETE FROM td_request_file WHERE test_case_id = ?", testCaseId);
+        requireOwnedTestCase(testCaseId);
+        jdbcTemplate.update("""
+                DELETE FROM td_request_file
+                 WHERE test_case_id = ?
+                   AND test_case_id IN (
+                       SELECT c.test_case_id FROM td_test_case c
+                         JOIN td_spec s ON s.spec_id = c.spec_id
+                        WHERE c.test_case_id = ? AND s.tenant_id = ?
+                   )
+                """, testCaseId, testCaseId, tenantId());
     }
 
     private void insertParams(StudioTestCase testCase) {
@@ -680,6 +800,24 @@ public class JdbcStudioStorage implements StudioStorage {
     private void requireOwnedSpec(String specId) {
         if (specId == null || findSpec(specId).isEmpty()) {
             throw new NoSuchElementException("Spec not found: " + specId);
+        }
+    }
+
+    private void requireOwnedPlan(String planId) {
+        if (planId == null || findPlan(planId).isEmpty()) {
+            throw new NoSuchElementException("Test plan not found: " + planId);
+        }
+    }
+
+    private void requireOwnedTestCase(String testCaseId) {
+        if (testCaseId == null || findTestCase(testCaseId).isEmpty()) {
+            throw new NoSuchElementException("Test case not found: " + testCaseId);
+        }
+    }
+
+    private void requireOwnedEnvironment(String environmentId) {
+        if (environmentId == null || findEnvironment(environmentId).isEmpty()) {
+            throw new NoSuchElementException("Environment not found: " + environmentId);
         }
     }
 
