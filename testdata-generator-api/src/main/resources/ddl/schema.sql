@@ -222,10 +222,11 @@ CREATE INDEX IF NOT EXISTS ix_td_request_file_case
     ON td_request_file (test_case_id);
 
 CREATE TABLE IF NOT EXISTS td_run (
-    run_id      VARCHAR(36)  NOT NULL,
-    spec_id     VARCHAR(36)  NOT NULL,
-    plan_id     VARCHAR(36),
-    run_trigger VARCHAR(16)  NOT NULL,
+    run_id          VARCHAR(36)  NOT NULL,
+    spec_id         VARCHAR(36)  NOT NULL,
+    plan_id         VARCHAR(36),
+    environment_id  VARCHAR(36),
+    run_trigger     VARCHAR(16)  NOT NULL,
     passed      INTEGER      NOT NULL DEFAULT 0,
     failed      INTEGER      NOT NULL DEFAULT 0,
     skipped     INTEGER      NOT NULL DEFAULT 0,

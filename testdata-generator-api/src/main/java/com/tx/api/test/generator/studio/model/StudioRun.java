@@ -9,6 +9,7 @@ public class StudioRun {
     private String id;
     private String specId;
     private String planId;
+    private String environmentId;
     private String trigger;
     private int passed;
     private int failed;
@@ -38,6 +39,14 @@ public class StudioRun {
 
     public void setPlanId(String planId) {
         this.planId = planId;
+    }
+
+    public String getEnvironmentId() {
+        return environmentId;
+    }
+
+    public void setEnvironmentId(String environmentId) {
+        this.environmentId = environmentId;
     }
 
     public String getTrigger() {

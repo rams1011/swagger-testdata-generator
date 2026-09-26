@@ -36,11 +36,12 @@ public class RunHistoryController {
     @GetMapping
     public List<RunView> list(@RequestParam String specId,
                               @RequestParam(required = false) String planId,
+                              @RequestParam(required = false) String environmentId,
                               @RequestParam(required = false) String caseId,
                               @RequestParam(required = false) String outcome,
                               @RequestParam(required = false) String trigger,
                               @RequestParam(required = false) Integer limit) {
-        return runHistoryService.list(specId, planId, caseId, outcome, trigger, limit);
+        return runHistoryService.list(specId, planId, environmentId, caseId, outcome, trigger, limit);
     }
 
     @GetMapping("/{runId}")

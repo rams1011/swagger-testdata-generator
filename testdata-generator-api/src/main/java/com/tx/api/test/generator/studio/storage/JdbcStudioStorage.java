@@ -531,10 +531,10 @@ public class JdbcStudioStorage implements StudioStorage {
     public void saveRun(StudioRun run) {
         requireOwnedSpec(run.getSpecId());
         jdbcTemplate.update("""
-                        INSERT INTO td_run (run_id, spec_id, plan_id, run_trigger, passed, failed, skipped, started_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO td_run (run_id, spec_id, plan_id, environment_id, run_trigger, passed, failed, skipped, started_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                run.getId(), run.getSpecId(), run.getPlanId(), run.getTrigger(),
+                run.getId(), run.getSpecId(), run.getPlanId(), run.getEnvironmentId(), run.getTrigger(),
                 run.getPassed(), run.getFailed(), run.getSkipped(), Timestamp.from(run.getStartedAt()));
         for (StudioRunResult result : run.getResults()) {
             jdbcTemplate.update("""
@@ -601,6 +601,10 @@ public class JdbcStudioStorage implements StudioStorage {
         if (hasText(filter.planId())) {
             sql.append(" AND r.plan_id = ?");
             args.add(filter.planId());
+        }
+        if (hasText(filter.environmentId())) {
+            sql.append(" AND r.environment_id = ?");
+            args.add(filter.environmentId());
         }
         if (hasText(filter.trigger())) {
             sql.append(" AND r.run_trigger = ?");
@@ -685,6 +689,7 @@ public class JdbcStudioStorage implements StudioStorage {
             run.setId(rs.getString("run_id"));
             run.setSpecId(rs.getString("spec_id"));
             run.setPlanId(rs.getString("plan_id"));
+            run.setEnvironmentId(rs.getString("environment_id"));
             run.setTrigger(rs.getString("run_trigger"));
             run.setPassed(rs.getInt("passed"));
             run.setFailed(rs.getInt("failed"));

@@ -7,6 +7,7 @@ public record RunView(
         String runId,
         String specId,
         String planId,
+        String environmentId,
         String trigger,
         int passed,
         int failed,
