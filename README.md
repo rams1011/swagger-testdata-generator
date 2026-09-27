@@ -12,10 +12,22 @@ Requires **JDK 21**. The API module uses **Spring Boot 4.1.1**.
 
 ## Build
 
+Always build from the **repository root** so `testdata-generator-core` is compiled before the API module:
+
 ```bash
 cd D:\code\swagger-testdata-generator
-mvn clean package
+mvn clean install
 ```
+
+If you only changed the core library and compile the API alone, install core first (otherwise Maven uses an older core JAR from `~/.m2` and you may see errors such as missing `TestDataRow.builder().extracts(...)` — that is a stale dependency, not a missing Lombok plugin):
+
+```bash
+mvn install -pl testdata-generator-core -DskipTests
+# or
+mvn clean install -pl testdata-generator-api -am
+```
+
+**Lombok** is used only in `testdata-generator-core` (`@Getter`, `@Builder`). The parent POM configures `maven-compiler-plugin` with Lombok on the annotation processor path (required on JDK 21). In Cursor/VS Code, use the **Extension Pack for Java** and enable **Annotation processing** in Java settings (`java.import.maven.annotationProcessing`: `automatic`).
 
 Artifacts:
 
