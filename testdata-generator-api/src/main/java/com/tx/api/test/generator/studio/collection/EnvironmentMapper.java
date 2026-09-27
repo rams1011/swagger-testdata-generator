@@ -12,6 +12,8 @@ import java.util.regex.Pattern;
 
 public final class EnvironmentMapper {
 
+    public static final String DEFAULT_ENVIRONMENT_NAME = "Default";
+
     private static final Pattern PLACEHOLDER = Pattern.compile("^\\$\\{[A-Za-z_][A-Za-z0-9_]*}$");
 
     private EnvironmentMapper() {
@@ -25,7 +27,7 @@ public final class EnvironmentMapper {
     }
 
     public static StudioEnvironment fromInputs(String name, String baseUrl, String authType) {
-        String environmentName = StringUtils.defaultIfBlank(name, "local").trim();
+        String environmentName = StringUtils.defaultIfBlank(name, DEFAULT_ENVIRONMENT_NAME).trim();
         Map<String, String> values = new LinkedHashMap<>();
         if (StringUtils.isNotBlank(baseUrl)) {
             values.put("baseUrl", baseUrl.trim());
@@ -97,7 +99,7 @@ public final class EnvironmentMapper {
     }
 
     public static String copyName(String source, java.util.function.Predicate<String> taken) {
-        String base = StringUtils.defaultIfBlank(source, "local").trim() + "-copy";
+        String base = StringUtils.defaultIfBlank(source, DEFAULT_ENVIRONMENT_NAME).trim() + "-copy";
         if (taken == null || !taken.test(base)) {
             return base;
         }

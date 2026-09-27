@@ -18,7 +18,7 @@ public final class CollectionFormat {
 
     public static String environmentFileName(String specName, String environmentName) {
         return sanitizeSegment(specName, "collection") + "."
-                + sanitizeSegment(environmentName, "local") + ".environment.json";
+                + sanitizeSegment(environmentName, "Default") + ".environment.json";
     }
 
     public static boolean isBaseUrlPlaceholder(String value) {

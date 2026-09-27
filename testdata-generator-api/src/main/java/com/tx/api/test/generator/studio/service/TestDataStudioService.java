@@ -440,7 +440,7 @@ public class TestDataStudioService {
         if (stored.isEmpty()) {
             var spec = studioStorage.findSpec(specId)
                     .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
-            saveEnvironmentDocument(specId, EnvironmentMapper.fromSpec(spec, "local", "NONE"));
+            saveEnvironmentDocument(specId, EnvironmentMapper.fromSpec(spec, EnvironmentMapper.DEFAULT_ENVIRONMENT_NAME, "NONE"));
             stored = studioStorage.listEnvironments(specId);
         }
         return stored.stream()
