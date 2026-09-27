@@ -40,6 +40,8 @@ class ManualSpecDocumentTest {
         assertTrue(withGet.contains("\"in\": \"path\""));
         assertTrue(withGet.contains("\"include\""));
         assertTrue(withGet.contains("X-Request-Id"));
+        assertTrue(withGet.contains("\"content\""));
+        assertTrue(withGet.contains("application/json"));
 
         IllegalArgumentException duplicate = assertThrows(IllegalArgumentException.class, () ->
                 ManualSpecDocument.addOperation(withGet, new ManualOperationRequest(

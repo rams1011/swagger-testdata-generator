@@ -25,6 +25,7 @@ public final class ManualSpecDocument {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().disableHtmlEscaping().create();
     private static final Set<String> METHODS = Set.of(
             "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS");
+    private static final Set<String> BODY_METHODS = Set.of("POST", "PUT", "PATCH");
 
     private ManualSpecDocument() {
     }
@@ -114,7 +115,7 @@ public final class ManualSpecDocument {
             operation.add("parameters", parameters);
         }
 
-        boolean hasBody = request != null && Boolean.TRUE.equals(request.hasRequestBody());
+        boolean hasBody = inferHasRequestBody(method, request);
         if (hasBody || StringUtils.isNotBlank(request == null ? null : request.requestExample())) {
             operation.add("requestBody", requestBody(request == null ? null : request.requestExample()));
         }
@@ -123,6 +124,7 @@ public final class ManualSpecDocument {
         JsonObject responses = new JsonObject();
         JsonObject response = new JsonObject();
         response.addProperty("description", "OK");
+        response.add("content", jsonObjectContent(null));
         responses.add(String.valueOf(status), response);
         operation.add("responses", responses);
 
@@ -149,7 +151,21 @@ public final class ManualSpecDocument {
         return GSON.toJson(root);
     }
 
+    private static boolean inferHasRequestBody(String method, ManualOperationRequest request) {
+        if (request != null && request.hasRequestBody() != null) {
+            return Boolean.TRUE.equals(request.hasRequestBody());
+        }
+        return BODY_METHODS.contains(method);
+    }
+
     private static JsonObject requestBody(String exampleJson) {
+        JsonObject body = new JsonObject();
+        body.addProperty("required", false);
+        body.add("content", jsonObjectContent(exampleJson));
+        return body;
+    }
+
+    private static JsonObject jsonObjectContent(String exampleJson) {
         JsonObject schema = new JsonObject();
         schema.addProperty("type", "object");
         schema.addProperty("additionalProperties", true);
@@ -164,10 +180,7 @@ public final class ManualSpecDocument {
         }
         JsonObject content = new JsonObject();
         content.add("application/json", media);
-        JsonObject body = new JsonObject();
-        body.addProperty("required", false);
-        body.add("content", content);
-        return body;
+        return content;
     }
 
     private static JsonObject parameter(String name, String in, boolean required) {
