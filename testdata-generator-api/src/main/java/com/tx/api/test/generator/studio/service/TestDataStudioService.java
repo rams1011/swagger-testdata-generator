@@ -259,7 +259,7 @@ public class TestDataStudioService {
         Map<String, String> variables = new LinkedHashMap<>();
         runPrerequisites(testCase, request.auth(), trigger, variables, environmentId);
         RunTestResult result = testRunService.execute(testCase, request.auth(), variables);
-        runHistoryService.recordSingle(trigger, testCase, result);
+        runHistoryService.recordSingle(trigger, environmentId, testCase, result);
         return result;
     }
 
@@ -280,7 +280,7 @@ public class TestDataStudioService {
                 continue;
             }
             RunTestResult priorResult = testRunService.execute(applyOverlay(prior, environmentId), auth, variables);
-            runHistoryService.recordSingle(trigger, prior, priorResult);
+            runHistoryService.recordSingle(trigger, environmentId, prior, priorResult);
         }
     }
 
@@ -316,7 +316,7 @@ public class TestDataStudioService {
                 failed++;
             }
         }
-        runHistoryService.recordPlan(request.specId(), request.planId(), results, cases);
+        runHistoryService.recordPlan(request.specId(), request.planId(), request.environmentId(), results, cases);
         return new RunPlanResult(request.specId(), request.planId(), passed, failed, skipped,
                 failed == 0 && passed > 0, results);
     }
@@ -440,7 +440,7 @@ public class TestDataStudioService {
         if (stored.isEmpty()) {
             var spec = studioStorage.findSpec(specId)
                     .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
-            saveEnvironmentDocument(specId, EnvironmentMapper.fromSpec(spec, "local", "NONE"));
+            saveEnvironmentDocument(specId, EnvironmentMapper.fromSpec(spec, EnvironmentMapper.DEFAULT_ENVIRONMENT_NAME, "NONE"));
             stored = studioStorage.listEnvironments(specId);
         }
         return stored.stream()

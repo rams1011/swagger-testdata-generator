@@ -58,15 +58,16 @@ public class RunHistoryService {
         this.properties = properties;
     }
 
-    public void recordSingle(String trigger, StudioTestCase testCase, RunTestResult result) {
+    public void recordSingle(String trigger, String environmentId, StudioTestCase testCase, RunTestResult result) {
         if (testCase == null || StringUtils.isBlank(testCase.getSpecId()) || result == null) {
             return;
         }
-        persist(buildRun(trigger, testCase.getSpecId(), testCase.getPlanId(),
+        persist(buildRun(trigger, testCase.getSpecId(), testCase.getPlanId(), environmentId,
                 List.of(toStoredResult(trigger, testCase, result))));
     }
 
-    public void recordPlan(String specId, String planId, List<RunTestResult> results, List<StudioTestCase> cases) {
+    public void recordPlan(String specId, String planId, String environmentId, List<RunTestResult> results,
+                           List<StudioTestCase> cases) {
         if (StringUtils.isBlank(specId) || results == null || results.isEmpty()) {
             return;
         }
@@ -84,17 +85,18 @@ public class RunHistoryService {
             }
             stored.add(toStoredResult(TRIGGER_PLAN, testCase, result));
         }
-        persist(buildRun(TRIGGER_PLAN, specId, planId, stored));
+        persist(buildRun(TRIGGER_PLAN, specId, planId, environmentId, stored));
     }
 
-    public List<RunView> list(String specId, String planId, String caseId, String outcome, String trigger,
-                             Integer limit) {
+    public List<RunView> list(String specId, String planId, String environmentId, String caseId, String outcome,
+                              String trigger, Integer limit) {
         if (StringUtils.isBlank(specId)) {
             throw new IllegalArgumentException("specId is required");
         }
         return studioStorage.listRuns(new RunHistoryFilter(
                         specId.trim(),
                         blankToNull(planId),
+                        blankToNull(environmentId),
                         blankToNull(caseId),
                         normalizeChoice(outcome, OUTCOMES, "outcome"),
                         normalizeChoice(trigger, TRIGGERS, "trigger"),
@@ -154,7 +156,8 @@ public class RunHistoryService {
         }
     }
 
-    private StudioRun buildRun(String trigger, String specId, String planId, List<StudioRunResult> results) {
+    private StudioRun buildRun(String trigger, String specId, String planId, String environmentId,
+                               List<StudioRunResult> results) {
         Instant now = Instant.now();
         String runId = UUID.randomUUID().toString();
         int passed = 0;
@@ -173,6 +176,7 @@ public class RunHistoryService {
         run.setId(runId);
         run.setSpecId(specId);
         run.setPlanId(planId);
+        run.setEnvironmentId(blankToNull(environmentId));
         run.setTrigger(trigger);
         run.setPassed(passed);
         run.setFailed(failed);
@@ -306,6 +310,7 @@ public class RunHistoryService {
                 run.getId(),
                 run.getSpecId(),
                 run.getPlanId(),
+                run.getEnvironmentId(),
                 run.getTrigger(),
                 run.getPassed(),
                 run.getFailed(),

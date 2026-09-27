@@ -12,10 +12,22 @@ Requires **JDK 21**. The API module uses **Spring Boot 4.1.1**.
 
 ## Build
 
+Always build from the **repository root** so `testdata-generator-core` is compiled before the API module:
+
 ```bash
 cd D:\code\swagger-testdata-generator
-mvn clean package
+mvn clean install
 ```
+
+If you only changed the core library and compile the API alone, install core first (otherwise Maven uses an older core JAR from `~/.m2` and you may see errors such as missing `TestDataRow.builder().extracts(...)` — that is a stale dependency, not a missing Lombok plugin):
+
+```bash
+mvn install -pl testdata-generator-core -DskipTests
+# or
+mvn clean install -pl testdata-generator-api -am
+```
+
+**Lombok** is used only in `testdata-generator-core` (`@Getter`, `@Builder`). The parent POM configures `maven-compiler-plugin` with Lombok on the annotation processor path (required on JDK 21). In Cursor/VS Code, use the **Extension Pack for Java** and enable **Annotation processing** in Java settings (`java.import.maven.annotationProcessing`: `automatic`).
 
 Artifacts:
 
@@ -124,7 +136,7 @@ Public register is off in `datacenter`. The bootstrap admin adds people from **A
 | `POST` | `/api/testdata/run` | Run the current (unsaved) case; body is `{ testCase, auth }` |
 | `POST` | `/api/testdata/{id}/run` | Run a saved case with optional `{ auth }` |
 | `POST` | `/api/testdata/run-plan` | Run enabled cases in a plan for one environment (`specId`, `planId`, `auth`, `environmentId`) |
-| `GET` | `/api/runs?specId=&planId=&caseId=&outcome=&trigger=&limit=` | List persisted run batches (H2/Postgres). Newest first |
+| `GET` | `/api/runs?specId=&planId=&environmentId=&caseId=&outcome=&trigger=&limit=` | List persisted run batches (H2/Postgres). Newest first |
 | `GET` | `/api/runs/{runId}` | One run plus request/response snapshots |
 | `GET` | `/api/runs/{runId}/results/{resultId}` | One HTTP snapshot (body still available after the case is edited) |
 | `GET` | `/api/runs/compare?leftRunId=&leftResultId=&rightRunId=&rightResultId=` | Field-level diff of two snapshots |
@@ -205,7 +217,7 @@ Set `TESTDATA_SAAS_CORS_ORIGINS` to the Studio UI origin(s) in Cloud Run (`vars.
 | `td_test_plan` | Named test plans under a spec. A spec always has at least one plan (`Default` is created on first access) |
 | `td_test_case` | Test cases created from operation schemas (`plan_id` scopes a case to a plan) |
 | `td_test_case_param` | Path, query, and header values (`param_in` = `path` \| `query` \| `header`) |
-| `td_run` | One Try / Run / Run plan click (`run_trigger` = `try` \| `case` \| `plan`) |
+| `td_run` | One Try / Run / Run plan click (`run_trigger` = `try` \| `case` \| `plan`; `environment_id` scopes history per environment) |
 | `td_run_result` | Snapshot of one HTTP call (redacted headers, truncated body). Not stored in Excel mode |
 
 Oldest `td_run` rows for a spec are deleted after each write when the count exceeds `testdata.run-history.max-per-spec` (default `100`; `0` keeps history unbounded).
