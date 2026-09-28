@@ -14,13 +14,6 @@ on:
 env:
   REGION: ${{ vars.GCP_REGION || 'us-central1' }}
   REPOSITORY: ${{ vars.GCP_ARTIFACT_REPO || 'observability' }}
-  TESTDATA_DATASOURCE_URL: ${{ secrets.TESTDATA_DATASOURCE_URL }}
-  TESTDATA_DATASOURCE_USERNAME: ${{ secrets.TESTDATA_DATASOURCE_USERNAME }}
-  TESTDATA_DATASOURCE_PASSWORD: ${{ secrets.TESTDATA_DATASOURCE_PASSWORD }}
-  TESTDATA_ALLOYDB_INSTANCE: ${{ vars.TESTDATA_ALLOYDB_INSTANCE }}
-  TESTDATA_SAAS_CORS_ORIGINS: ${{ vars.TESTDATA_SAAS_CORS_ORIGINS }}
-  TESTDATA_SAAS_ADMIN_EMAIL: ${{ secrets.TESTDATA_SAAS_ADMIN_EMAIL }}
-  TESTDATA_SAAS_ADMIN_PASSWORD: ${{ secrets.TESTDATA_SAAS_ADMIN_PASSWORD }}
 
 jobs:
   deploy:
@@ -28,6 +21,14 @@ jobs:
     permissions:
       contents: read
       id-token: write
+    env:
+      TESTDATA_DATASOURCE_URL: ${{ secrets.TESTDATA_DATASOURCE_URL }}
+      TESTDATA_DATASOURCE_USERNAME: ${{ secrets.TESTDATA_DATASOURCE_USERNAME }}
+      TESTDATA_DATASOURCE_PASSWORD: ${{ secrets.TESTDATA_DATASOURCE_PASSWORD }}
+      TESTDATA_ALLOYDB_INSTANCE: ${{ vars.TESTDATA_ALLOYDB_INSTANCE }}
+      TESTDATA_SAAS_CORS_ORIGINS: ${{ vars.TESTDATA_SAAS_CORS_ORIGINS }}
+      TESTDATA_SAAS_ADMIN_EMAIL: ${{ secrets.TESTDATA_SAAS_ADMIN_EMAIL }}
+      TESTDATA_SAAS_ADMIN_PASSWORD: ${{ secrets.TESTDATA_SAAS_ADMIN_PASSWORD }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -68,6 +69,21 @@ jobs:
           cache-from: type=gha,scope=testdata-studio
           cache-to: type=gha,mode=max,scope=testdata-studio
 
+      - name: Validate SaaS bootstrap secrets
+        run: |
+          missing=0
+          if [ -z "${TESTDATA_SAAS_ADMIN_EMAIL}" ]; then
+            echo "::error::TESTDATA_SAAS_ADMIN_EMAIL is empty. Add it under Settings → Secrets and variables → Actions → Repository secrets (not Variables)."
+            missing=1
+          fi
+          if [ -z "${TESTDATA_SAAS_ADMIN_PASSWORD}" ]; then
+            echo "::error::TESTDATA_SAAS_ADMIN_PASSWORD is empty. Add it as a repository secret."
+            missing=1
+          fi
+          if [ "${missing}" -ne 0 ]; then
+            exit 1
+          fi
+
       - name: Cloud Run env file
         run: |
           {
@@ -79,14 +95,10 @@ jobs:
             echo "TESTDATA_H2_CONSOLE=false"
             echo "TESTDATA_ALLOYDB_INSTANCE=${TESTDATA_ALLOYDB_INSTANCE}"
             echo "SPRING_DATASOURCE_USERNAME=${TESTDATA_DATASOURCE_USERNAME:-postgres}"
+            echo "TESTDATA_SAAS_ADMIN_EMAIL=${TESTDATA_SAAS_ADMIN_EMAIL}"
+            echo "TESTDATA_SAAS_ADMIN_PASSWORD=${TESTDATA_SAAS_ADMIN_PASSWORD}"
             if [ -n "${TESTDATA_SAAS_CORS_ORIGINS}" ]; then
               echo "TESTDATA_SAAS_CORS_ORIGINS=${TESTDATA_SAAS_CORS_ORIGINS}"
-            fi
-            if [ -n "${TESTDATA_SAAS_ADMIN_EMAIL}" ]; then
-              echo "TESTDATA_SAAS_ADMIN_EMAIL=${TESTDATA_SAAS_ADMIN_EMAIL}"
-            fi
-            if [ -n "${TESTDATA_SAAS_ADMIN_PASSWORD}" ]; then
-              echo "TESTDATA_SAAS_ADMIN_PASSWORD=${TESTDATA_SAAS_ADMIN_PASSWORD}"
             fi
             if [ -n "${TESTDATA_DATASOURCE_URL}" ]; then
               echo "TESTDATA_DATASOURCE_URL=${TESTDATA_DATASOURCE_URL}"
