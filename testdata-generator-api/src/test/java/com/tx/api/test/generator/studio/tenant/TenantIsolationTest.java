@@ -145,15 +145,52 @@ class TenantIsolationTest {
         });
 
         TenantContext.runAs(globex.tenant().id(), () -> {
+            assertThrows(NoSuchElementException.class, () -> storage.deleteSpec("spec-acme"));
             assertThrows(NoSuchElementException.class, () -> storage.deletePlan(planId));
             assertThrows(NoSuchElementException.class, () -> storage.deleteTestCase(caseId));
             assertThrows(NoSuchElementException.class, () -> storage.deleteEnvironment(environmentId));
         });
 
         TenantContext.runAs(acme.tenant().id(), () -> {
+            assertTrue(storage.findSpec("spec-acme").isPresent());
             assertTrue(storage.findPlan(planId).isPresent());
             assertTrue(storage.findTestCase(caseId).isPresent());
             assertTrue(storage.findEnvironment(environmentId).isPresent());
+        });
+    }
+
+    @Test
+    void saveTestCaseRecordsAuditFields() {
+        var owner = authService.register(new RegisterRequest("qa@acme.test", "password1", "Acme QA", "Acme"));
+        TenantContext.runAs(owner.tenant().id(), owner.account().id(), "OWNER", () -> {
+            storage.saveSpec(spec("spec-acme", "employee-service"));
+            StudioTestCase testCase = new StudioTestCase();
+            testCase.setId("case-audit");
+            testCase.setSpecId("spec-acme");
+            testCase.setPlanId("plan-audit");
+            testCase.setOperationKey("GET /employees");
+            testCase.setTestName("list employees");
+            testCase.setMethod("GET");
+            testCase.setRawPath("/employees");
+            testCase.setEndpoint("/employees");
+            testCase.setStatusCode(200);
+            testCase.setEnabled("Y");
+            storage.savePlan(plan("plan-audit", "spec-acme"));
+            storage.saveTestCase(testCase);
+            StudioTestCase saved = storage.findTestCase("case-audit").orElseThrow();
+            assertEquals(owner.account().id(), saved.getCreatedByAccountId());
+            assertEquals("qa@acme.test", saved.getCreatedByLabel());
+            assertEquals(owner.account().id(), saved.getUpdatedByAccountId());
+            assertTrue(saved.getCreatedAt() != null);
+            assertTrue(saved.getUpdatedAt() != null);
+
+            saved.setTestName("list employees v2");
+            storage.saveTestCase(saved);
+            StudioTestCase updated = storage.findTestCase("case-audit").orElseThrow();
+            assertEquals("list employees v2", updated.getTestName());
+            assertEquals(owner.account().id(), updated.getCreatedByAccountId());
+            assertEquals("qa@acme.test", updated.getCreatedByLabel());
+            assertEquals(owner.account().id(), updated.getUpdatedByAccountId());
         });
     }
 
@@ -426,6 +463,14 @@ class TenantIsolationTest {
         spec.setLabel("General");
         spec.setBaseUrl("http://localhost:8080");
         return spec;
+    }
+
+    private static StudioTestPlan plan(String planId, String specId) {
+        StudioTestPlan plan = new StudioTestPlan();
+        plan.setId(planId);
+        plan.setSpecId(specId);
+        plan.setName("Default");
+        return plan;
     }
 
     private static final class FixedProvider<T> implements ObjectProvider<T> {

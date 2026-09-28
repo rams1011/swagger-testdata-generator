@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.dto;
 
+import java.time.Instant;
 import java.util.Map;
 
 public record TestCaseView(
@@ -27,6 +28,10 @@ public record TestCaseView(
         String extracts,
         long maxResponseTimeMs,
         boolean hasEnvironmentOverlay,
-        java.util.List<String> environments
+        java.util.List<String> environments,
+        Instant createdAt,
+        Instant updatedAt,
+        String createdBy,
+        String updatedBy
 ) {
 }

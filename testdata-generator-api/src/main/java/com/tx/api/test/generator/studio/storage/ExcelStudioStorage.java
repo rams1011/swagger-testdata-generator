@@ -2,6 +2,7 @@ package com.tx.api.test.generator.studio.storage;
 
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
+import com.tx.api.test.generator.studio.audit.CaseAudit;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
@@ -54,7 +55,7 @@ public class ExcelStudioStorage implements StudioStorage {
             "endpoint", "base_url", "content_type", "request_body_json", "response_schema_json",
             "status_code", "response_type", "expected_response", "enabled", "test_group",
             "json_path_assertions", "max_response_time_ms", "created_at", "updated_at", "plan_id", "extracts",
-            "environment_names"
+            "environment_names", "created_by_account_id", "created_by_label", "updated_by_account_id", "updated_by_label"
     };
     private static final String[] PARAM_HEADERS = {
             "test_case_id", "param_in", "param_name", "param_value"
@@ -252,9 +253,16 @@ public class ExcelStudioStorage implements StudioStorage {
             }
             Instant now = Instant.now();
             StudioTestCase existing = state.cases.get(testCase.getId());
-            state.caseCreatedAt.put(testCase.getId(),
-                    existing != null ? state.caseCreatedAt.getOrDefault(testCase.getId(), now) : now);
-            state.caseUpdatedAt.put(testCase.getId(), now);
+            if (existing != null) {
+                testCase.setCreatedAt(existing.getCreatedAt());
+                testCase.setCreatedByAccountId(existing.getCreatedByAccountId());
+                testCase.setCreatedByLabel(existing.getCreatedByLabel());
+                CaseAudit.stampUpdate(testCase, now);
+            } else {
+                CaseAudit.stampCreate(testCase, now);
+            }
+            state.caseCreatedAt.put(testCase.getId(), testCase.getCreatedAt());
+            state.caseUpdatedAt.put(testCase.getId(), testCase.getUpdatedAt());
             state.cases.put(testCase.getId(), testCase);
             write(state);
         }
@@ -562,9 +570,15 @@ public class ExcelStudioStorage implements StudioStorage {
             testCase.setPlanId(cell(row, 20));
             testCase.setExtracts(cell(row, 21));
             testCase.setEnvironments(JsonMaps.toStringList(cell(row, 22)));
+            testCase.setCreatedAt(parseInstant(cell(row, 18)));
+            testCase.setUpdatedAt(parseInstant(cell(row, 19)));
+            testCase.setCreatedByAccountId(cell(row, 23));
+            testCase.setCreatedByLabel(cell(row, 24));
+            testCase.setUpdatedByAccountId(cell(row, 25));
+            testCase.setUpdatedByLabel(cell(row, 26));
             state.cases.put(testCase.getId(), testCase);
-            state.caseCreatedAt.put(testCase.getId(), parseInstant(cell(row, 18)));
-            state.caseUpdatedAt.put(testCase.getId(), parseInstant(cell(row, 19)));
+            state.caseCreatedAt.put(testCase.getId(), testCase.getCreatedAt());
+            state.caseUpdatedAt.put(testCase.getId(), testCase.getUpdatedAt());
         }
     }
 
@@ -692,6 +706,10 @@ public class ExcelStudioStorage implements StudioStorage {
             set(row, 20, testCase.getPlanId());
             set(row, 21, testCase.getExtracts());
             set(row, 22, JsonMaps.toJson(testCase.getEnvironments()));
+            set(row, 23, testCase.getCreatedByAccountId());
+            set(row, 24, testCase.getCreatedByLabel());
+            set(row, 25, testCase.getUpdatedByAccountId());
+            set(row, 26, testCase.getUpdatedByLabel());
         }
     }
 

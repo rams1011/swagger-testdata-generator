@@ -307,6 +307,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS ux_td_environment_spec_name
     ON td_environment (spec_id, name);
 
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS environment_names TEXT;
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS created_by_account_id VARCHAR(36);
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS created_by_label VARCHAR(320);
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS updated_by_account_id VARCHAR(36);
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS updated_by_label VARCHAR(320);
 ALTER TABLE td_request_file DROP COLUMN IF EXISTS environment_name;
 
 CREATE TABLE IF NOT EXISTS td_organization (

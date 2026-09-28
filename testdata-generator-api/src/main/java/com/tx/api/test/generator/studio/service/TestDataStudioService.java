@@ -829,33 +829,7 @@ public class TestDataStudioService {
     }
 
     private TestCaseView toView(StudioTestCase testCase) {
-        return new TestCaseView(
-                testCase.getId(),
-                testCase.getSpecId(),
-                testCase.getPlanId(),
-                testCase.getOperationKey(),
-                testCase.getTestName(),
-                testCase.getMethod(),
-                testCase.getRawPath(),
-                testCase.getEndpoint(),
-                testCase.getBaseUrl(),
-                testCase.getContentType(),
-                testCase.getPathParams(),
-                testCase.getQueryParams(),
-                testCase.getHeaders(),
-                testCase.getCookieParams(),
-                testCase.getRequestBody(),
-                testCase.getStatusCode(),
-                testCase.getResponseType(),
-                testCase.getExpectedResponse(),
-                testCase.getEnabled(),
-                testCase.getTestGroup(),
-                testCase.getJsonPathAssertions(),
-                testCase.getExtracts(),
-                testCase.getMaxResponseTimeMs(),
-                false,
-                testCase.getEnvironments()
-        );
+        return toView(testCase, (StudioEnvironment) null);
     }
 
     private TestCaseView toView(StudioTestCase testCase, String environmentId) {
@@ -863,7 +837,7 @@ public class TestDataStudioService {
     }
 
     private TestCaseView toView(StudioTestCase testCase, StudioEnvironment environment) {
-        boolean hasOverlay = EnvironmentOverlay.hasOverlay(environment, testCase.getId());
+        boolean hasOverlay = environment != null && EnvironmentOverlay.hasOverlay(environment, testCase.getId());
         StudioTestCase view = hasOverlay
                 ? EnvironmentOverlay.merge(testCase, environment.caseOverlays().get(testCase.getId()))
                 : testCase;
@@ -892,7 +866,11 @@ public class TestDataStudioService {
                 view.getExtracts(),
                 view.getMaxResponseTimeMs(),
                 hasOverlay,
-                testCase.getEnvironments()
+                testCase.getEnvironments(),
+                testCase.getCreatedAt(),
+                testCase.getUpdatedAt(),
+                testCase.getCreatedByLabel(),
+                testCase.getUpdatedByLabel()
         );
     }
 

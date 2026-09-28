@@ -5,6 +5,7 @@ import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
 import com.tx.api.test.generator.studio.model.StudioRunResult;
+import com.tx.api.test.generator.studio.audit.CaseAudit;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -74,17 +75,50 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void deleteSpec(String specId) {
-        jdbcTemplate.update("DELETE FROM td_run_result WHERE spec_id = ?", specId);
-        jdbcTemplate.update("DELETE FROM td_run WHERE spec_id = ?", specId);
-        jdbcTemplate.update("DELETE FROM td_test_case_param WHERE test_case_id IN (SELECT test_case_id FROM td_test_case WHERE spec_id = ?)",
-                specId);
-        jdbcTemplate.update(
-                "DELETE FROM td_request_file WHERE test_case_id IN (SELECT test_case_id FROM td_test_case WHERE spec_id = ?)",
-                specId);
-        jdbcTemplate.update("DELETE FROM td_test_case WHERE spec_id = ?", specId);
-        jdbcTemplate.update("DELETE FROM td_test_plan WHERE spec_id = ?", specId);
-        jdbcTemplate.update("DELETE FROM td_environment WHERE spec_id = ?", specId);
-        int deleted = jdbcTemplate.update("DELETE FROM td_spec WHERE spec_id = ? AND tenant_id = ?", specId, tenantId());
+        requireOwnedSpec(specId);
+        String tenant = tenantId();
+        jdbcTemplate.update("""
+                DELETE FROM td_run_result
+                 WHERE spec_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, specId, tenant);
+        jdbcTemplate.update("""
+                DELETE FROM td_run
+                 WHERE spec_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, specId, tenant);
+        jdbcTemplate.update("""
+                DELETE FROM td_test_case_param
+                 WHERE test_case_id IN (
+                       SELECT c.test_case_id FROM td_test_case c
+                         JOIN td_spec s ON s.spec_id = c.spec_id
+                        WHERE c.spec_id = ? AND s.tenant_id = ?
+                 )
+                """, specId, tenant);
+        jdbcTemplate.update("""
+                DELETE FROM td_request_file
+                 WHERE test_case_id IN (
+                       SELECT c.test_case_id FROM td_test_case c
+                         JOIN td_spec s ON s.spec_id = c.spec_id
+                        WHERE c.spec_id = ? AND s.tenant_id = ?
+                 )
+                """, specId, tenant);
+        jdbcTemplate.update("""
+                DELETE FROM td_test_case
+                 WHERE spec_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, specId, tenant);
+        jdbcTemplate.update("""
+                DELETE FROM td_test_plan
+                 WHERE spec_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, specId, tenant);
+        jdbcTemplate.update("""
+                DELETE FROM td_environment
+                 WHERE spec_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, specId, tenant);
+        int deleted = jdbcTemplate.update("DELETE FROM td_spec WHERE spec_id = ? AND tenant_id = ?", specId, tenant);
         if (deleted == 0) {
             throw new NoSuchElementException("Spec not found: " + specId);
         }
@@ -272,15 +306,16 @@ public class JdbcStudioStorage implements StudioStorage {
         requireOwnedSpec(testCase.getSpecId());
         boolean exists = findTestCase(testCase.getId()).isPresent();
         Instant now = Instant.now();
-        Timestamp updatedAt = Timestamp.from(now);
         if (exists) {
+            CaseAudit.stampUpdate(testCase, now);
+            Timestamp updatedAt = Timestamp.from(testCase.getUpdatedAt());
             int rows = jdbcTemplate.update("""
                             UPDATE td_test_case
                                SET spec_id = ?, plan_id = ?, operation_key = ?, test_name = ?, http_method = ?, raw_path = ?,
                                    endpoint = ?, base_url = ?, content_type = ?, request_body_json = ?,
                                    response_schema_json = ?, status_code = ?, response_type = ?, expected_response = ?,
                                    enabled = ?, test_group = ?, json_path_assertions = ?, extracts = ?, max_response_time_ms = ?,
-                                   environment_names = ?, updated_at = ?
+                                   environment_names = ?, updated_at = ?, updated_by_account_id = ?, updated_by_label = ?
                              WHERE test_case_id = ?
                                AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
                             """,
@@ -291,7 +326,8 @@ public class JdbcStudioStorage implements StudioStorage {
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getEnabled(),
                     testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
                     testCase.getMaxResponseTimeMs(), JsonMaps.toJson(testCase.getEnvironments()),
-                    updatedAt, testCase.getId(), tenantId());
+                    updatedAt, testCase.getUpdatedByAccountId(), testCase.getUpdatedByLabel(),
+                    testCase.getId(), tenantId());
             if (rows == 0) {
                 throw new NoSuchElementException("Test case not found: " + testCase.getId());
             }
@@ -305,13 +341,17 @@ public class JdbcStudioStorage implements StudioStorage {
                        )
                     """, testCase.getId(), testCase.getId(), tenantId());
         } else {
+            CaseAudit.stampCreate(testCase, now);
+            Timestamp createdAt = Timestamp.from(testCase.getCreatedAt());
+            Timestamp updatedAt = Timestamp.from(testCase.getUpdatedAt());
             jdbcTemplate.update("""
                             INSERT INTO td_test_case (
                                 test_case_id, spec_id, plan_id, operation_key, test_name, http_method, raw_path, endpoint,
                                 base_url, content_type, request_body_json, response_schema_json, status_code,
                                 response_type, expected_response, enabled, test_group, json_path_assertions, extracts,
-                                max_response_time_ms, environment_names, created_at, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                max_response_time_ms, environment_names, created_at, updated_at,
+                                created_by_account_id, created_by_label, updated_by_account_id, updated_by_label)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                     testCase.getId(), testCase.getSpecId(), testCase.getPlanId(), testCase.getOperationKey(),
                     testCase.getTestName(), testCase.getMethod(), testCase.getRawPath(), testCase.getEndpoint(),
@@ -320,7 +360,8 @@ public class JdbcStudioStorage implements StudioStorage {
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getEnabled(),
                     testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
                     testCase.getMaxResponseTimeMs(), JsonMaps.toJson(testCase.getEnvironments()),
-                    updatedAt, updatedAt);
+                    createdAt, updatedAt, testCase.getCreatedByAccountId(), testCase.getCreatedByLabel(),
+                    testCase.getUpdatedByAccountId(), testCase.getUpdatedByLabel());
         }
         insertParams(testCase);
     }
@@ -617,6 +658,12 @@ public class JdbcStudioStorage implements StudioStorage {
             long maxTime = rs.getLong("max_response_time_ms");
             testCase.setMaxResponseTimeMs(rs.wasNull() ? 3000L : maxTime);
             testCase.setEnvironments(JsonMaps.toStringList(rs.getString("environment_names")));
+            testCase.setCreatedAt(toInstant(rs, "created_at"));
+            testCase.setUpdatedAt(toInstant(rs, "updated_at"));
+            testCase.setCreatedByAccountId(rs.getString("created_by_account_id"));
+            testCase.setCreatedByLabel(rs.getString("created_by_label"));
+            testCase.setUpdatedByAccountId(rs.getString("updated_by_account_id"));
+            testCase.setUpdatedByLabel(rs.getString("updated_by_label"));
             return testCase;
         };
     }
