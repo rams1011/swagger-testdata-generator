@@ -58,9 +58,9 @@ testdata:
     # Operator/session settings — not the hosting mode. Use testdata.edition for that.
     session-days: 14
     cors-origins: ${TESTDATA_SAAS_CORS_ORIGINS:http://localhost:*,http://127.0.0.1:*}
-    # Set both in the environment. Empty means no bootstrap admin is created.
-    admin-email: ${TESTDATA_SAAS_ADMIN_EMAIL:saas.admin@local.test}
-    admin-password: ${TESTDATA_SAAS_ADMIN_PASSWORD:saas-admin-1}
+    # Set both in the environment (Cloud Run / local .env). Empty means no bootstrap admin.
+    admin-email: ${TESTDATA_SAAS_ADMIN_EMAIL:}
+    admin-password: ${TESTDATA_SAAS_ADMIN_PASSWORD:}
     org-name: ${TESTDATA_SAAS_ORG_NAME:Studio}
     workspace-name: ${TESTDATA_SAAS_WORKSPACE_NAME:Default}
 
