@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.model;
 
+import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -30,6 +31,12 @@ public class StudioTestCase {
     private String extracts;
     private long maxResponseTimeMs;
     private java.util.List<String> environments;
+    private Instant createdAt;
+    private Instant updatedAt;
+    private String createdByAccountId;
+    private String createdByLabel;
+    private String updatedByAccountId;
+    private String updatedByLabel;
 
     public String getId() {
         return id;
@@ -229,5 +236,53 @@ public class StudioTestCase {
 
     public void setEnvironments(java.util.List<String> environments) {
         this.environments = environments;
+    }
+
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
+
+    public void setCreatedAt(Instant createdAt) {
+        this.createdAt = createdAt;
+    }
+
+    public Instant getUpdatedAt() {
+        return updatedAt;
+    }
+
+    public void setUpdatedAt(Instant updatedAt) {
+        this.updatedAt = updatedAt;
+    }
+
+    public String getCreatedByAccountId() {
+        return createdByAccountId;
+    }
+
+    public void setCreatedByAccountId(String createdByAccountId) {
+        this.createdByAccountId = createdByAccountId;
+    }
+
+    public String getCreatedByLabel() {
+        return createdByLabel;
+    }
+
+    public void setCreatedByLabel(String createdByLabel) {
+        this.createdByLabel = createdByLabel;
+    }
+
+    public String getUpdatedByAccountId() {
+        return updatedByAccountId;
+    }
+
+    public void setUpdatedByAccountId(String updatedByAccountId) {
+        this.updatedByAccountId = updatedByAccountId;
+    }
+
+    public String getUpdatedByLabel() {
+        return updatedByLabel;
+    }
+
+    public void setUpdatedByLabel(String updatedByLabel) {
+        this.updatedByLabel = updatedByLabel;
     }
 }
