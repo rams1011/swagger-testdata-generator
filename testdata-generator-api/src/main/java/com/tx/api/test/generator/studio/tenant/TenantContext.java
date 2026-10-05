@@ -32,16 +32,24 @@ public final class TenantContext {
     }
 
     public static void runAs(String tenantId, String accountId, String role, Runnable action) {
-        callAs(tenantId, accountId, role, () -> {
+        runAs(tenantId, accountId, null, role, action);
+    }
+
+    public static void runAs(String tenantId, String accountId, String email, String role, Runnable action) {
+        callAs(tenantId, accountId, email, role, () -> {
             action.run();
             return null;
         });
     }
 
     public static <T> T callAs(String tenantId, String accountId, String role, Supplier<T> action) {
+        return callAs(tenantId, accountId, null, role, action);
+    }
+
+    public static <T> T callAs(String tenantId, String accountId, String email, String role, Supplier<T> action) {
         Scope previous = CURRENT.get();
         try {
-            CURRENT.set(new Scope(tenantId, accountId, null, role));
+            CURRENT.set(new Scope(tenantId, accountId, email, role));
             return action.get();
         } finally {
             if (previous == null) {

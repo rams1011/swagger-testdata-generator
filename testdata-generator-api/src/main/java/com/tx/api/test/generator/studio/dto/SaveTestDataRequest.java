@@ -23,6 +23,8 @@ public record SaveTestDataRequest(
         Long maxResponseTimeMs,
         String contentType,
         String environmentId,
-        java.util.List<String> environments
+        java.util.List<String> environments,
+        String expectedUpdatedAt,
+        Boolean forceOverwrite
 ) {
 }

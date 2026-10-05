@@ -37,6 +37,8 @@ public class StudioTestCase {
     private String createdByLabel;
     private String updatedByAccountId;
     private String updatedByLabel;
+    private Instant expectedUpdatedAt;
+    private boolean forceOverwrite;
 
     public String getId() {
         return id;
@@ -284,5 +286,21 @@ public class StudioTestCase {
 
     public void setUpdatedByLabel(String updatedByLabel) {
         this.updatedByLabel = updatedByLabel;
+    }
+
+    public Instant getExpectedUpdatedAt() {
+        return expectedUpdatedAt;
+    }
+
+    public void setExpectedUpdatedAt(Instant expectedUpdatedAt) {
+        this.expectedUpdatedAt = expectedUpdatedAt;
+    }
+
+    public boolean isForceOverwrite() {
+        return forceOverwrite;
+    }
+
+    public void setForceOverwrite(boolean forceOverwrite) {
+        this.forceOverwrite = forceOverwrite;
     }
 }

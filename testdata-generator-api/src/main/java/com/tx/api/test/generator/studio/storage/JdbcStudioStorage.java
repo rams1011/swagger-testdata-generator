@@ -6,6 +6,9 @@ import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
 import com.tx.api.test.generator.studio.model.StudioRunResult;
 import com.tx.api.test.generator.studio.audit.CaseAudit;
+import com.tx.api.test.generator.studio.audit.AuditAction;
+import com.tx.api.test.generator.studio.audit.AuditResourceType;
+import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -38,15 +41,32 @@ public class JdbcStudioStorage implements StudioStorage {
         spec.setUpdatedAt(now);
         String tenantId = tenantId();
         if (existing.isPresent()) {
-            jdbcTemplate.update("""
+            Instant expected = spec.getExpectedUpdatedAt();
+            boolean optimistic = expected != null && !spec.isForceOverwrite();
+            String sql = """
                             UPDATE td_spec
                                SET name = ?, label = ?, title = ?, version = ?, description = ?, base_url = ?, source_location = ?,
                                    source_content = ?, operation_count = ?, updated_at = ?
                              WHERE spec_id = ? AND tenant_id = ?
-                            """,
-                    spec.getName(), defaultLabel(spec.getLabel()), spec.getTitle(), spec.getVersion(), spec.getDescription(), spec.getBaseUrl(),
-                    spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
-                    Timestamp.from(spec.getUpdatedAt()), spec.getSpecId(), tenantId);
+                            """ + (optimistic ? " AND updated_at = ?" : "");
+            Object[] args = optimistic
+                    ? new Object[]{
+                    spec.getName(), defaultLabel(spec.getLabel()), spec.getTitle(), spec.getVersion(), spec.getDescription(),
+                    spec.getBaseUrl(), spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
+                    Timestamp.from(spec.getUpdatedAt()), spec.getSpecId(), tenantId, Timestamp.from(expected)
+            }
+                    : new Object[]{
+                    spec.getName(), defaultLabel(spec.getLabel()), spec.getTitle(), spec.getVersion(), spec.getDescription(),
+                    spec.getBaseUrl(), spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
+                    Timestamp.from(spec.getUpdatedAt()), spec.getSpecId(), tenantId
+            };
+            int rows = jdbcTemplate.update(sql, args);
+            if (rows == 0) {
+                if (optimistic) {
+                    throw new com.tx.api.test.generator.studio.concurrency.StaleRevisionException();
+                }
+                throw new NoSuchElementException("Spec not found: " + spec.getSpecId());
+            }
             return;
         }
         jdbcTemplate.update("""
@@ -309,7 +329,9 @@ public class JdbcStudioStorage implements StudioStorage {
         if (exists) {
             CaseAudit.stampUpdate(testCase, now);
             Timestamp updatedAt = Timestamp.from(testCase.getUpdatedAt());
-            int rows = jdbcTemplate.update("""
+            Instant expected = testCase.getExpectedUpdatedAt();
+            boolean optimistic = expected != null && !testCase.isForceOverwrite();
+            String sql = """
                             UPDATE td_test_case
                                SET spec_id = ?, plan_id = ?, operation_key = ?, test_name = ?, http_method = ?, raw_path = ?,
                                    endpoint = ?, base_url = ?, content_type = ?, request_body_json = ?,
@@ -318,17 +340,41 @@ public class JdbcStudioStorage implements StudioStorage {
                                    environment_names = ?, updated_at = ?, updated_by_account_id = ?, updated_by_label = ?
                              WHERE test_case_id = ?
                                AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
-                            """,
-                    testCase.getSpecId(), testCase.getPlanId(), testCase.getOperationKey(), testCase.getTestName(),
-                    testCase.getMethod(), testCase.getRawPath(), testCase.getEndpoint(), testCase.getBaseUrl(),
-                    testCase.getContentType(), JsonMaps.toJson(testCase.getRequestBody()),
-                    JsonMaps.toJson(testCase.getResponseJsonSchema()), testCase.getStatusCode(),
-                    testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getEnabled(),
-                    testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
-                    testCase.getMaxResponseTimeMs(), JsonMaps.toJson(testCase.getEnvironments()),
-                    updatedAt, testCase.getUpdatedByAccountId(), testCase.getUpdatedByLabel(),
-                    testCase.getId(), tenantId());
+                            """ + (optimistic ? " AND updated_at = ?" : "");
+            List<Object> args = new ArrayList<>();
+            args.add(testCase.getSpecId());
+            args.add(testCase.getPlanId());
+            args.add(testCase.getOperationKey());
+            args.add(testCase.getTestName());
+            args.add(testCase.getMethod());
+            args.add(testCase.getRawPath());
+            args.add(testCase.getEndpoint());
+            args.add(testCase.getBaseUrl());
+            args.add(testCase.getContentType());
+            args.add(JsonMaps.toJson(testCase.getRequestBody()));
+            args.add(JsonMaps.toJson(testCase.getResponseJsonSchema()));
+            args.add(testCase.getStatusCode());
+            args.add(testCase.getResponseType());
+            args.add(testCase.getExpectedResponse());
+            args.add(testCase.getEnabled());
+            args.add(testCase.getTestGroup());
+            args.add(testCase.getJsonPathAssertions());
+            args.add(testCase.getExtracts());
+            args.add(testCase.getMaxResponseTimeMs());
+            args.add(JsonMaps.toJson(testCase.getEnvironments()));
+            args.add(updatedAt);
+            args.add(testCase.getUpdatedByAccountId());
+            args.add(testCase.getUpdatedByLabel());
+            args.add(testCase.getId());
+            args.add(tenantId());
+            if (optimistic) {
+                args.add(Timestamp.from(expected));
+            }
+            int rows = jdbcTemplate.update(sql, args.toArray());
             if (rows == 0) {
+                if (optimistic) {
+                    throw new com.tx.api.test.generator.studio.concurrency.StaleRevisionException();
+                }
                 throw new NoSuchElementException("Test case not found: " + testCase.getId());
             }
             jdbcTemplate.update("""
@@ -950,5 +996,59 @@ public class JdbcStudioStorage implements StudioStorage {
             return StoredSpec.DEFAULT_LABEL;
         }
         return label.trim();
+    }
+
+    @Override
+    public void appendAuditEvent(String eventId, String specId, AuditResourceType resourceType, String resourceId,
+                                 AuditAction action, String actorAccountId, String actorLabel, String detail,
+                                 Instant occurredAt) {
+        jdbcTemplate.update("""
+                        INSERT INTO td_audit_event (
+                            event_id, tenant_id, spec_id, resource_type, resource_id, action,
+                            actor_account_id, actor_label, detail, occurred_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                eventId, tenantId(), specId, resourceType.name(), resourceId, action.name(),
+                actorAccountId, actorLabel, detail, Timestamp.from(occurredAt));
+    }
+
+    @Override
+    public List<AuditEventView> listAuditEvents(AuditResourceType resourceType, String resourceId, int limit) {
+        return jdbcTemplate.query("""
+                        SELECT event_id, spec_id, resource_type, resource_id, action, actor_label, detail, occurred_at
+                          FROM td_audit_event
+                         WHERE tenant_id = ?
+                           AND resource_type = ?
+                           AND resource_id = ?
+                         ORDER BY occurred_at DESC
+                         LIMIT ?
+                        """,
+                auditEventMapper(), tenantId(), resourceType.name(), resourceId, limit);
+    }
+
+    @Override
+    public List<AuditEventView> listAuditEventsForSpec(String specId, int limit) {
+        return jdbcTemplate.query("""
+                        SELECT event_id, spec_id, resource_type, resource_id, action, actor_label, detail, occurred_at
+                          FROM td_audit_event
+                         WHERE tenant_id = ?
+                           AND spec_id = ?
+                         ORDER BY occurred_at DESC
+                         LIMIT ?
+                        """,
+                auditEventMapper(), tenantId(), specId, limit);
+    }
+
+    private RowMapper<AuditEventView> auditEventMapper() {
+        return (rs, rowNum) -> new AuditEventView(
+                rs.getString("event_id"),
+                rs.getString("spec_id"),
+                rs.getString("resource_type"),
+                rs.getString("resource_id"),
+                rs.getString("action"),
+                rs.getString("actor_label"),
+                toInstant(rs, "occurred_at"),
+                rs.getString("detail")
+        );
     }
 }

@@ -13,6 +13,7 @@ import com.tx.api.test.generator.studio.dto.RunPlanRequest;
 import com.tx.api.test.generator.studio.dto.RunPlanResult;
 import com.tx.api.test.generator.studio.dto.RunTestRequest;
 import com.tx.api.test.generator.studio.dto.RunTestResult;
+import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.dto.SaveTestDataRequest;
 import com.tx.api.test.generator.studio.dto.TestCaseView;
 import com.tx.api.test.generator.studio.service.TestDataStudioService;
@@ -91,6 +92,12 @@ public class TestDataController {
     @GetMapping("/{id}")
     public TestCaseView get(@PathVariable String id, @RequestParam(required = false) String environmentId) {
         return testDataStudioService.get(id, environmentId);
+    }
+
+    @GetMapping("/{id}/audit")
+    public List<AuditEventView> audit(@PathVariable String id,
+                                      @RequestParam(defaultValue = "20") int limit) {
+        return testDataStudioService.caseAuditHistory(id, limit);
     }
 
     @GetMapping

@@ -5,6 +5,10 @@ import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.catalog.OperationSummary;
 import com.tx.api.test.generator.catalog.SpecServer;
 import com.tx.api.test.generator.openapi.OpenApiOperationInspector;
+import com.tx.api.test.generator.studio.api.ConflictException;
+import com.tx.api.test.generator.studio.audit.StudioAuditService;
+import com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency;
+import com.tx.api.test.generator.studio.concurrency.StaleRevisionException;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
 import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
@@ -23,6 +27,7 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 import org.springframework.context.annotation.DependsOn;
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -40,18 +45,23 @@ public class SpecCatalogService {
 
     private final StudioStorage studioStorage;
     private final EntitlementService entitlements;
+    private final StudioAuditService auditService;
     private final ConcurrentHashMap<String, LoadedSpec> specs = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Instant> specCacheRevision = new ConcurrentHashMap<>();
 
     public SpecCatalogService(StudioStorage studioStorage) {
-        this(studioStorage, null);
+        this(studioStorage, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public SpecCatalogService(StudioStorage studioStorage,
                              @org.springframework.beans.factory.annotation.Autowired(required = false)
-                             EntitlementService entitlements) {
+                             EntitlementService entitlements,
+                             @org.springframework.beans.factory.annotation.Autowired(required = false)
+                             StudioAuditService auditService) {
         this.studioStorage = studioStorage;
         this.entitlements = entitlements;
+        this.auditService = auditService;
     }
 
     @PostConstruct
@@ -94,7 +104,7 @@ public class SpecCatalogService {
                 TestdataGenerator.specDescription(openApi),
                 TestdataGenerator.resolveBaseUrl(openApi, request.baseUrl())
         );
-        specs.put(specId, loadedSpec);
+        cacheLoadedSpec(specId, loadedSpec);
         studioStorage.saveSpec(toStoredSpec(loadedSpec, request, content, name));
         return toSummary(loadedSpec, request == null ? null : request.location(),
                 request == null ? null : request.label());
@@ -117,10 +127,10 @@ public class SpecCatalogService {
                 TestdataGenerator.specDescription(openApi),
                 TestdataGenerator.resolveBaseUrl(openApi, baseUrl)
         );
-        specs.put(specId, loadedSpec);
+        cacheLoadedSpec(specId, loadedSpec);
         studioStorage.saveSpec(toStoredSpec(loadedSpec,
                 new LoadSpecRequest(null, content, null, baseUrl, name,
-                        request == null ? null : request.label(), true),
+                        request == null ? null : request.label(), true, null, null),
                 content, name));
         return toSummary(loadedSpec, null, request == null ? null : request.label());
     }
@@ -162,19 +172,34 @@ public class SpecCatalogService {
         if (updateBaseUrl) {
             stored.setBaseUrl(resolveUpdatedBaseUrl(stored, request.baseUrl()));
         }
-        studioStorage.saveSpec(stored);
+        assertSpecRevision(stored, request == null ? null : request.expectedUpdatedAt(),
+                request == null ? null : request.forceOverwrite());
+        applySpecWriteOptions(stored, request == null ? null : request.expectedUpdatedAt(),
+                request == null ? null : request.forceOverwrite());
+        try {
+            studioStorage.saveSpec(stored);
+        } catch (StaleRevisionException stale) {
+            throw new ConflictException(stale.getMessage(), getSummary(specId));
+        }
         refreshLoaded(stored, updateBaseUrl);
         if (updateBaseUrl) {
             propagateCaseBaseUrls(specId, previousBaseUrl, stored.getBaseUrl());
+        }
+        if (auditService != null) {
+            auditService.recordSpecRenamed(specId, stored.getName());
         }
         return getSummary(specId);
     }
 
     public void delete(String specId) {
-        studioStorage.findSpec(specId)
+        StoredSpec stored = studioStorage.findSpec(specId)
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
+        if (auditService != null) {
+            auditService.recordSpecDeleted(specId, stored.getName());
+        }
         studioStorage.deleteSpec(specId);
         specs.remove(specId);
+        specCacheRevision.remove(specId);
     }
 
     public ReloadSpecResult reload(String specId, LoadSpecRequest request) {
@@ -188,7 +213,9 @@ public class SpecCatalogService {
 
         String location = firstNonBlank(request == null ? null : request.location(), existing.getSourceLocation());
         String content = resolveReloadContent(request, existing, location);
-        OpenAPI openApi = parseSpec(new LoadSpecRequest(location, content, null, null, null, null, null), content);
+        OpenAPI openApi = parseSpec(new LoadSpecRequest(location, content, null, null, null, null, null, null, null), content);
+        assertSpecRevision(existing, request == null ? null : request.expectedUpdatedAt(),
+                request == null ? null : request.forceOverwrite());
         String baseUrl = firstNonBlank(request == null ? null : request.baseUrl(), existing.getBaseUrl());
         List<OperationPage> operations = TestdataGenerator.inspect(openApi, baseUrl);
         if (operations.isEmpty()) {
@@ -216,10 +243,19 @@ public class SpecCatalogService {
                 baseUrl
         );
         String label = firstNonBlank(request == null ? null : request.label(), existing.getLabel());
-        specs.put(specId, loadedSpec);
-        studioStorage.saveSpec(toStoredSpec(loadedSpec,
-                new LoadSpecRequest(location, content, request == null ? null : request.fileName(), baseUrl, name, label, null),
-                content, name));
+        StoredSpec stored = toStoredSpec(loadedSpec,
+                new LoadSpecRequest(location, content, request == null ? null : request.fileName(), baseUrl, name, label, null,
+                        request == null ? null : request.expectedUpdatedAt(),
+                        request == null ? null : request.forceOverwrite()),
+                content, name);
+        applySpecWriteOptions(stored, request == null ? null : request.expectedUpdatedAt(),
+                request == null ? null : request.forceOverwrite());
+        try {
+            studioStorage.saveSpec(stored);
+        } catch (StaleRevisionException stale) {
+            throw new ConflictException(stale.getMessage(), getSummary(specId));
+        }
+        cacheLoadedSpec(specId, loadedSpec);
 
         Set<String> nextKeys = new LinkedHashSet<>();
         operations.forEach(operation -> nextKeys.add(operation.key()));
@@ -229,7 +265,11 @@ public class SpecCatalogService {
         int orphaned = (int) studioStorage.listTestCases(specId, null, null).stream()
                 .filter(testCase -> !nextKeys.contains(testCase.getOperationKey()))
                 .count();
-        return new ReloadSpecResult(toSummary(loadedSpec, location), added, removed, unchanged, orphaned);
+        ReloadSpecResult result = new ReloadSpecResult(toSummary(loadedSpec, location), added, removed, unchanged, orphaned);
+        if (auditService != null) {
+            auditService.recordSpecReloaded(specId, result);
+        }
+        return result;
     }
 
     public List<SpecSummary> list() {
@@ -250,23 +290,36 @@ public class SpecCatalogService {
     public SpecSummary getSummary(String specId) {
         StoredSpec stored = studioStorage.findSpec(specId)
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
-        LoadedSpec loaded = specs.get(specId);
-        if (loaded != null) {
-            return toSummary(loaded, stored.getSourceLocation());
-        }
-        return toSummary(stored);
+        return toSummary(requireSpec(specId), stored.getSourceLocation());
     }
 
     public LoadedSpec requireSpec(String specId) {
         StoredSpec stored = studioStorage.findSpec(specId)
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + specId));
+        return cachedOrRestore(stored);
+    }
+
+    private LoadedSpec cachedOrRestore(StoredSpec stored) {
+        String specId = stored.getSpecId();
+        Instant storedRevision = stored.getUpdatedAt();
         LoadedSpec loaded = specs.get(specId);
-        if (loaded != null) {
-            return loaded;
+        Instant cachedRevision = specCacheRevision.get(specId);
+        boolean stale = storedRevision != null && cachedRevision != null
+                && !OptimisticConcurrency.same(storedRevision, cachedRevision);
+        if (loaded == null || stale) {
+            loaded = restore(stored);
+            cacheLoadedSpec(specId, loaded);
         }
-        LoadedSpec restored = restore(stored);
-        specs.put(specId, restored);
-        return restored;
+        return loaded;
+    }
+
+    private void cacheLoadedSpec(String specId, LoadedSpec loaded) {
+        specs.put(specId, loaded);
+        studioStorage.findSpec(specId).ifPresent(value -> {
+            if (value.getUpdatedAt() != null) {
+                specCacheRevision.put(specId, value.getUpdatedAt());
+            }
+        });
     }
 
     public List<OperationSummary> listOperations(String specId) {
@@ -362,7 +415,8 @@ public class SpecCatalogService {
                 tags,
                 sourceLocation,
                 serversOf(spec),
-                isManualSpec(spec)
+                isManualSpec(spec),
+                specUpdatedAt(spec.getSpecId())
         );
     }
 
@@ -383,8 +437,28 @@ public class SpecCatalogService {
                 List.of(),
                 spec.getSourceLocation(),
                 List.of(),
-                ManualSpecDocument.isManualContent(spec.getSourceContent())
+                ManualSpecDocument.isManualContent(spec.getSourceContent()),
+                spec.getUpdatedAt()
         );
+    }
+
+    private Instant specUpdatedAt(String specId) {
+        return studioStorage.findSpec(specId).map(StoredSpec::getUpdatedAt).orElse(null);
+    }
+
+    private void assertSpecRevision(StoredSpec stored, String expectedUpdatedAt, Boolean forceOverwrite) {
+        try {
+            OptimisticConcurrency.ensureCurrent(stored.getUpdatedAt(), expectedUpdatedAt, forceOverwrite);
+        } catch (ConflictException conflict) {
+            throw new ConflictException(conflict.getMessage(), getSummary(stored.getSpecId()));
+        }
+    }
+
+    private void applySpecWriteOptions(StoredSpec spec, String expectedUpdatedAt, Boolean forceOverwrite) {
+        spec.setForceOverwrite(OptimisticConcurrency.force(forceOverwrite));
+        if (OptimisticConcurrency.checkRequired(expectedUpdatedAt, forceOverwrite)) {
+            spec.setExpectedUpdatedAt(OptimisticConcurrency.parse(expectedUpdatedAt));
+        }
     }
 
     private Set<String> previousOperationKeys(String specId, StoredSpec existing) {
@@ -440,7 +514,7 @@ public class SpecCatalogService {
             List<OperationPage> operations = reinspect
                     ? TestdataGenerator.inspect(current.getOpenApi(), stored.getBaseUrl())
                     : current.getOperations();
-            specs.put(stored.getSpecId(), new LoadedSpec(
+            cacheLoadedSpec(stored.getSpecId(), new LoadedSpec(
                     stored.getSpecId(),
                     stored.getName(),
                     current.getOpenApi(),
@@ -452,6 +526,7 @@ public class SpecCatalogService {
             ));
         } catch (RuntimeException exception) {
             specs.remove(stored.getSpecId());
+            specCacheRevision.remove(stored.getSpecId());
         }
     }
 
@@ -567,13 +642,13 @@ public class SpecCatalogService {
                 TestdataGenerator.specDescription(openApi),
                 stored.getBaseUrl()
         );
-        specs.put(stored.getSpecId(), loadedSpec);
         stored.setSourceContent(content);
         stored.setTitle(loadedSpec.getTitle());
         stored.setVersion(loadedSpec.getVersion());
         stored.setDescription(loadedSpec.getDescription());
         stored.setOperationCount(operations.size());
         studioStorage.saveSpec(stored);
+        cacheLoadedSpec(stored.getSpecId(), loadedSpec);
         if (StringUtils.isBlank(path) || StringUtils.isBlank(method)) {
             return null;
         }
