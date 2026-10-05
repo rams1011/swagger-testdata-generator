@@ -5,9 +5,13 @@ import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
 import com.tx.api.test.generator.studio.model.StudioRunResult;
+import com.tx.api.test.generator.studio.audit.AuditAction;
+import com.tx.api.test.generator.studio.audit.AuditResourceType;
+import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -89,5 +93,18 @@ public interface StudioStorage {
 
     default int pruneOldestRuns(String specId, int keep) {
         return 0;
+    }
+
+    default void appendAuditEvent(String eventId, String specId, AuditResourceType resourceType, String resourceId,
+                                  AuditAction action, String actorAccountId, String actorLabel, String detail,
+                                  Instant occurredAt) {
+    }
+
+    default List<AuditEventView> listAuditEvents(AuditResourceType resourceType, String resourceId, int limit) {
+        return List.of();
+    }
+
+    default List<AuditEventView> listAuditEventsForSpec(String specId, int limit) {
+        return List.of();
     }
 }

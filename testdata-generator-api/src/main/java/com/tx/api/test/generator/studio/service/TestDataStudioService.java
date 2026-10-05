@@ -41,6 +41,10 @@ import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
+import com.tx.api.test.generator.studio.api.ConflictException;
+import com.tx.api.test.generator.studio.audit.StudioAuditService;
+import com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency;
+import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 import com.tx.api.test.generator.studio.tenant.EntitlementService;
 import com.tx.api.test.generator.writer.TestDataExcelWriter;
@@ -79,6 +83,7 @@ public class TestDataStudioService {
     private final TestRunService testRunService;
     private final RunHistoryService runHistoryService;
     private final EntitlementService entitlements;
+    private final StudioAuditService auditService;
     private final TestDataExcelWriter excelWriter = new TestDataExcelWriter();
     private final String serverPort;
 
@@ -87,6 +92,7 @@ public class TestDataStudioService {
                                  RunHistoryService runHistoryService,
                                  @org.springframework.beans.factory.annotation.Autowired(required = false)
                                  EntitlementService entitlements,
+                                 StudioAuditService auditService,
                                  @Value("${server.port:8083}") String serverPort) {
         this.specCatalogService = specCatalogService;
         this.properties = properties;
@@ -94,6 +100,7 @@ public class TestDataStudioService {
         this.testRunService = testRunService;
         this.runHistoryService = runHistoryService;
         this.entitlements = entitlements;
+        this.auditService = auditService;
         this.serverPort = serverPort;
     }
 
@@ -143,17 +150,32 @@ public class TestDataStudioService {
         studioStorage.saveTestCase(testCase);
         bindCaseFiles(testCase);
         saveOverlay(testCase, request);
+        auditService.recordCaseCreated(testCase);
         return toView(testCase, request == null ? null : request.environmentId());
     }
 
     public TestCaseView update(String id, SaveTestDataRequest request) {
-        StudioTestCase testCase = requireCase(id);
+        String environmentId = request == null ? null : request.environmentId();
+        StudioTestCase testCase = applyOverlay(requireCase(id), environmentId);
+        assertCaseRevision(testCase, request, environmentId);
         apply(testCase, request, false);
+        applyCaseWriteOptions(testCase, request);
         RequestFileSupport.stampTestCaseId(testCase.getRequestBody(), testCase.getId());
-        studioStorage.saveTestCase(testCase);
+        try {
+            studioStorage.saveTestCase(testCase);
+        } catch (com.tx.api.test.generator.studio.concurrency.StaleRevisionException stale) {
+            StudioTestCase latest = applyOverlay(requireCase(id), environmentId);
+            throw new com.tx.api.test.generator.studio.api.ConflictException(stale.getMessage(), toView(latest, environmentId));
+        }
         bindCaseFiles(testCase);
         saveOverlay(testCase, request);
-        return toView(testCase, request == null ? null : request.environmentId());
+        auditService.recordCaseUpdated(testCase);
+        return toView(testCase, environmentId);
+    }
+
+    public List<AuditEventView> caseAuditHistory(String caseId, int limit) {
+        requireCase(caseId);
+        return auditService.listForCase(caseId, limit);
     }
 
     public void delete(String id) {
@@ -198,9 +220,32 @@ public class TestDataStudioService {
     }
 
     private void removeCase(StudioTestCase testCase) {
+        auditService.recordCaseDeleted(testCase.getSpecId(), testCase.getId(), testCase.getTestName());
         removeOverlays(testCase.getSpecId(), testCase.getId());
         studioStorage.deleteRequestFilesForCase(testCase.getId());
         studioStorage.deleteTestCase(testCase.getId());
+    }
+
+    private void assertCaseRevision(StudioTestCase current, SaveTestDataRequest request, String environmentId) {
+        if (request == null) {
+            return;
+        }
+        try {
+            OptimisticConcurrency.ensureCurrent(
+                    current.getUpdatedAt(), request.expectedUpdatedAt(), request.forceOverwrite());
+        } catch (ConflictException conflict) {
+            throw new ConflictException(conflict.getMessage(), toView(current, environmentId));
+        }
+    }
+
+    private void applyCaseWriteOptions(StudioTestCase testCase, SaveTestDataRequest request) {
+        if (request == null) {
+            return;
+        }
+        testCase.setForceOverwrite(OptimisticConcurrency.force(request.forceOverwrite()));
+        if (OptimisticConcurrency.checkRequired(request.expectedUpdatedAt(), request.forceOverwrite())) {
+            testCase.setExpectedUpdatedAt(OptimisticConcurrency.parse(request.expectedUpdatedAt()));
+        }
     }
 
     private List<String> otherEnvironmentNames(String specId, String exceptName) {
@@ -427,7 +472,7 @@ public class TestDataStudioService {
                 && stored.getCreatedAt().equals(stored.getUpdatedAt());
         boolean applied = false;
         if (apply && StringUtils.isNotBlank(summary.baseUrl())) {
-            specCatalogService.rename(specId, new SaveSpecRequest(null, null, summary.baseUrl()));
+            specCatalogService.rename(specId, new SaveSpecRequest(null, null, summary.baseUrl(), null, null));
             applied = true;
         }
         log.info("Imported environment {} into spec {} (applied={})", summary.name(), specId, applied);
@@ -516,7 +561,7 @@ public class TestDataStudioService {
         if (StringUtils.isBlank(summary.baseUrl())) {
             throw new IllegalArgumentException("Environment '" + summary.name() + "' has no values.baseUrl");
         }
-        specCatalogService.rename(specId, new SaveSpecRequest(null, null, summary.baseUrl()));
+        specCatalogService.rename(specId, new SaveSpecRequest(null, null, summary.baseUrl(), null, null));
         return new EnvironmentImportResult(specId, stored.getId(), summary.name(), summary.baseUrl(), true, false);
     }
 
@@ -888,6 +933,7 @@ public class TestDataStudioService {
         RequestFileSupport.stampTestCaseId(copy.getRequestBody(), copy.getId());
         studioStorage.saveTestCase(copy);
         bindCaseFiles(copy);
+        auditService.recordCaseCreated(copy);
         return toView(copy, request.toEnvironmentId());
     }
 

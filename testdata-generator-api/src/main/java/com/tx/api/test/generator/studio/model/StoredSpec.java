@@ -18,6 +18,8 @@ public class StoredSpec {
     private int operationCount;
     private Instant createdAt;
     private Instant updatedAt;
+    private Instant expectedUpdatedAt;
+    private boolean forceOverwrite;
 
     public String getSpecId() {
         return specId;
@@ -113,5 +115,21 @@ public class StoredSpec {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public Instant getExpectedUpdatedAt() {
+        return expectedUpdatedAt;
+    }
+
+    public void setExpectedUpdatedAt(Instant expectedUpdatedAt) {
+        this.expectedUpdatedAt = expectedUpdatedAt;
+    }
+
+    public boolean isForceOverwrite() {
+        return forceOverwrite;
+    }
+
+    public void setForceOverwrite(boolean forceOverwrite) {
+        this.forceOverwrite = forceOverwrite;
     }
 }

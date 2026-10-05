@@ -59,7 +59,7 @@ class SpecCatalogServiceManualTest {
     @Test
     void createsEmptyRestCatalogAndAddsOperations() {
         SpecSummary created = catalog.load(new LoadSpecRequest(null, null, null, "http://localhost:9000",
-                "HRM REST", "QA", true));
+                "HRM REST", "QA", true, null, null));
         assertTrue(created.manual());
         assertEquals(0, created.operationCount());
         assertEquals("http://localhost:9000", created.baseUrl());
@@ -91,7 +91,7 @@ class SpecCatalogServiceManualTest {
     @Test
     void addsExtraOperationsOnSwaggerSpecs() {
         SpecSummary swagger = catalog.load(new LoadSpecRequest(null, swaggerSpec(), "ping.json",
-                "http://localhost:8080", "Ping", null, null));
+                "http://localhost:8080", "Ping", null, null, null, null));
         assertFalse(swagger.manual());
         assertEquals(1, swagger.operationCount());
 
@@ -102,9 +102,9 @@ class SpecCatalogServiceManualTest {
         assertEquals(2, catalog.listOperations(swagger.specId()).size());
 
         SpecSummary manual = catalog.createManual(new LoadSpecRequest(null, null, null, null,
-                "Manual", null, true));
+                "Manual", null, true, null, null));
         IllegalArgumentException reload = assertThrows(IllegalArgumentException.class, () ->
-                catalog.reload(manual.specId(), new LoadSpecRequest(null, swaggerSpec(), null, null, null, null, null)));
+                catalog.reload(manual.specId(), new LoadSpecRequest(null, swaggerSpec(), null, null, null, null, null, null, null)));
         assertTrue(reload.getMessage().contains("not backed by a Swagger"));
     }
 

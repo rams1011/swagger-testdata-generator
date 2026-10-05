@@ -54,7 +54,7 @@ public class SpecController {
                               @RequestParam(value = "label", required = false) String label,
                               @RequestParam(value = "baseUrl", required = false) String baseUrl) throws IOException {
         String content = new String(file.getBytes(), StandardCharsets.UTF_8);
-        return specCatalogService.load(new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, name, label, null));
+        return specCatalogService.load(new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, name, label, null, null, null));
     }
 
     @PutMapping("/{specId}")
@@ -77,10 +77,13 @@ public class SpecController {
     @PostMapping(value = "/{specId}/reload/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ReloadSpecResult reloadUpload(@PathVariable String specId,
                                          @RequestPart("file") MultipartFile file,
-                                         @RequestParam(value = "baseUrl", required = false) String baseUrl)
+                                         @RequestParam(value = "baseUrl", required = false) String baseUrl,
+                                         @RequestParam(value = "expectedUpdatedAt", required = false) String expectedUpdatedAt,
+                                         @RequestParam(value = "forceOverwrite", required = false) Boolean forceOverwrite)
             throws IOException {
         String content = new String(file.getBytes(), StandardCharsets.UTF_8);
-        return specCatalogService.reload(specId, new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl, null, null, null));
+        return specCatalogService.reload(specId, new LoadSpecRequest(null, content, file.getOriginalFilename(), baseUrl,
+                null, null, null, expectedUpdatedAt, forceOverwrite));
     }
 
     @GetMapping

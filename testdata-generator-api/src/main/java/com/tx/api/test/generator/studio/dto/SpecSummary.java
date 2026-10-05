@@ -2,6 +2,7 @@ package com.tx.api.test.generator.studio.dto;
 
 import com.tx.api.test.generator.catalog.SpecServer;
 
+import java.time.Instant;
 import java.util.List;
 
 public record SpecSummary(
@@ -16,6 +17,7 @@ public record SpecSummary(
         List<String> tags,
         String sourceLocation,
         List<SpecServer> servers,
-        boolean manual
+        boolean manual,
+        Instant updatedAt
 ) {
 }

@@ -162,7 +162,7 @@ class TenantIsolationTest {
     @Test
     void saveTestCaseRecordsAuditFields() {
         var owner = authService.register(new RegisterRequest("qa@acme.test", "password1", "Acme QA", "Acme"));
-        TenantContext.runAs(owner.tenant().id(), owner.account().id(), "OWNER", () -> {
+        TenantContext.runAs(owner.tenant().id(), owner.account().id(), owner.account().email(), "OWNER", () -> {
             storage.saveSpec(spec("spec-acme", "employee-service"));
             StudioTestCase testCase = new StudioTestCase();
             testCase.setId("case-audit");
