@@ -156,10 +156,11 @@ public class TestDataStudioService {
 
     public TestCaseView update(String id, SaveTestDataRequest request) {
         String environmentId = request == null ? null : request.environmentId();
-        StudioTestCase testCase = applyOverlay(requireCase(id), environmentId);
-        assertCaseRevision(testCase, request, environmentId);
+        StudioTestCase base = requireCase(id);
+        assertCaseRevision(base, request, environmentId);
+        StudioTestCase testCase = applyOverlay(base, environmentId);
         apply(testCase, request, false);
-        applyCaseWriteOptions(testCase, request);
+        applyCaseWriteOptionsForSave(testCase, request);
         RequestFileSupport.stampTestCaseId(testCase.getRequestBody(), testCase.getId());
         try {
             studioStorage.saveTestCase(testCase);
@@ -170,7 +171,8 @@ public class TestDataStudioService {
         bindCaseFiles(testCase);
         saveOverlay(testCase, request);
         auditService.recordCaseUpdated(testCase);
-        return toView(testCase, environmentId);
+        StudioTestCase persisted = requireCase(id);
+        return toView(persisted, environmentId);
     }
 
     public List<AuditEventView> caseAuditHistory(String caseId, int limit) {
@@ -246,6 +248,15 @@ public class TestDataStudioService {
         if (OptimisticConcurrency.checkRequired(request.expectedUpdatedAt(), request.forceOverwrite())) {
             testCase.setExpectedUpdatedAt(OptimisticConcurrency.parse(request.expectedUpdatedAt()));
         }
+    }
+
+    /** Optimistic check runs on the base row in {@link #update}; JDBC update does not re-check {@code updated_at}. */
+    private void applyCaseWriteOptionsForSave(StudioTestCase testCase, SaveTestDataRequest request) {
+        if (request == null) {
+            return;
+        }
+        testCase.setForceOverwrite(OptimisticConcurrency.force(request.forceOverwrite()));
+        testCase.setExpectedUpdatedAt(null);
     }
 
     private List<String> otherEnvironmentNames(String specId, String exceptName) {
@@ -680,7 +691,9 @@ public class TestDataStudioService {
         }
         studioStorage.saveTestCase(testCase);
         bindCaseFiles(testCase, body);
-        return toFileView(file);
+        StudioTestCase persisted = requireCase(caseId);
+        auditService.recordCaseUpdated(persisted);
+        return toFileView(file, persisted.getUpdatedAt());
     }
 
     public StudioRequestFile requireRequestFile(String caseId, String fileId) {
@@ -1167,13 +1180,18 @@ public class TestDataStudioService {
     }
 
     private RequestFileView toFileView(StudioRequestFile file) {
+        return toFileView(file, null);
+    }
+
+    private RequestFileView toFileView(StudioRequestFile file, Instant caseUpdatedAt) {
         return new RequestFileView(
                 file.getFileId(),
                 file.getTestCaseId(),
                 file.getFileName(),
                 file.getContentType(),
                 file.getSizeBytes(),
-                file.getCreatedAt()
+                file.getCreatedAt(),
+                caseUpdatedAt
         );
     }
 

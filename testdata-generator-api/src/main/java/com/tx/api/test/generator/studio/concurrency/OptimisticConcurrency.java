@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.concurrency;
 
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 public final class OptimisticConcurrency {
 
@@ -19,14 +20,22 @@ public final class OptimisticConcurrency {
         if (raw == null || raw.isBlank()) {
             return null;
         }
-        return Instant.parse(raw.trim());
+        return toStorageInstant(Instant.parse(raw.trim()));
+    }
+
+    /** JDBC timestamps are millisecond-precision; keep reads/writes aligned for optimistic locking. */
+    public static Instant toStorageInstant(Instant instant) {
+        if (instant == null) {
+            return null;
+        }
+        return instant.truncatedTo(ChronoUnit.MILLIS);
     }
 
     public static boolean same(Instant left, Instant right) {
         if (left == null || right == null) {
             return left == right;
         }
-        return left.toEpochMilli() == right.toEpochMilli();
+        return toStorageInstant(left).toEpochMilli() == toStorageInstant(right).toEpochMilli();
     }
 
     public static void ensureCurrent(Instant current, String expectedRaw, Boolean forceOverwrite) {

@@ -38,7 +38,7 @@ public class JdbcStudioStorage implements StudioStorage {
         Instant now = Instant.now();
         Optional<StoredSpec> existing = findSpec(spec.getSpecId());
         spec.setCreatedAt(existing.map(StoredSpec::getCreatedAt).orElse(now));
-        spec.setUpdatedAt(now);
+        spec.setUpdatedAt(com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(now));
         String tenantId = tenantId();
         if (existing.isPresent()) {
             Instant expected = spec.getExpectedUpdatedAt();
@@ -328,7 +328,9 @@ public class JdbcStudioStorage implements StudioStorage {
         Instant now = Instant.now();
         if (exists) {
             CaseAudit.stampUpdate(testCase, now);
-            Timestamp updatedAt = Timestamp.from(testCase.getUpdatedAt());
+            Timestamp updatedAt = Timestamp.from(
+                    com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(
+                            testCase.getUpdatedAt()));
             Instant expected = testCase.getExpectedUpdatedAt();
             boolean optimistic = expected != null && !testCase.isForceOverwrite();
             String sql = """
@@ -368,7 +370,9 @@ public class JdbcStudioStorage implements StudioStorage {
             args.add(testCase.getId());
             args.add(tenantId());
             if (optimistic) {
-                args.add(Timestamp.from(expected));
+                args.add(Timestamp.from(
+                        com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(
+                                expected)));
             }
             int rows = jdbcTemplate.update(sql, args.toArray());
             if (rows == 0) {
@@ -988,7 +992,10 @@ public class JdbcStudioStorage implements StudioStorage {
 
     private Instant toInstant(ResultSet rs, String column) throws SQLException {
         Timestamp timestamp = rs.getTimestamp(column);
-        return timestamp == null ? Instant.now() : timestamp.toInstant();
+        if (timestamp == null) {
+            return com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(Instant.now());
+        }
+        return com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(timestamp.toInstant());
     }
 
     private static String defaultLabel(String label) {

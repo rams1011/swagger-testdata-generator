@@ -140,7 +140,17 @@ public final class EnvironmentOverlay {
         copy.setExtracts(source.getExtracts());
         copy.setMaxResponseTimeMs(source.getMaxResponseTimeMs());
         copy.setEnvironments(source.getEnvironments() == null ? null : new java.util.ArrayList<>(source.getEnvironments()));
+        copyAuditFields(source, copy);
         return copy;
+    }
+
+    private static void copyAuditFields(StudioTestCase source, StudioTestCase copy) {
+        copy.setCreatedAt(source.getCreatedAt());
+        copy.setUpdatedAt(source.getUpdatedAt());
+        copy.setCreatedByAccountId(source.getCreatedByAccountId());
+        copy.setCreatedByLabel(source.getCreatedByLabel());
+        copy.setUpdatedByAccountId(source.getUpdatedByAccountId());
+        copy.setUpdatedByLabel(source.getUpdatedByLabel());
     }
 
     private static Map<String, String> copyMap(Map<String, String> source) {
