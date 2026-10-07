@@ -32,4 +32,10 @@ class OptimisticConcurrencyTest {
         Instant current = Instant.parse("2024-01-01T00:00:00.123Z");
         assertDoesNotThrow(() -> OptimisticConcurrency.ensureCurrent(current, "2024-01-01T00:00:00.123Z", false));
     }
+
+    @Test
+    void parseTruncatesSubMillisecondPrecision() {
+        Instant parsed = OptimisticConcurrency.parse("2024-01-01T00:00:00.123456789Z");
+        assertTrue(OptimisticConcurrency.same(parsed, Instant.parse("2024-01-01T00:00:00.123Z")));
+    }
 }

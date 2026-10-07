@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.collection;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -62,6 +63,18 @@ class EnvironmentOverlayTest {
         assertEquals("INT", ((Map<?, ?>) withOverlay.caseOverlays().get("case-create-role").body()).get("code"));
         assertFalse(EnvironmentOverlay.hasOverlay(EnvironmentOverlay.withoutCase(withOverlay, "case-create-role"),
                 "case-create-role"));
+    }
+
+    @Test
+    void mergePreservesRevisionFromBase() {
+        StudioTestCase base = new StudioTestCase();
+        base.setId("case-1");
+        Instant updatedAt = Instant.parse("2026-01-01T12:00:00.123Z");
+        base.setUpdatedAt(updatedAt);
+        StudioEnvironmentCaseOverlay overlay = new StudioEnvironmentCaseOverlay(
+                Map.of("name", "Int"), null, null, null, null, null, null, null);
+        StudioTestCase merged = EnvironmentOverlay.merge(base, overlay);
+        assertEquals(updatedAt, merged.getUpdatedAt());
     }
 
     @Test

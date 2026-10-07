@@ -8,6 +8,7 @@ public record RequestFileView(
         String fileName,
         String contentType,
         long sizeBytes,
-        Instant createdAt
+        Instant createdAt,
+        Instant caseUpdatedAt
 ) {
 }
