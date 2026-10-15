@@ -103,9 +103,45 @@ TESTDATA_SAAS_ADMIN_EMAIL=admin@company.example
 TESTDATA_SAAS_ADMIN_PASSWORD=change-me
 ```
 
-If `TESTDATA_EDITION` is blank or unset, Studio uses `datacenter`. Cloud Run must set `TESTDATA_EDITION=saas`.
+If `TESTDATA_EDITION` is blank or unset, Studio uses `datacenter`. The sample `application.yml` defaults to `local` for desktop dev. Cloud Run must set `TESTDATA_EDITION=saas`.
 
-Public register is off in `datacenter`. The bootstrap admin adds people from **Admin**.
+Public register is off in `datacenter`. The bootstrap admin adds people from **Admin** (or users provision on first LDAP sign-in).
+
+### Sign-in provider
+
+`TESTDATA_AUTH_PROVIDER` is `local` (default) or `ldap`. Ignored when `TESTDATA_EDITION=local`.
+
+| Provider | Behavior |
+|----------|----------|
+| `local` | `POST /api/auth/login` checks PBKDF2 password in `td_account`. |
+| `ldap` | API binds to the directory (see below), then issues the same Bearer session as local login. Directory passwords are not stored. |
+
+**Minimal LDAP** (Active Directory–style UPN bind: `user@domain`):
+
+```bash
+TESTDATA_AUTH_PROVIDER=ldap
+TESTDATA_LDAP_URL=ldaps://ldap.client.com:636
+TESTDATA_LDAP_DOMAIN=client.com
+```
+
+**Optional LDAP** (env names mirror `testdata.auth.ldap.*` in `application.yml`): `TESTDATA_LDAP_MANAGER_DN`, `TESTDATA_LDAP_MANAGER_PASSWORD`, `TESTDATA_LDAP_BASE_DN`, `TESTDATA_LDAP_USER_SEARCH_BASE`, `TESTDATA_LDAP_USER_SEARCH_FILTER`, `TESTDATA_LDAP_ALLOWED_GROUP`, `TESTDATA_LDAP_GROUP_ROLE_OWNER` / `_ADMIN` / `_MEMBER`, `TESTDATA_LDAP_ALLOW_INSECURE`, `TESTDATA_AUTH_LOCAL_ADMIN_FALLBACK` (default `true`).
+
+Startup fails if `provider=ldap` and URL or domain is missing. Plain `ldap://` is rejected unless `TESTDATA_LDAP_ALLOW_INSECURE=true`.
+
+`GET /api/testdata/config` includes `authProvider` (`local`, `ldap`, `none`) and `loginHint` (e.g. `you@client.com`) with no directory secrets.
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| `POST` | `/api/auth/login` | Sign in (local or LDAP) |
+| `POST` | `/api/auth/register` | SaaS only — new org + trial |
+| `GET` | `/api/auth/session` | Current session (public) |
+| `POST` | `/api/auth/logout` | End session |
+| `POST` | `/api/auth/switch-tenant` | Change active workspace |
+| `GET` | `/api/tenants/current/members` | List workspace members |
+| `POST` | `/api/tenants/current/members` | Add member (LDAP: existing account only) |
+| `PUT` | `/api/tenants/current/members/{accountId}` | Change role |
+| `DELETE` | `/api/tenants/current/members/{accountId}` | Remove member |
+| `GET` | `/api/testdata/config` | Edition, storage, auth flags for the UI |
 
 | Method | Path | Purpose |
 |--------|------|---------|

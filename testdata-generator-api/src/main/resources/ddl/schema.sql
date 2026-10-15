@@ -1,6 +1,7 @@
 -- Test Data Studio schema
 -- Used for testdata.storage.type = h2 and testdata.storage.type = database
 -- Compatible with PostgreSQL 12+ and H2 2.x (MODE=PostgreSQL; DATABASE_TO_LOWER=TRUE)
+-- SQL Server: ddl/sqlserver.sql
 -- Keep in sync with db/migration/V1__studio.sql (Flyway baseline).
 
 CREATE TABLE IF NOT EXISTS td_tenant (
