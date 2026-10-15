@@ -17,7 +17,6 @@ import javax.naming.ldap.LdapContext;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
-import java.util.Locale;
 
 @Component
 public class LdapAuthenticator {
@@ -141,10 +140,7 @@ public class LdapAuthenticator {
         if (allowed == null) {
             return;
         }
-        String allowedNorm = allowed.toLowerCase(Locale.ROOT);
-        boolean member = profile.groupDns().stream()
-                .anyMatch(group -> group.equalsIgnoreCase(allowedNorm));
-        if (!member) {
+        if (!LdapGroupMatcher.matchesAny(profile.groupDns(), allowed)) {
             throw new UnauthenticatedException("Email or password is incorrect");
         }
     }

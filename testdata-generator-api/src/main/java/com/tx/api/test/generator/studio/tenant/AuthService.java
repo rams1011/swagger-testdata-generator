@@ -199,19 +199,17 @@ public class AuthService {
         if (!properties.getAuth().getLdap().hasGroupRoleMapping()) {
             return null;
         }
-        List<String> groups = profile.groupDns().stream()
-                .map(group -> group.toLowerCase(Locale.ROOT))
-                .toList();
+        List<String> groups = profile.groupDns();
         if (StringUtils.isNotBlank(mapping.getOwner())
-                && groups.contains(mapping.getOwner().trim().toLowerCase(Locale.ROOT))) {
+                && LdapGroupMatcher.matchesAny(groups, mapping.getOwner())) {
             return "OWNER";
         }
         if (StringUtils.isNotBlank(mapping.getAdmin())
-                && groups.contains(mapping.getAdmin().trim().toLowerCase(Locale.ROOT))) {
+                && LdapGroupMatcher.matchesAny(groups, mapping.getAdmin())) {
             return "ADMIN";
         }
         if (StringUtils.isNotBlank(mapping.getMember())
-                && groups.contains(mapping.getMember().trim().toLowerCase(Locale.ROOT))) {
+                && LdapGroupMatcher.matchesAny(groups, mapping.getMember())) {
             return "MEMBER";
         }
         return null;
