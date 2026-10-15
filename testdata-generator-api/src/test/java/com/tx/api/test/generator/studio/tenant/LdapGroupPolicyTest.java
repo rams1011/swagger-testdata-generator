@@ -37,6 +37,19 @@ class LdapGroupPolicyTest {
         invokeAllowedGroup(authenticator, member, properties);
     }
 
+    @Test
+    void allowedGroupAcceptsBareCommonName() {
+        StudioProperties properties = ldapProperties();
+        properties.getAuth().getLdap().setAllowedGroup("studio-users");
+        LdapAuthenticator authenticator = new LdapAuthenticator(properties);
+        LdapUserProfile member = new LdapUserProfile(
+                "jsmith@client.com",
+                "John Smith",
+                "jsmith@client.com",
+                List.of("CN=studio-users,OU=Groups,DC=client,DC=com"));
+        invokeAllowedGroup(authenticator, member, properties);
+    }
+
     private static void invokeAllowedGroup(LdapAuthenticator authenticator, LdapUserProfile profile,
                                            StudioProperties properties) {
         try {

@@ -141,10 +141,7 @@ public class LdapAuthenticator {
         if (allowed == null) {
             return;
         }
-        String allowedNorm = allowed.toLowerCase(Locale.ROOT);
-        boolean member = profile.groupDns().stream()
-                .anyMatch(group -> group.equalsIgnoreCase(allowedNorm));
-        if (!member) {
+        if (!LdapGroupMatcher.matchesAny(profile.groupDns(), allowed)) {
             throw new UnauthenticatedException("Email or password is incorrect");
         }
     }
