@@ -652,6 +652,11 @@ public class TestDataStudioService {
         config.put("auth", String.valueOf(properties.isAuthEnabled()));
         config.put("billing", String.valueOf(properties.isBillingEnabled()));
         config.put("saas", String.valueOf(properties.isAuthEnabled()));
+        config.put("authProvider", properties.resolvedAuthProvider());
+        if (properties.isLdapAuth()) {
+            String domain = properties.getAuth().getLdap().normalizedDomain();
+            config.put("loginHint", "you@" + domain);
+        }
         config.put("runHistoryMaxPerSpec", String.valueOf(properties.getRunHistory().resolvedMaxPerSpec()));
         if (properties.isH2Storage() && properties.getH2().isConsole()) {
             config.put("h2JdbcUrl", properties.getH2().jdbcUrl());

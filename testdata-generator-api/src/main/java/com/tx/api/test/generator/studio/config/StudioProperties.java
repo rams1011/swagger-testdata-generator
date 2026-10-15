@@ -10,6 +10,7 @@ public class StudioProperties {
     private H2 h2 = new H2();
     private RunHistory runHistory = new RunHistory();
     private Saas saas = new Saas();
+    private Auth auth = new Auth();
     /**
      * Hosting mode. The only switch operators should set:
      * {@code local} (no login), {@code datacenter} (login, no plan), {@code saas} (login + plan).
@@ -57,6 +58,25 @@ public class StudioProperties {
 
     public void setSaas(Saas saas) {
         this.saas = saas;
+    }
+
+    public Auth getAuth() {
+        return auth;
+    }
+
+    public void setAuth(Auth auth) {
+        this.auth = auth == null ? new Auth() : auth;
+    }
+
+    public boolean isLdapAuth() {
+        return isAuthEnabled() && getAuth().isLdap();
+    }
+
+    public String resolvedAuthProvider() {
+        if (!isAuthEnabled()) {
+            return "none";
+        }
+        return getAuth().resolvedProvider().wireValue();
     }
 
     public String getEdition() {
@@ -340,6 +360,238 @@ public class StudioProperties {
                 return "Default";
             }
             return workspaceName.trim();
+        }
+    }
+
+    public static class Auth {
+        private String provider = "local";
+        private boolean localAdminFallback = true;
+        private Ldap ldap = new Ldap();
+
+        public String getProvider() {
+            return provider;
+        }
+
+        public void setProvider(String provider) {
+            this.provider = provider;
+        }
+
+        public boolean isLocalAdminFallback() {
+            return localAdminFallback;
+        }
+
+        public void setLocalAdminFallback(boolean localAdminFallback) {
+            this.localAdminFallback = localAdminFallback;
+        }
+
+        public Ldap getLdap() {
+            return ldap;
+        }
+
+        public void setLdap(Ldap ldap) {
+            this.ldap = ldap == null ? new Ldap() : ldap;
+        }
+
+        public boolean isLdap() {
+            return resolvedProvider() == AuthProvider.LDAP;
+        }
+
+        public AuthProvider resolvedProvider() {
+            if (org.apache.commons.lang3.StringUtils.isBlank(provider)) {
+                return AuthProvider.LOCAL;
+            }
+            return AuthProvider.from(provider);
+        }
+    }
+
+    public static class Ldap {
+        private String url = "";
+        private String domain = "";
+        private boolean allowInsecure = false;
+        private int connectTimeoutMs = 5_000;
+        private int readTimeoutMs = 5_000;
+        private String managerDn = "";
+        private String managerPassword = "";
+        private String baseDn = "";
+        private String userSearchBase = "";
+        private String userSearchFilter = "";
+        private String allowedGroup = "";
+        private String emailAttribute = "mail";
+        private String displayNameAttribute = "displayName";
+        private GroupRole groupRole = new GroupRole();
+
+        public String getUrl() {
+            return url;
+        }
+
+        public void setUrl(String url) {
+            this.url = url;
+        }
+
+        public String getDomain() {
+            return domain;
+        }
+
+        public void setDomain(String domain) {
+            this.domain = domain;
+        }
+
+        public boolean isAllowInsecure() {
+            return allowInsecure;
+        }
+
+        public void setAllowInsecure(boolean allowInsecure) {
+            this.allowInsecure = allowInsecure;
+        }
+
+        public int getConnectTimeoutMs() {
+            return connectTimeoutMs;
+        }
+
+        public void setConnectTimeoutMs(int connectTimeoutMs) {
+            this.connectTimeoutMs = connectTimeoutMs;
+        }
+
+        public int getReadTimeoutMs() {
+            return readTimeoutMs;
+        }
+
+        public void setReadTimeoutMs(int readTimeoutMs) {
+            this.readTimeoutMs = readTimeoutMs;
+        }
+
+        public int resolvedConnectTimeoutMs() {
+            return connectTimeoutMs < 1 ? 5_000 : connectTimeoutMs;
+        }
+
+        public int resolvedReadTimeoutMs() {
+            return readTimeoutMs < 1 ? 5_000 : readTimeoutMs;
+        }
+
+        public String getManagerDn() {
+            return managerDn;
+        }
+
+        public void setManagerDn(String managerDn) {
+            this.managerDn = managerDn;
+        }
+
+        public String getManagerPassword() {
+            return managerPassword;
+        }
+
+        public void setManagerPassword(String managerPassword) {
+            this.managerPassword = managerPassword;
+        }
+
+        public boolean hasManagerCredentials() {
+            return org.apache.commons.lang3.StringUtils.isNotBlank(managerDn);
+        }
+
+        public String getBaseDn() {
+            return baseDn;
+        }
+
+        public void setBaseDn(String baseDn) {
+            this.baseDn = baseDn;
+        }
+
+        public String resolvedBaseDn() {
+            if (org.apache.commons.lang3.StringUtils.isNotBlank(baseDn)) {
+                return baseDn.trim();
+            }
+            return com.tx.api.test.generator.studio.tenant.LdapLoginNames.domainToBaseDn(normalizedDomain());
+        }
+
+        public String normalizedDomain() {
+            if (domain == null || domain.isBlank()) {
+                return null;
+            }
+            return domain.trim().toLowerCase(java.util.Locale.ROOT);
+        }
+
+        public String getUserSearchBase() {
+            return userSearchBase;
+        }
+
+        public void setUserSearchBase(String userSearchBase) {
+            this.userSearchBase = userSearchBase;
+        }
+
+        public String getUserSearchFilter() {
+            return userSearchFilter;
+        }
+
+        public void setUserSearchFilter(String userSearchFilter) {
+            this.userSearchFilter = userSearchFilter;
+        }
+
+        public String getAllowedGroup() {
+            return allowedGroup;
+        }
+
+        public void setAllowedGroup(String allowedGroup) {
+            this.allowedGroup = allowedGroup;
+        }
+
+        public String getEmailAttribute() {
+            return emailAttribute;
+        }
+
+        public void setEmailAttribute(String emailAttribute) {
+            this.emailAttribute = emailAttribute;
+        }
+
+        public String getDisplayNameAttribute() {
+            return displayNameAttribute;
+        }
+
+        public void setDisplayNameAttribute(String displayNameAttribute) {
+            this.displayNameAttribute = displayNameAttribute;
+        }
+
+        public GroupRole getGroupRole() {
+            return groupRole;
+        }
+
+        public void setGroupRole(GroupRole groupRole) {
+            this.groupRole = groupRole == null ? new GroupRole() : groupRole;
+        }
+
+        public boolean hasGroupRoleMapping() {
+            return org.apache.commons.lang3.StringUtils.isNotBlank(groupRole.getOwner())
+                    || org.apache.commons.lang3.StringUtils.isNotBlank(groupRole.getAdmin())
+                    || org.apache.commons.lang3.StringUtils.isNotBlank(groupRole.getMember());
+        }
+    }
+
+    public static class GroupRole {
+        private String owner = "";
+        private String admin = "";
+        private String member = "";
+
+        public String getOwner() {
+            return owner;
+        }
+
+        public void setOwner(String owner) {
+            this.owner = owner;
+        }
+
+        public String getAdmin() {
+            return admin;
+        }
+
+        public void setAdmin(String admin) {
+            this.admin = admin;
+        }
+
+        public String getMember() {
+            return member;
+        }
+
+        public void setMember(String member) {
+            this.member = member;
         }
     }
 }

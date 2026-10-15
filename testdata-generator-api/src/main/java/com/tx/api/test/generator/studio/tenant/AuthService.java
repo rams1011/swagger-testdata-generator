@@ -41,12 +41,15 @@ public class AuthService {
     private final StudioProperties properties;
     private final ObjectProvider<TenantStore> tenantStores;
     private final ObjectProvider<EntitlementService> entitlements;
+    private final ObjectProvider<LdapAuthenticator> ldapAuthenticators;
 
     public AuthService(StudioProperties properties, ObjectProvider<TenantStore> tenantStores,
-                       ObjectProvider<EntitlementService> entitlements) {
+                       ObjectProvider<EntitlementService> entitlements,
+                       ObjectProvider<LdapAuthenticator> ldapAuthenticators) {
         this.properties = properties;
         this.tenantStores = tenantStores;
         this.entitlements = entitlements;
+        this.ldapAuthenticators = ldapAuthenticators;
     }
 
     public AuthSessionView localSession() {
@@ -81,6 +84,13 @@ public class AuthService {
     }
 
     public AuthSessionView login(LoginRequest request) {
+        if (properties.isLdapAuth()) {
+            return loginWithDirectory(request);
+        }
+        return loginWithLocalPassword(request);
+    }
+
+    private AuthSessionView loginWithLocalPassword(LoginRequest request) {
         TenantStore store = requireStore();
         String email = normalizeEmail(request == null ? null : request.email());
         Account account = store.findAccountByEmail(email)
@@ -88,6 +98,85 @@ public class AuthService {
         if (!PasswordHasher.matches(request == null ? null : request.password(), account.getPasswordHash())) {
             throw new UnauthenticatedException("Email or password is incorrect");
         }
+        return issueSessionForAccount(store, account, request == null ? null : request.tenantId());
+    }
+
+    private AuthSessionView loginWithDirectory(LoginRequest request) {
+        String rawLogin = request == null ? null : request.email();
+        String password = request == null ? null : request.password();
+        if (properties.getAuth().isLocalAdminFallback()) {
+            AuthSessionView adminSession = tryLocalAdminFallback(rawLogin, password, request);
+            if (adminSession != null) {
+                return adminSession;
+            }
+        }
+        LdapAuthenticator ldap = ldapAuthenticators.getIfAvailable();
+        if (ldap == null) {
+            throw new IllegalStateException("LDAP sign-in is not configured");
+        }
+        LdapUserProfile profile = ldap.authenticate(rawLogin, password);
+        TenantStore store = requireStore();
+        String email = profile.studioEmail();
+        Account account = store.findAccountByEmail(email).orElse(null);
+        Instant now = Instant.now();
+        if (account == null) {
+            account = new Account();
+            account.setId(UUID.randomUUID().toString());
+            account.setEmail(email);
+            account.setPasswordHash(LdapAccounts.EXTERNAL_PASSWORD_MARKER);
+            account.setDisplayName(profile.displayName());
+            account.setCreatedAt(now);
+            account.setPlatformRole("USER");
+            store.saveAccount(account);
+        } else if (StringUtils.isNotBlank(profile.displayName())
+                && !profile.displayName().equals(account.getDisplayName())) {
+            account.setDisplayName(profile.displayName());
+            store.saveAccount(account);
+        }
+        Tenant workspace = requireCompanyWorkspace(store);
+        Optional<Membership> membership = store.findMembership(workspace.getId(), account.getId());
+        String role = membership.map(Membership::role).orElse("MEMBER");
+        String mappedRole = resolveDirectoryRole(profile);
+        if (mappedRole != null) {
+            role = mappedRole;
+        }
+        if (membership.isEmpty()) {
+            store.saveMembership(new Membership(workspace.getId(), account.getId(), role));
+            if (store.findOrgRole(workspace.getOrgId(), account.getId()).isEmpty()) {
+                store.saveOrgMembership(workspace.getOrgId(), account.getId(), "MEMBER");
+            }
+        } else if (mappedRole != null && !mappedRole.equals(membership.get().role())) {
+            store.updateMembershipRole(workspace.getId(), account.getId(), mappedRole);
+            role = mappedRole;
+        }
+        return issueSession(store, account, workspace, role);
+    }
+
+    private AuthSessionView tryLocalAdminFallback(String rawLogin, String password, LoginRequest request) {
+        String adminEmail = properties.getSaas().normalizedAdminEmail();
+        if (adminEmail == null || StringUtils.isBlank(rawLogin) || StringUtils.isBlank(password)) {
+            return null;
+        }
+        try {
+            String email = normalizeEmail(rawLogin);
+            if (!adminEmail.equals(email)) {
+                return null;
+            }
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+        TenantStore store = requireStore();
+        Account account = store.findAccountByEmail(adminEmail).orElse(null);
+        if (account == null || LdapAccounts.isDirectoryManaged(account.getPasswordHash())) {
+            return null;
+        }
+        if (!PasswordHasher.matches(password, account.getPasswordHash())) {
+            return null;
+        }
+        return issueSessionForAccount(store, account, request == null ? null : request.tenantId());
+    }
+
+    private AuthSessionView issueSessionForAccount(TenantStore store, Account account, String requestedTenantId) {
         List<Tenant> workspaces = store.listTenantsForAccount(account.getId());
         if (workspaces.isEmpty()) {
             if (isSaasAdmin(account)) {
@@ -100,9 +189,32 @@ public class AuthService {
             }
             throw new ForbiddenException("This account has no workspace");
         }
-        Tenant tenant = selectTenant(workspaces, request == null ? null : request.tenantId());
+        Tenant tenant = selectTenant(workspaces, requestedTenantId);
         String role = store.findMembership(tenant.getId(), account.getId()).map(Membership::role).orElse("MEMBER");
         return issueSession(store, account, tenant, role);
+    }
+
+    private String resolveDirectoryRole(LdapUserProfile profile) {
+        StudioProperties.GroupRole mapping = properties.getAuth().getLdap().getGroupRole();
+        if (!properties.getAuth().getLdap().hasGroupRoleMapping()) {
+            return null;
+        }
+        List<String> groups = profile.groupDns().stream()
+                .map(group -> group.toLowerCase(Locale.ROOT))
+                .toList();
+        if (StringUtils.isNotBlank(mapping.getOwner())
+                && groups.contains(mapping.getOwner().trim().toLowerCase(Locale.ROOT))) {
+            return "OWNER";
+        }
+        if (StringUtils.isNotBlank(mapping.getAdmin())
+                && groups.contains(mapping.getAdmin().trim().toLowerCase(Locale.ROOT))) {
+            return "ADMIN";
+        }
+        if (StringUtils.isNotBlank(mapping.getMember())
+                && groups.contains(mapping.getMember().trim().toLowerCase(Locale.ROOT))) {
+            return "MEMBER";
+        }
+        return null;
     }
 
     public AuthSessionView session(String rawToken) {
@@ -221,6 +333,9 @@ public class AuthService {
             if (store.findMembership(tenantId, account.getId()).isPresent()) {
                 throw new IllegalArgumentException("That person is already a member of this workspace");
             }
+        } else if (properties.isLdapAuth()) {
+            throw new IllegalArgumentException(
+                    "That person must sign in with the company directory before you can add them to this workspace");
         } else {
             requirePassword(request == null ? null : request.password());
             Instant now = Instant.now();

@@ -54,13 +54,46 @@ testdata:
   run-history:
     # Oldest batches are deleted after each write. 0 disables pruning.
     max-per-spec: 100
+  # Studio user sign-in (not run-auth on Try/Run). Ignored when testdata.edition=local.
+  auth:
+    # local = PBKDF2 passwords in td_account. ldap = directory bind at POST /api/auth/login only.
+    provider: ${TESTDATA_AUTH_PROVIDER:local}
+    # When provider=ldap, bootstrap admin (testdata.saas.admin-*) may still sign in locally if LDAP is down.
+    local-admin-fallback: ${TESTDATA_AUTH_LOCAL_ADMIN_FALLBACK:true}
+    ldap:
+      # Required when provider=ldap. Prefer ldaps://. API fails startup if url or domain is missing.
+      url: ${TESTDATA_LDAP_URL:ldaps://ldap.client.com:636}
+      # Required when provider=ldap. Users sign in as user@domain (jsmith → jsmith@domain).
+      domain: ${TESTDATA_LDAP_DOMAIN:client.com}
+      # Reject ldap:// unless true (labs only). Production should use ldaps://.
+      allow-insecure: ${TESTDATA_LDAP_ALLOW_INSECURE:false}
+      connect-timeout-ms: ${TESTDATA_LDAP_CONNECT_TIMEOUT_MS:5000}
+      read-timeout-ms: ${TESTDATA_LDAP_READ_TIMEOUT_MS:5000}
+      # Optional. When empty, direct bind as user@domain (typical AD). When set, search-then-bind as manager first.
+      manager-dn: ${TESTDATA_LDAP_MANAGER_DN:}
+      manager-password: ${TESTDATA_LDAP_MANAGER_PASSWORD:}
+      # Optional. Defaults to DC=… from domain when search is used.
+      base-dn: ${TESTDATA_LDAP_BASE_DN:}
+      user-search-base: ${TESTDATA_LDAP_USER_SEARCH_BASE:}
+      # Optional. Default filter matches userPrincipalName or mail; {0} = normalized login.
+      user-search-filter: ${TESTDATA_LDAP_USER_SEARCH_FILTER:}
+      # Optional. User must be in this group DN or login fails (generic error).
+      allowed-group: ${TESTDATA_LDAP_ALLOWED_GROUP:}
+      email-attribute: ${TESTDATA_LDAP_EMAIL_ATTRIBUTE:mail}
+      display-name-attribute: ${TESTDATA_LDAP_DISPLAY_NAME_ATTRIBUTE:displayName}
+      # Optional. If any DN is set, LDAP overwrites workspace role on each login from memberOf.
+      group-role:
+        owner: ${TESTDATA_LDAP_GROUP_ROLE_OWNER:}
+        admin: ${TESTDATA_LDAP_GROUP_ROLE_ADMIN:}
+        member: ${TESTDATA_LDAP_GROUP_ROLE_MEMBER:}
+      # GET /api/testdata/config exposes authProvider=ldap and loginHint=you@<domain> (no secrets).
   saas:
     # Operator/session settings — not the hosting mode. Use testdata.edition for that.
     session-days: 14
     cors-origins: ${TESTDATA_SAAS_CORS_ORIGINS:http://localhost:*,http://127.0.0.1:*}
     # Set both in the environment (Cloud Run / local .env). Empty means no bootstrap admin.
-    admin-email: ${TESTDATA_SAAS_ADMIN_EMAIL:}
-    admin-password: ${TESTDATA_SAAS_ADMIN_PASSWORD:}
+    admin-email: ${TESTDATA_SAAS_ADMIN_EMAIL:saas.admin@local.test}
+    admin-password: ${TESTDATA_SAAS_ADMIN_PASSWORD:admin@local}
     org-name: ${TESTDATA_SAAS_ORG_NAME:Studio}
     workspace-name: ${TESTDATA_SAAS_WORKSPACE_NAME:Default}
 

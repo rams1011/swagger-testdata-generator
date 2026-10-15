@@ -75,7 +75,9 @@ class TenantIsolationTest {
         properties.getSaas().setEnabled(true);
         TenantContext.setSaasEnabled(true);
         FixedProvider<TenantStore> stores = new FixedProvider<>(new JdbcTenantStore(jdbcTemplate));
-        authService = new AuthService(properties, stores, new FixedProvider<>(new EntitlementService(properties, stores)));
+        authService = new AuthService(properties, stores,
+                new FixedProvider<>(new EntitlementService(properties, stores)),
+                new FixedProvider<>(null));
     }
 
     @AfterEach
