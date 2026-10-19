@@ -10,8 +10,8 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * PostgreSQL/H2 migrations use {@code db/migration}; MySQL uses {@code db/migration/mysql}
- * (different SQL dialect for the same version numbers).
+ * PostgreSQL/H2 migrations use {@code db/migration}; MySQL uses {@code db/migration_mysql}
+ * (sibling folder — not under {@code db/migration}, or Flyway would see duplicate version numbers).
  */
 @SuppressWarnings("removal")
 public class FlywayMySqlLocationsEnvironmentPostProcessor implements EnvironmentPostProcessor, Ordered {
@@ -23,7 +23,7 @@ public class FlywayMySqlLocationsEnvironmentPostProcessor implements Environment
             return;
         }
         Map<String, Object> properties = new HashMap<>();
-        properties.put("spring.flyway.locations", "classpath:db/migration/mysql");
+        properties.put("spring.flyway.locations", "classpath:db/migration_mysql");
         environment.getPropertySources().addFirst(new MapPropertySource("studioFlywayMySql", properties));
     }
 
