@@ -281,9 +281,9 @@ CREATE TABLE IF NOT EXISTS td_subscription (
 
 CREATE TABLE IF NOT EXISTS td_usage_month (
     org_id      VARCHAR(36) NOT NULL,
-    year_month  VARCHAR(7)  NOT NULL,
+    `year_month`  VARCHAR(7)  NOT NULL,
     run_count   INT         NOT NULL DEFAULT 0,
-    CONSTRAINT pk_td_usage_month PRIMARY KEY (org_id, year_month),
+    CONSTRAINT pk_td_usage_month PRIMARY KEY (org_id, `year_month`),
     CONSTRAINT fk_td_usage_month_org FOREIGN KEY (org_id)
         REFERENCES td_organization (org_id) ON DELETE CASCADE
 );
