@@ -76,8 +76,9 @@ The Cloud Run runtime service account needs `roles/alloydb.client` (or equivalen
 ## Migrations
 
 - Location: `testdata-generator-api/src/main/resources/db/migration`
-- SQL is written for **PostgreSQL 12+** and **H2** (local, `MODE=PostgreSQL`).
-- MySQL 8.0.29+ is supported for the same scripts (CI runs Flyway against MySQL 8.4).
+- **PostgreSQL / H2:** `db/migration/` (idempotent upgrade style for existing installs).
+- **MySQL 8.4+:** `db/migration_mysql/` (greenfield DDL; selected automatically when `spring.datasource.url` is `jdbc:mysql:` or `jdbc:mariadb:`). Must not live under `db/migration/` — Flyway scans subfolders and would collide on version `1` with PostgreSQL/H2 scripts.
+- CI runs Flyway against PostgreSQL and MySQL via Testcontainers.
 - Hand-maintained DDL copies: `ddl/schema.sql`, `ddl/postgresql.sql`, `ddl/h2.sql`
 
 **Do not edit** an already-released `V__*.sql` file in place — Flyway stores a checksum in `flyway_schema_history`. Change schema with a new `V5__….sql` migration instead.
