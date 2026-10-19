@@ -39,7 +39,7 @@ class FlywayMigrationIntegrationTest {
 
     private static void migrate(String jdbcUrl, String username, String password) {
         String locations = jdbcUrl.startsWith("jdbc:mysql:") || jdbcUrl.startsWith("jdbc:mariadb:")
-                ? "classpath:db/migration/mysql"
+                ? "classpath:db/migration_mysql"
                 : "classpath:db/migration";
         Flyway flyway = Flyway.configure()
                 .dataSource(jdbcUrl, username, password)
