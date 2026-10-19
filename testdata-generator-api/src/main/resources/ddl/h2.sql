@@ -1,5 +1,5 @@
 -- H2 2.x DDL for Test Data Studio
--- Applied automatically from schema.sql when testdata.storage.type is h2
+-- H2 reference copy; Flyway applies db/migration when using the local profile
 -- (H2 is started in PostgreSQL compatibility mode).
 --
 -- Use this file only if you apply the schema by hand in the H2 console:

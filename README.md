@@ -82,6 +82,33 @@ mvn -pl testdata-generator-api -am spring-boot:run
 
 API base: [http://localhost:8083](http://localhost:8083)
 
+### Deploy
+
+| Target | Guide |
+|--------|--------|
+| Docker Compose + Postgres | `docker compose up --build` — see [docs/DEPLOY.md](docs/DEPLOY.md) |
+| Datacenter / Kubernetes | [docs/DEPLOY.md](docs/DEPLOY.md) — `SPRING_PROFILES_ACTIVE=datacenter` + JDBC secrets |
+| Google Cloud Run | GitHub Actions [deploy-gcp.yml](.github/workflows/deploy-gcp.yml) — `SPRING_PROFILES_ACTIVE=cloud` |
+
+Database URLs and drivers: **[docs/DATABASE.md](docs/DATABASE.md)**. Copy [.env.example](.env.example) for Compose overrides.
+
+CI runs on push/PR via [ci.yml](.github/workflows/ci.yml) (unit + Flyway on PostgreSQL and MySQL).
+
+### Hosting profile (Spring)
+
+The API requires **exactly one** Spring profile: `local`, `docker`, `datacenter`, or `cloud`. Startup fails if none or more than one is active.
+
+| Profile | Set via | Use |
+|---------|---------|-----|
+| `local` | `spring.profiles.default` in `application.yml` when unset (or `SPRING_PROFILES_ACTIVE=local`) | Developer machine |
+| `docker` | `SPRING_PROFILES_ACTIVE=docker` (default in the Docker image) | Containers on your network |
+| `datacenter` | `SPRING_PROFILES_ACTIVE=datacenter` | VM / on-prem Kubernetes |
+| `cloud` | `SPRING_PROFILES_ACTIVE=cloud` (Cloud Run deploy) | Managed cloud runtime |
+
+Profiles `docker`, `datacenter`, and `cloud` also activate the shared `hosted` profile (Flyway on, H2 console off). Set `SPRING_DATASOURCE_*` for any JDBC engine.
+
+`GET /api/testdata/config` includes `hostingProfile`.
+
 ### Hosting mode
 
 Set **one** variable: `TESTDATA_EDITION`. Do not also set a SaaS on/off flag.
@@ -98,7 +125,8 @@ TESTDATA_EDITION=local
 
 # Data center (login + admin, no plan)
 TESTDATA_EDITION=datacenter
-TESTDATA_STORAGE_TYPE=database
+SPRING_PROFILES_ACTIVE=datacenter
+SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/testdata_studio
 TESTDATA_SAAS_ADMIN_EMAIL=admin@company.example
 TESTDATA_SAAS_ADMIN_PASSWORD=change-me
 ```
@@ -180,33 +208,27 @@ Startup fails if `provider=ldap` and URL or domain is missing. Plain `ldap://` i
 
 Auth is applied only for that run and is not stored with the case. `auth.type` is `NONE`, `BASIC` (credentials: `username` / `password`), `BEARER` (`token`), or `API_KEY` (`apiKey`, optional `apiKeyName`, `apiKeyIn` of `header` or `query`). The runner checks expected status, max response time, and JSONPath assertions against the live response.
 
-## Storage (Excel, H2, or PostgreSQL)
+## Storage (JDBC)
 
-The API persists loaded specs and saved test cases to Excel, H2, or PostgreSQL. Switch with `testdata.storage.type` in `testdata-generator-api/src/main/resources/application.yml`.
+The API persists specs, plans, cases, environments, run history, and uploads in a **relational database** only. Configuration is standard Spring Boot:
 
-```yaml
-testdata:
-  storage:
-    type: excel   # excel | h2 | database
-```
+- **`local` hosting profile** — embedded H2 file DB (`application-local.yml` + `testdata.h2.*`)
+- **`docker` / `datacenter` / `cloud`** — `SPRING_DATASOURCE_*` (see `application-hosted.yml`)
 
-### Excel
+`POST /api/testdata/export` still downloads an api-automation **Excel workbook** (export format only — not the system of record).
 
-Default. Specs, test plans, test cases, and path/query/header params are written to sheets `Specs`, `Plans`, `TestCases`, and `Params` in `testdata.excel.file` (default `./studio-output/studio-testdata.xlsx`). OpenAPI documents are stored next to the workbook under `specs/`. Multipart request files are stored under `studio-files/{testCaseId}/`.
+### H2 (local hosting profile)
 
-### H2
-
-Embedded file database. No extra server required. Setting `type: h2` applies the JDBC URL, driver, schema, and optional console automatically.
+Embedded file database. No extra server required.
 
 ```yaml
+# application-local.yml (active with SPRING_PROFILES_ACTIVE=local)
 testdata:
-  storage:
-    type: h2
   h2:
     file: ./studio-output/testdata
     username: sa
     password: ""
-    console: false
+    console: true
     in-memory: false
   run-history:
     max-per-spec: 100
@@ -226,24 +248,27 @@ Do not use the console default `jdbc:h2:~/test`. That path is `C:/Users/<you>/te
 | User | `sa` |
 | Password | empty |
 
-Set `testdata.h2.in-memory: true` for a throwaway database that is wiped on restart.
+For an in-memory H2 database, set `TESTDATA_H2_JDBC_URL` (see [docs/DATABASE.md](docs/DATABASE.md)).
 
-### PostgreSQL
+### External database (docker, datacenter, cloud)
 
-```yaml
-testdata:
-  storage:
-    type: database
-spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/testdata_studio
-    username: testdata
-    password: testdata
+Hosting profiles `docker`, `datacenter`, and `cloud` activate the `hosted` profile group, which enables Flyway and reads JDBC settings from the environment. Point Spring at **any JDBC database** (PostgreSQL, MySQL, MariaDB, etc.):
+
+```bash
+SPRING_PROFILES_ACTIVE=cloud
+SPRING_DATASOURCE_URL=jdbc:postgresql://host:5432/testdata_studio?sslmode=require
+SPRING_DATASOURCE_USERNAME=postgres
+SPRING_DATASOURCE_PASSWORD=...
+# SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver  # optional when Boot infers from URL
 ```
 
-On startup Flyway applies `classpath:db/migration`. `baseline-on-migrate=true` marks version 1 as applied on an existing AlloyDB/Postgres schema so V1 is not re-run. PostgreSQL-specific DDL (comments, grants) is in `testdata-generator-api/src/main/resources/ddl/postgresql.sql`. Set `TESTDATA_DATASOURCE_URL`, `TESTDATA_DATASOURCE_USERNAME`, and `TESTDATA_DATASOURCE_PASSWORD` in the environment — they are not committed.
+On startup Flyway applies `classpath:db/migration`. `baseline-on-migrate=true` marks version 1 as applied on an existing schema so V1 is not re-run. Set `SPRING_DATASOURCE_*` in the environment — values are not committed.
 
-Set `TESTDATA_SAAS_CORS_ORIGINS` to the Studio UI origin(s) in Cloud Run (`vars.TESTDATA_SAAS_CORS_ORIGINS`). Do not use `*`. Set `TESTDATA_SAAS_ADMIN_EMAIL` and `TESTDATA_SAAS_ADMIN_PASSWORD` as GitHub secrets so the bootstrap admin is created.
+**Drivers:** PostgreSQL, MySQL 8, H2, and AlloyDB connector JARs are on the API classpath. **CI** runs unit tests (H2) and Flyway integration tests against PostgreSQL 16 and MySQL 8.4 (Testcontainers).
+
+Full JDBC examples (Postgres, MySQL, AlloyDB public IP and connector URL): **[docs/DATABASE.md](docs/DATABASE.md)**.
+
+Cloud Run secrets, CORS, and AlloyDB notes: **[docs/DEPLOY.md](docs/DEPLOY.md)**.
 
 ### Tables
 
@@ -254,19 +279,17 @@ Set `TESTDATA_SAAS_CORS_ORIGINS` to the Studio UI origin(s) in Cloud Run (`vars.
 | `td_test_case` | Test cases created from operation schemas (`plan_id` scopes a case to a plan) |
 | `td_test_case_param` | Path, query, and header values (`param_in` = `path` \| `query` \| `header`) |
 | `td_run` | One Try / Run / Run plan click (`run_trigger` = `try` \| `case` \| `plan`; `environment_id` scopes history per environment) |
-| `td_run_result` | Snapshot of one HTTP call (redacted headers, truncated body). Not stored in Excel mode |
+| `td_run_result` | Snapshot of one HTTP call (redacted headers, truncated body) |
 
 Oldest `td_run` rows for a spec are deleted after each write when the count exceeds `testdata.run-history.max-per-spec` (default `100`; `0` keeps history unbounded).
 
 One OpenAPI spec can have many test plans. Saved cases and Excel export are scoped to a single plan. Existing cases without `plan_id` are attached to **Default** the first time plans are loaded.
 
-`POST /api/testdata/export` maps saved cases for one plan from storage (H2, PostgreSQL, or the internal studio workbook) into a downloaded api-automation workbook:
+`POST /api/testdata/export` maps saved cases for one plan from the JDBC store into a downloaded api-automation workbook:
 
 - Browser download (default file name is the plan name, e.g. `Default.xlsx`)
 - Single sheet `TestData` with api-automation headers (`TestName`, `BaseUrl`, `HttpMethod`, …)
 - Request bodies are inlined in `RequestBody`
-
-Studio Excel storage (`studio-testdata.xlsx` with sheets Specs / Plans / TestCases / Params) is only an internal store. It is never used as the api-automation input file.
 
 ## React UI
 

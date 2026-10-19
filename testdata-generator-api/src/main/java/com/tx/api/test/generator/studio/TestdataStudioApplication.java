@@ -1,6 +1,8 @@
 package com.tx.api.test.generator.studio;
 
 import com.tx.api.test.generator.studio.config.H2Database;
+import com.tx.api.test.generator.studio.config.HostingProfileValidator;
+import com.tx.api.test.generator.studio.config.StudioDatasourceSettings;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,14 +24,18 @@ public class TestdataStudioApplication {
     }
 
     @Bean
-    ApplicationRunner startupBanner(StudioProperties properties, Environment environment) {
+    ApplicationRunner startupBanner(
+            StudioProperties properties,
+            StudioDatasourceSettings datasourceSettings,
+            Environment environment,
+            HostingProfileValidator hostingProfile) {
         return args -> {
-            String type = properties.getStorage().getType();
             String port = environment.getProperty("local.server.port",
                     environment.getProperty("server.port", "8083"));
-            log.info("Test Data API is running at http://localhost:{} (storage={})", port, type);
-            if (properties.isH2Storage()) {
-                log.info("H2 JDBC URL: {}", properties.getH2().jdbcUrl());
+            log.info("Test Data API is running at http://localhost:{} (hosting={}, storage={})",
+                    port, hostingProfile.hostingProfile().wireValue(), datasourceSettings.storageType());
+            if (datasourceSettings.isH2()) {
+                log.info("H2 JDBC URL: {}", datasourceSettings.jdbcUrl());
                 log.info("File H2 is opened with AUTO_SERVER=TRUE so api-automation can read the same database while Studio is running");
                 if (properties.getH2().isConsole()) {
                     log.info("H2 console: http://localhost:{}/h2-console", port);

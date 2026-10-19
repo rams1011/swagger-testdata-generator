@@ -1,0 +1,5 @@
+{
+  "java.configuration.updateBuildConfiguration": "automatic",
+  "java.import.maven.annotationProcessing": "automatic",
+  "java.jdt.ls.lombokSupport": "enabled"
+}

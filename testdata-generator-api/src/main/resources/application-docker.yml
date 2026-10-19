@@ -1,0 +1,5 @@
+# Container on your network — set SPRING_DATASOURCE_* (any JDBC database).
+spring:
+  config:
+    activate:
+      on-profile: docker

@@ -1,6 +1,5 @@
 package com.tx.api.test.generator.studio.tenant;
 
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -11,7 +10,6 @@ import java.util.List;
 import java.util.Optional;
 
 @Repository
-@ConditionalOnProperty(name = "testdata.storage.engine", havingValue = "jdbc")
 public class JdbcTenantStore implements TenantStore {
 
     private final JdbcTemplate jdbcTemplate;
