@@ -11,6 +11,7 @@ import com.tx.api.test.generator.studio.dto.ExportRequest;
 import com.tx.api.test.generator.studio.dto.RunAuth;
 import com.tx.api.test.generator.studio.dto.RunPlanRequest;
 import com.tx.api.test.generator.studio.dto.RunPlanResult;
+import com.tx.api.test.generator.studio.dto.ValidatePlanResult;
 import com.tx.api.test.generator.studio.dto.RunTestRequest;
 import com.tx.api.test.generator.studio.dto.RunTestResult;
 import com.tx.api.test.generator.studio.dto.AuditEventView;
@@ -64,6 +65,11 @@ public class TestDataController {
     @PostMapping("/run-plan")
     public RunPlanResult runPlan(@RequestBody RunPlanRequest request) {
         return testDataStudioService.runPlan(request);
+    }
+
+    @PostMapping("/validate-plan")
+    public ValidatePlanResult validatePlan(@RequestBody RunPlanRequest request) {
+        return testDataStudioService.validatePlan(request);
     }
 
     @PostMapping("/{id}/run")

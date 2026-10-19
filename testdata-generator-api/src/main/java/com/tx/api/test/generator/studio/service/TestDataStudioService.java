@@ -31,6 +31,8 @@ import com.tx.api.test.generator.studio.dto.RequestFileView;
 import com.tx.api.test.generator.studio.dto.RunAuth;
 import com.tx.api.test.generator.studio.dto.RunPlanRequest;
 import com.tx.api.test.generator.studio.dto.RunPlanResult;
+import com.tx.api.test.generator.studio.dto.ValidatePlanCaseEntry;
+import com.tx.api.test.generator.studio.dto.ValidatePlanResult;
 import com.tx.api.test.generator.studio.dto.RunTestRequest;
 import com.tx.api.test.generator.studio.dto.RunTestResult;
 import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
@@ -383,6 +385,53 @@ public class TestDataStudioService {
         runHistoryService.recordPlan(request.specId(), request.planId(), request.environmentId(), results, cases);
         return new RunPlanResult(request.specId(), request.planId(), passed, failed, skipped,
                 failed == 0 && passed > 0, results);
+    }
+
+    public ValidatePlanResult validatePlan(RunPlanRequest request) {
+        if (request == null || StringUtils.isBlank(request.specId()) || StringUtils.isBlank(request.planId())) {
+            throw new IllegalArgumentException("specId and planId are required");
+        }
+        requirePlan(request.specId(), request.planId());
+        List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), request.planId(), null);
+        String environmentName = requireEnvironmentNameForScopedCases(
+                request.specId(), request.environmentId(), storedCases, "validate this plan");
+        List<StudioTestCase> cases = CaseVariables.orderForChain(storedCases);
+        List<String> warnings = new ArrayList<>();
+        List<ValidatePlanCaseEntry> executionOrder = new ArrayList<>();
+        int runnableCount = 0;
+        int skippedDisabled = 0;
+        int skippedEnvironment = 0;
+        Set<String> availableExtracts = new LinkedHashSet<>();
+        for (StudioTestCase testCase : cases) {
+            if ("N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()))) {
+                skippedDisabled++;
+                continue;
+            }
+            if (!EnvironmentScope.visible(testCase.getEnvironments(), environmentName)) {
+                skippedEnvironment++;
+                continue;
+            }
+            String testName = StringUtils.defaultIfBlank(testCase.getTestName(), "Untitled case");
+            if (StringUtils.isBlank(testCase.getTestName())) {
+                warnings.add("Case " + testCase.getId() + " is missing a test name.");
+            }
+            for (String placeholder : CaseVariables.placeholderNames(testCase)) {
+                if (!availableExtracts.contains(placeholder)) {
+                    warnings.add("Case '" + testName + "' uses {{" + placeholder
+                            + "}} before any prior case in chain order extracts it.");
+                }
+            }
+            availableExtracts.addAll(CaseVariables.extractedNames(testCase.getExtracts()));
+            executionOrder.add(new ValidatePlanCaseEntry(
+                    testCase.getId(), testName, testCase.getMethod(), testCase.getEndpoint()));
+            runnableCount++;
+        }
+        if (runnableCount == 0) {
+            warnings.add("No enabled cases run in this environment.");
+        }
+        boolean ready = runnableCount > 0 && warnings.isEmpty();
+        return new ValidatePlanResult(request.specId(), request.planId(), runnableCount,
+                skippedDisabled, skippedEnvironment, ready, executionOrder, warnings);
     }
 
     public ExcelExport export(ExportRequest request) {
