@@ -1,0 +1,31 @@
+# Local stack: Studio API (docker profile) + PostgreSQL.
+# Usage: docker compose up --build
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-testdata_studio}
+      POSTGRES_USER: ${POSTGRES_USER:-testdata}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-testdata}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-testdata} -d ${POSTGRES_DB:-testdata_studio}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  testdata-studio:
+    build: .
+    ports:
+      - "${API_PORT:-8083}:8083"
+    environment:
+      SERVER_PORT: "8083"
+      SPRING_PROFILES_ACTIVE: docker
+      TESTDATA_EDITION: ${TESTDATA_EDITION:-local}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/${POSTGRES_DB:-testdata_studio}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-testdata}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-testdata}
+    depends_on:
+      db:
+        condition: service_healthy

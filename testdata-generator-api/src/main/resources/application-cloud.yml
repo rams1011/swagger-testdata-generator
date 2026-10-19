@@ -1,0 +1,8 @@
+# Managed cloud runtime (e.g. Cloud Run) — set SPRING_DATASOURCE_* (any JDBC database).
+spring:
+  config:
+    activate:
+      on-profile: cloud
+
+server:
+  forward-headers-strategy: framework

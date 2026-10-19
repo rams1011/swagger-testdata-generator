@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.api;
 
+import com.tx.api.test.generator.studio.config.StudioDatasourceSettings;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
@@ -15,10 +16,13 @@ import java.util.Map;
 public class HealthController {
 
     private final StudioProperties properties;
+    private final StudioDatasourceSettings datasourceSettings;
     private final ObjectProvider<JdbcTemplate> jdbcTemplates;
 
-    public HealthController(StudioProperties properties, ObjectProvider<JdbcTemplate> jdbcTemplates) {
+    public HealthController(StudioProperties properties, StudioDatasourceSettings datasourceSettings,
+                            ObjectProvider<JdbcTemplate> jdbcTemplates) {
         this.properties = properties;
+        this.datasourceSettings = datasourceSettings;
         this.jdbcTemplates = jdbcTemplates;
     }
 
@@ -27,7 +31,7 @@ public class HealthController {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", "UP");
         body.put("edition", properties.editionName());
-        body.put("storage", properties.getStorage().getType());
+        body.put("storage", datasourceSettings.storageType());
         JdbcTemplate jdbc = jdbcTemplates.getIfAvailable();
         if (jdbc != null) {
             try {

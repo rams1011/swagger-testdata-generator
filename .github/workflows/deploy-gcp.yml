@@ -8,6 +8,8 @@ on:
       - "testdata-generator-core/**"
       - "pom.xml"
       - "Dockerfile"
+      - "docker-compose.yml"
+      - "docs/**"
       - ".github/workflows/deploy-gcp.yml"
   workflow_dispatch:
 
@@ -22,10 +24,9 @@ jobs:
       contents: read
       id-token: write
     env:
-      TESTDATA_DATASOURCE_URL: ${{ secrets.TESTDATA_DATASOURCE_URL }}
-      TESTDATA_DATASOURCE_USERNAME: ${{ secrets.TESTDATA_DATASOURCE_USERNAME }}
-      TESTDATA_DATASOURCE_PASSWORD: ${{ secrets.TESTDATA_DATASOURCE_PASSWORD }}
-      TESTDATA_ALLOYDB_INSTANCE: ${{ vars.TESTDATA_ALLOYDB_INSTANCE }}
+      SPRING_DATASOURCE_URL: ${{ secrets.SPRING_DATASOURCE_URL }}
+      SPRING_DATASOURCE_USERNAME: ${{ secrets.SPRING_DATASOURCE_USERNAME }}
+      SPRING_DATASOURCE_PASSWORD: ${{ secrets.SPRING_DATASOURCE_PASSWORD }}
       TESTDATA_SAAS_CORS_ORIGINS: ${{ vars.TESTDATA_SAAS_CORS_ORIGINS }}
       TESTDATA_SAAS_ADMIN_EMAIL: ${{ secrets.TESTDATA_SAAS_ADMIN_EMAIL }}
       TESTDATA_SAAS_ADMIN_PASSWORD: ${{ secrets.TESTDATA_SAAS_ADMIN_PASSWORD }}
@@ -69,9 +70,21 @@ jobs:
           cache-from: type=gha,scope=testdata-studio
           cache-to: type=gha,mode=max,scope=testdata-studio
 
-      - name: Validate SaaS bootstrap secrets
+      - name: Validate deploy secrets
         run: |
           missing=0
+          if [ -z "${SPRING_DATASOURCE_URL}" ]; then
+            echo "::error::SPRING_DATASOURCE_URL is empty. Add the JDBC URL as a repository secret."
+            missing=1
+          fi
+          if [ -z "${SPRING_DATASOURCE_USERNAME}" ]; then
+            echo "::error::SPRING_DATASOURCE_USERNAME is empty. Add it as a repository secret."
+            missing=1
+          fi
+          if [ -z "${SPRING_DATASOURCE_PASSWORD}" ]; then
+            echo "::error::SPRING_DATASOURCE_PASSWORD is empty. Add it as a repository secret."
+            missing=1
+          fi
           if [ -z "${TESTDATA_SAAS_ADMIN_EMAIL}" ]; then
             echo "::error::TESTDATA_SAAS_ADMIN_EMAIL is empty. Add it under Settings → Secrets and variables → Actions → Repository secrets (not Variables)."
             missing=1
@@ -88,27 +101,15 @@ jobs:
         run: |
           {
             echo "SERVER_PORT=8080"
-            echo "TESTDATA_STORAGE_TYPE=database"
-            echo "TESTDATA_H2_FILE=/tmp/testdata"
-            echo "TESTDATA_H2_IN_MEMORY=false"
+            echo "SPRING_PROFILES_ACTIVE=cloud"
             echo "TESTDATA_EDITION=saas"
-            echo "TESTDATA_H2_CONSOLE=false"
-            echo "TESTDATA_ALLOYDB_INSTANCE=${TESTDATA_ALLOYDB_INSTANCE}"
-            echo "SPRING_DATASOURCE_USERNAME=${TESTDATA_DATASOURCE_USERNAME:-postgres}"
+            echo "SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL}"
+            echo "SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME}"
+            echo "SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD}"
             echo "TESTDATA_SAAS_ADMIN_EMAIL=${TESTDATA_SAAS_ADMIN_EMAIL}"
             echo "TESTDATA_SAAS_ADMIN_PASSWORD=${TESTDATA_SAAS_ADMIN_PASSWORD}"
             if [ -n "${TESTDATA_SAAS_CORS_ORIGINS}" ]; then
               echo "TESTDATA_SAAS_CORS_ORIGINS=${TESTDATA_SAAS_CORS_ORIGINS}"
-            fi
-            if [ -n "${TESTDATA_DATASOURCE_URL}" ]; then
-              echo "TESTDATA_DATASOURCE_URL=${TESTDATA_DATASOURCE_URL}"
-            fi
-            if [ -n "${TESTDATA_DATASOURCE_USERNAME}" ]; then
-              echo "TESTDATA_DATASOURCE_USERNAME=${TESTDATA_DATASOURCE_USERNAME}"
-            fi
-            if [ -n "${TESTDATA_DATASOURCE_PASSWORD}" ]; then
-              echo "TESTDATA_DATASOURCE_PASSWORD=${TESTDATA_DATASOURCE_PASSWORD}"
-              echo "SPRING_DATASOURCE_PASSWORD=${TESTDATA_DATASOURCE_PASSWORD}"
             fi
           } > "${GITHUB_WORKSPACE}/cloudrun.env"
 

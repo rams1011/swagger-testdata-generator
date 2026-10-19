@@ -1,0 +1,26 @@
+# Developer machine — spring.profiles.default=local when SPRING_PROFILES_ACTIVE is unset (application.yml).
+spring:
+  config:
+    activate:
+      on-profile: local
+  flyway:
+    enabled: true
+  datasource:
+    # Defaults match H2Database (file + AUTO_SERVER for api-automation). Override with TESTDATA_H2_JDBC_URL.
+    url: ${TESTDATA_H2_JDBC_URL:jdbc:h2:file:./studio-output/testdata;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;CASE_INSENSITIVE_IDENTIFIERS=TRUE;DB_CLOSE_DELAY=-1;AUTO_SERVER=TRUE}
+    username: ${TESTDATA_H2_USERNAME:sa}
+    password: ${TESTDATA_H2_PASSWORD:}
+    driver-class-name: org.h2.Driver
+  h2:
+    console:
+      enabled: ${TESTDATA_H2_CONSOLE:true}
+      settings:
+        web-allow-others: false
+
+testdata:
+  h2:
+    file: ${TESTDATA_H2_FILE:./studio-output/testdata}
+    username: sa
+    password: ""
+    console: ${TESTDATA_H2_CONSOLE:true}
+    in-memory: ${TESTDATA_H2_IN_MEMORY:false}

@@ -15,7 +15,7 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 @Configuration
-@ConditionalOnProperty(name = "testdata.storage.type", havingValue = "h2")
+@ConditionalOnProperty(name = "spring.h2.console.enabled", havingValue = "true")
 class H2ConsoleConnectionSettings {
 
     private static final Logger log = LoggerFactory.getLogger(H2ConsoleConnectionSettings.class);

@@ -5,6 +5,14 @@ server:
 spring:
   application:
     name: testdata-studio
+  profiles:
+    # Exactly one hosting profile must be active: local | docker | datacenter | cloud.
+    # Use default (not active) so SPRING_PROFILES_ACTIVE / --spring.profiles.active replaces local.
+    default: local
+    group:
+      docker: hosted
+      datacenter: hosted
+      cloud: hosted
   servlet:
     multipart:
       max-file-size: 20MB
@@ -17,16 +25,6 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 1
-  datasource:
-    # Set TESTDATA_DATASOURCE_* in the environment. No production secrets in this file.
-    url: ${TESTDATA_DATASOURCE_URL:jdbc:postgresql://localhost:5432/testdata_studio?sslmode=require}
-    username: ${TESTDATA_DATASOURCE_USERNAME:postgres}
-    password: ${TESTDATA_DATASOURCE_PASSWORD:}
-    driver-class-name: org.postgresql.Driver
-    hikari:
-      data-source-properties:
-        ssl: true
-        sslmode: require
   h2:
     console:
       enabled: false
@@ -38,17 +36,6 @@ testdata:
   #   datacenter login + admin, no plan (default when blank)
   #   saas       login + plan
   edition: ${TESTDATA_EDITION:local}
-  storage:
-    # excel | h2 | database
-    type: ${TESTDATA_STORAGE_TYPE:h2}
-  excel:
-    file: ./studio-output/studio-testdata.xlsx
-  h2:
-    file: ${TESTDATA_H2_FILE:./studio-output/testdata}
-    username: sa
-    password: ""
-    console: ${TESTDATA_H2_CONSOLE:true}
-    in-memory: false
   default-output-dir: ./studio-output
   default-excel-file-name: TestData.xlsx
   run-history:

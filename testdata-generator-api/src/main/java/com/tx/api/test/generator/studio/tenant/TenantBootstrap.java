@@ -30,7 +30,7 @@ public class TenantBootstrap {
         TenantContext.setSaasEnabled(properties.isAuthEnabled());
         if (properties.isAuthEnabled() && tenantStores.getIfAvailable() == null) {
             throw new IllegalStateException("testdata.edition=" + properties.editionName()
-                    + " requires testdata.storage.type=h2 or database");
+                    + " requires a JDBC database (spring.datasource.*)");
         }
         if (properties.isAuthEnabled()) {
             String adminEmail = authService.ensureSaasAdmin();

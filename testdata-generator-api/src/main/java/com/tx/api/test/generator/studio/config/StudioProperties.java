@@ -5,8 +5,6 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties(prefix = "testdata")
 public class StudioProperties {
 
-    private Storage storage = new Storage();
-    private Excel excel = new Excel();
     private H2 h2 = new H2();
     private RunHistory runHistory = new RunHistory();
     private Saas saas = new Saas();
@@ -19,22 +17,6 @@ public class StudioProperties {
     private String edition = "";
     private String defaultOutputDir = "./studio-output";
     private String defaultExcelFileName = "TestData.xlsx";
-
-    public Storage getStorage() {
-        return storage;
-    }
-
-    public void setStorage(Storage storage) {
-        this.storage = storage;
-    }
-
-    public Excel getExcel() {
-        return excel;
-    }
-
-    public void setExcel(Excel excel) {
-        this.excel = excel;
-    }
 
     public H2 getH2() {
         return h2;
@@ -136,49 +118,6 @@ public class StudioProperties {
 
     public void setDefaultExcelFileName(String defaultExcelFileName) {
         this.defaultExcelFileName = defaultExcelFileName;
-    }
-
-    public boolean isH2Storage() {
-        return storage != null && storage.isH2();
-    }
-
-    public static class Storage {
-        /**
-         * excel, h2, or database (PostgreSQL)
-         */
-        private String type = "excel";
-
-        public String getType() {
-            return type;
-        }
-
-        public void setType(String type) {
-            this.type = type;
-        }
-
-        public boolean isH2() {
-            return type != null && "h2".equalsIgnoreCase(type.trim());
-        }
-
-        public boolean isDatabase() {
-            return type != null && "database".equalsIgnoreCase(type.trim());
-        }
-
-        public boolean isJdbc() {
-            return isH2() || isDatabase();
-        }
-    }
-
-    public static class Excel {
-        private String file = "./studio-output/studio-testdata.xlsx";
-
-        public String getFile() {
-            return file;
-        }
-
-        public void setFile(String file) {
-            this.file = file;
-        }
     }
 
     public static class H2 {

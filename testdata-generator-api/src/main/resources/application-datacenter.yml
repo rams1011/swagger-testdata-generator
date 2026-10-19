@@ -1,0 +1,5 @@
+# VM / on-prem / private Kubernetes — set SPRING_DATASOURCE_* (any JDBC database).
+spring:
+  config:
+    activate:
+      on-profile: datacenter
