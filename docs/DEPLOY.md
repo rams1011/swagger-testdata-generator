@@ -43,6 +43,10 @@ docker run --rm -p 8083:8083 \
   testdata-studio:latest
 ```
 
+## Datacenter
+
+VM install, external config files, LDAP or local sign-in, and smoke checks: [DATACENTER.md](DATACENTER.md).
+
 ## Datacenter / Kubernetes
 
 Set the hosting profile and datasource on the pod (Secrets → env):

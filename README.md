@@ -2,7 +2,13 @@
 
 Maven multi-module project that turns a Swagger 2.0 or OpenAPI 3.x spec into api-automation test data.
 
-Requires **JDK 21**. The API module uses **Spring Boot 4.1.1**.
+The API module uses **Spring Boot 4.1.1**. A default build targets **Java 21**. To run the same JAR on **Java 17 or Java 21**, package with release 17 (build on JDK 17 or 21):
+
+```bash
+mvn clean install -Djava.version=17
+```
+
+Do not produce a separate JAR per Java version. On one machine, run the API and the Studio UI on the same JDK.
 
 | Module | What it is |
 |--------|------------|
@@ -27,7 +33,7 @@ mvn install -pl testdata-generator-core -DskipTests
 mvn clean install -pl testdata-generator-api -am
 ```
 
-**Lombok** is used only in `testdata-generator-core` (`@Getter`, `@Builder`). The parent POM configures `maven-compiler-plugin` with Lombok on the annotation processor path (required on JDK 21). In Cursor/VS Code, use the **Extension Pack for Java** and enable **Annotation processing** in Java settings (`java.import.maven.annotationProcessing`: `automatic`).
+**Lombok** is used only in `testdata-generator-core` (`@Getter`, `@Builder`). The parent POM configures `maven-compiler-plugin` with Lombok on the annotation processor path. In Cursor/VS Code, use the **Extension Pack for Java** and enable **Annotation processing** in Java settings (`java.import.maven.annotationProcessing`: `automatic`).
 
 Artifacts:
 
