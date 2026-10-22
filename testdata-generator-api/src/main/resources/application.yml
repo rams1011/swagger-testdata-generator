@@ -35,7 +35,7 @@ testdata:
   #   local      desktop, no login
   #   datacenter login + admin, no plan (default when blank)
   #   saas       login + plan
-  edition: ${TESTDATA_EDITION:local}
+  edition: ${TESTDATA_EDITION:datacenter}
   default-output-dir: ./studio-output
   default-excel-file-name: TestData.xlsx
   run-history:
@@ -48,10 +48,10 @@ testdata:
     # When provider=ldap, bootstrap admin (testdata.saas.admin-*) may still sign in locally if LDAP is down.
     local-admin-fallback: ${TESTDATA_AUTH_LOCAL_ADMIN_FALLBACK:true}
     ldap:
-      # Required when provider=ldap. Prefer ldaps://. API fails startup if url or domain is missing.
-      url: ${TESTDATA_LDAP_URL:ldaps://ldap.client.com:636}
+      # Required when provider=ldap. Prefer ldaps://. No sample host — startup fails if this is empty.
+      url: ${TESTDATA_LDAP_URL:}
       # Required when provider=ldap. Users sign in as user@domain (jsmith → jsmith@domain).
-      domain: ${TESTDATA_LDAP_DOMAIN:client.com}
+      domain: ${TESTDATA_LDAP_DOMAIN:}
       # Reject ldap:// unless true (labs only). Production should use ldaps://.
       allow-insecure: ${TESTDATA_LDAP_ALLOW_INSECURE:false}
       connect-timeout-ms: ${TESTDATA_LDAP_CONNECT_TIMEOUT_MS:5000}
@@ -78,9 +78,9 @@ testdata:
     # Operator/session settings — not the hosting mode. Use testdata.edition for that.
     session-days: 14
     cors-origins: ${TESTDATA_SAAS_CORS_ORIGINS:http://localhost:*,http://127.0.0.1:*}
-    # Set both in the environment (Cloud Run / local .env). Empty means no bootstrap admin.
-    admin-email: ${TESTDATA_SAAS_ADMIN_EMAIL:saas.admin@local.test}
-    admin-password: ${TESTDATA_SAAS_ADMIN_PASSWORD:admin@local}
+    # Datacenter with provider=local requires both from outside the jar. Empty fails startup.
+    admin-email: ${TESTDATA_SAAS_ADMIN_EMAIL:}
+    admin-password: ${TESTDATA_SAAS_ADMIN_PASSWORD:}
     org-name: ${TESTDATA_SAAS_ORG_NAME:Studio}
     workspace-name: ${TESTDATA_SAAS_WORKSPACE_NAME:Default}
 
