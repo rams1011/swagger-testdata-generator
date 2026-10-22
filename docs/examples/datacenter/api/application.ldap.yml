@@ -1,0 +1,37 @@
+# Datacenter API — Active Directory / LDAP sign-in.
+# Copy over config/api/application.yml when users sign in with directory accounts.
+# This name is not application-<profile>.yml, so Spring does not load it beside application.yml.
+# Replace every <placeholder>. url and domain are required. Use ldaps://.
+# Startup fails if the URL still contains ldap.client.com.
+
+server:
+  port: 8083
+
+spring:
+  profiles:
+    active: datacenter
+  datasource:
+    url: jdbc:postgresql://db-host:5432/testdata_studio?sslmode=require
+    username: testdata
+    password: "<database-password>"
+
+testdata:
+  edition: datacenter
+  auth:
+    provider: ldap
+    ldap:
+      url: ldaps://ldap.company.com:636
+      domain: company.com
+      # allowed-group: CN=Studio Users,OU=Groups,DC=company,DC=com
+      # manager-dn: CN=Studio Bind,OU=Service,DC=company,DC=com
+      # manager-password: "<bind-password>"
+      # base-dn: DC=company,DC=com
+      # user-search-filter: (|(userPrincipalName={0})(mail={0}))
+      # group-role:
+      #   owner: CN=Studio Owners,OU=Groups,DC=company,DC=com
+      #   admin: CN=Studio Admins,OU=Groups,DC=company,DC=com
+      #   member: CN=Studio Users,OU=Groups,DC=company,DC=com
+  saas:
+    cors-origins: https://studio.company.com
+    org-name: Company
+    workspace-name: Default
