@@ -42,6 +42,18 @@ public interface TenantStore {
 
     int countOrgMembers(String orgId);
 
+    List<OrgMemberRecord> listOrgMembers(String orgId);
+
+    List<MemberRecord> listOrgMemberDetails(String orgId);
+
+    void updateOrgMembershipRole(String orgId, String accountId, String role);
+
+    void deleteOrgMembership(String orgId, String accountId);
+
+    void deleteWorkspaceMembershipsForOrg(String orgId, String accountId);
+
+    int countOrgOwners(String orgId);
+
     int countSpecsForOrg(String orgId);
 
     int incrementRunCount(String orgId, String yearMonth);
@@ -78,7 +90,32 @@ public interface TenantStore {
 
     void switchSessionTenant(String tokenHash, String tenantId);
 
+    void saveWorkspaceAccessRequest(String requestId, String tenantId, String accountId,
+                                    String message, Instant createdAt);
+
+    Optional<WorkspaceAccessRequestRecord> findPendingWorkspaceAccessRequest(String tenantId, String accountId);
+
+    List<WorkspaceAccessRequestRecord> listPendingWorkspaceAccessRequests(String tenantId);
+
+    void resolveWorkspaceAccessRequest(String requestId, String status);
+
+    List<Organization> listOrganizationsForAccount(String accountId);
+
+    record WorkspaceAccessRequestRecord(
+            String requestId,
+            String tenantId,
+            String accountId,
+            String email,
+            String name,
+            String message,
+            Instant createdAt
+    ) {
+    }
+
     record MemberRecord(String accountId, String email, String name, String role, Instant createdAt) {
+    }
+
+    record OrgMemberRecord(String accountId, String role) {
     }
 
     record OrgSubscriptionRecord(

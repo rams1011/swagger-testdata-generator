@@ -172,10 +172,17 @@ Startup fails if `provider=ldap` and URL or domain is missing. Plain `ldap://` i
 | `POST` | `/api/auth/logout` | End session |
 | `POST` | `/api/auth/switch-tenant` | Change active workspace |
 | `GET` | `/api/tenants/current/members` | List workspace members |
-| `POST` | `/api/tenants/current/members` | Add member (LDAP: existing account only) |
+| `POST` | `/api/tenants/current/members` | Grant workspace access (`accountId`, `role`) — org member required |
 | `PUT` | `/api/tenants/current/members/{accountId}` | Change role |
 | `DELETE` | `/api/tenants/current/members/{accountId}` | Remove member |
+| `GET` | `/api/organizations/current/members` | List organization roster (org or workspace admin) |
+| `POST` | `/api/organizations/current/members` | Add person to organization roster (no workspace access yet) |
+| `PUT` | `/api/organizations/current/members/{accountId}` | Change organization role |
+| `DELETE` | `/api/organizations/current/members/{accountId}` | Remove from org and all org workspaces |
+| `GET` | `/api/organizations/current/workspaces` | List workspaces in current organization |
 | `GET` | `/api/testdata/config` | Edition, storage, auth flags for the UI |
+
+Organization / workspace model and rollout: **[docs/ADR-001-organization-workspace-access.md](docs/ADR-001-organization-workspace-access.md)**, **[docs/ORG-WORKSPACE-ROLLOUT.md](docs/ORG-WORKSPACE-ROLLOUT.md)**.
 
 | Method | Path | Purpose |
 |--------|------|---------|
