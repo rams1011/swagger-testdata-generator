@@ -1,0 +1,12 @@
+# Datacenter UI. Copy to config/ui/application.yml next to the UI JAR.
+# Start: java -jar studio-ui-server-1.0.0-SNAPSHOT.jar --spring.config.additional-location=file:./config/ui/
+# api-origin is the public API address: scheme + host + port. No /api on the end.
+# cors-origins on the API must be the public address of this UI.
+
+server:
+  port: 8080
+
+studio:
+  ui:
+    api-origin: https://studio-api.company.com
+    security-headers-enabled: true

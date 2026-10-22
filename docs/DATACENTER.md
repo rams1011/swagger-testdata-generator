@@ -58,6 +58,8 @@ The API account needs permission to create and alter tables in that database.
 
 ## 2. API configuration
 
+Copy `docs/examples/datacenter/api/application.yml` (local sign-in) or `docs/examples/datacenter/api/application.ldap.yml` (directory sign-in) to `config\api\application.yml`.
+
 `config\api\application.yml`:
 
 ```yaml
@@ -123,6 +125,8 @@ testdata:
 Optional search-then-bind (only if direct bind is not enough): `manager-dn`, `manager-password`, `base-dn`, `user-search-filter`. Optional role mapping from `memberOf`: `group-role.owner`, `group-role.admin`, `group-role.member` (group DNs).
 
 ## 3. UI configuration
+
+Copy `docs/examples/datacenter/ui/application.yml` to `config\ui\application.yml`.
 
 `config\ui\application.yml`:
 

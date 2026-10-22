@@ -1,0 +1,29 @@
+# Datacenter API — local sign-in (passwords stored in the Studio database).
+# Copy to config/api/application.yml next to the API JAR. Replace every <placeholder>.
+# Start: java -jar testdata-generator-api-1.0.0-SNAPSHOT.jar --spring.config.additional-location=file:./config/api/
+# Do not commit this file after you put real passwords in it.
+
+server:
+  port: 8083
+
+spring:
+  profiles:
+    active: datacenter
+  datasource:
+    url: jdbc:postgresql://db-host:5432/testdata_studio?sslmode=require
+    username: testdata
+    password: "<database-password>"
+    # MySQL 8 instead of PostgreSQL:
+    # url: jdbc:mysql://db-host:3306/testdata_studio?sslMode=REQUIRED&allowPublicKeyRetrieval=true
+    # driver-class-name: com.mysql.cj.jdbc.Driver
+
+testdata:
+  edition: datacenter
+  auth:
+    provider: local
+  saas:
+    admin-email: studio-admin@company.com
+    admin-password: "<at-least-8-characters>"
+    cors-origins: https://studio.company.com
+    org-name: Company
+    workspace-name: Default
