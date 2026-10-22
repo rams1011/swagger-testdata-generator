@@ -69,6 +69,17 @@ server:
 spring:
   profiles:
     active: datacenter
+  sql:
+    init:
+      mode: never
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 1
+  h2:
+    console:
+      enabled: false
   datasource:
     url: jdbc:postgresql://db-host:5432/testdata_studio?sslmode=require
     username: testdata
@@ -85,6 +96,8 @@ testdata:
     org-name: Company
     workspace-name: Default
 ```
+
+`spring.profiles.active: datacenter` also activates the **`hosted`** profile group inside the JAR (non-H2 datasource, Flyway on, H2 console off). The `sql.init`, `flyway`, and `h2.console` entries above match that behavior so this file is complete when read on its own. Use an **empty** database; Flyway applies `classpath:db/migration` on first start.
 
 For MySQL, also set:
 
