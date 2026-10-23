@@ -21,6 +21,7 @@ import java.util.Locale;
 public class TenantFilter extends OncePerRequestFilter {
 
     public static final String TENANT_HEADER = "X-Tenant-Id";
+    public static final String WORKSPACE_HEADER = "X-Workspace-Id";
 
     private final StudioProperties properties;
     private final AuthService authService;
@@ -59,7 +60,7 @@ public class TenantFilter extends OncePerRequestFilter {
                 unauthorized(response, "Sign in to continue");
                 return;
             }
-            String tenantId = StringUtils.defaultIfBlank(request.getHeader(TENANT_HEADER), resolved.tenant().getId());
+            String tenantId = StringUtils.defaultIfBlank(requestedWorkspaceId(request), resolved.tenant().getId());
             String accountId = resolved.account().getId();
             String workspaceRole;
             if (!resolved.tenant().getId().equals(tenantId)) {
@@ -146,15 +147,45 @@ public class TenantFilter extends OncePerRequestFilter {
         if ("GET".equalsIgnoreCase(method) && "/api/organizations/current/workspaces".equals(path)) {
             return true;
         }
-        if ("POST".equalsIgnoreCase(method) && "/api/organizations/current/access-requests".equals(path)) {
+        if ("/api/organizations/current/access-requests".equals(path)) {
             return true;
         }
-        return false;
+        if (path.startsWith("/api/organizations/current/members")) {
+            return true;
+        }
+        return isOrganizationWorkspaceAdminPath(path);
+    }
+
+    private static boolean isOrganizationWorkspaceAdminPath(String path) {
+        if (!path.startsWith("/api/organizations/current/workspaces/")) {
+            return false;
+        }
+        String rest = path.substring("/api/organizations/current/workspaces/".length());
+        int slash = rest.indexOf('/');
+        if (slash < 0) {
+            return false;
+        }
+        String suffix = rest.substring(slash);
+        return "/members".equals(suffix)
+                || suffix.startsWith("/members/")
+                || "/access-requests".equals(suffix);
     }
 
     private static boolean isStatic(HttpServletRequest request) {
         String path = request.getRequestURI();
         return "/favicon.ico".equals(path) || "/error".equals(path);
+    }
+
+    static String requestedWorkspaceId(HttpServletRequest request) {
+        String tenantHeader = request.getHeader(TENANT_HEADER);
+        if (StringUtils.isNotBlank(tenantHeader)) {
+            return tenantHeader.trim();
+        }
+        String workspaceHeader = request.getHeader(WORKSPACE_HEADER);
+        if (StringUtils.isNotBlank(workspaceHeader)) {
+            return workspaceHeader.trim();
+        }
+        return null;
     }
 
     private static String bearerToken(HttpServletRequest request) {

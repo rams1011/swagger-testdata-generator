@@ -27,6 +27,7 @@ import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Comparator;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Locale;
@@ -34,6 +35,7 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 @Service
 public class AuthService {
@@ -347,6 +349,29 @@ public class AuthService {
                 .toList();
     }
 
+    public List<MemberView> listWorkspaceMembers(String workspaceId) {
+        return runWithWorkspaceManagement(workspaceId, this::listMembers);
+    }
+
+    public MemberView grantWorkspaceAccessForWorkspace(String workspaceId, GrantWorkspaceAccessRequest request) {
+        return runWithWorkspaceManagement(workspaceId, () -> grantWorkspaceAccess(request));
+    }
+
+    public MemberView updateWorkspaceMember(String workspaceId, String accountId, UpdateMemberRequest request) {
+        return runWithWorkspaceManagement(workspaceId, () -> updateMember(accountId, request));
+    }
+
+    public void removeWorkspaceMember(String workspaceId, String accountId) {
+        runWithWorkspaceManagement(workspaceId, () -> {
+            removeMember(accountId);
+            return null;
+        });
+    }
+
+    public List<WorkspaceAccessRequestView> listWorkspaceAccessRequestsForWorkspace(String workspaceId) {
+        return runWithWorkspaceManagement(workspaceId, this::listWorkspaceAccessRequests);
+    }
+
     public List<MemberView> listOrgMembers() {
         requireOrgManagerOrWorkspaceManager();
         Organization organization = requireCurrentOrganization(requireStore());
@@ -513,20 +538,46 @@ public class AuthService {
         TenantStore store = requireStore();
         String tenantId = TenantContext.tenantId();
         return store.listPendingWorkspaceAccessRequests(tenantId).stream()
-                .map(item -> {
-                    Tenant workspace = store.findTenant(item.tenantId()).orElse(null);
-                    String workspaceName = workspace == null ? item.tenantId() : workspace.getName();
-                    return new WorkspaceAccessRequestView(
-                            item.requestId(),
-                            item.tenantId(),
-                            workspaceName,
-                            item.accountId(),
-                            item.email(),
-                            item.name(),
-                            item.message(),
-                            item.createdAt());
-                })
+                .map(item -> toWorkspaceAccessRequestView(store, item))
                 .toList();
+    }
+
+    public List<WorkspaceAccessRequestView> listOrganizationAccessRequests() {
+        requireAuthenticatedScope();
+        TenantStore store = requireStore();
+        Organization organization = organizationForContextTenant(store);
+        String accountId = actorAccountId();
+        String orgRole = store.findOrgRole(organization.getId(), accountId).orElse(null);
+        boolean orgManager = isManager(orgRole);
+        return store.listTenantsForOrg(organization.getId()).stream()
+                .filter(workspace -> {
+                    if (orgManager) {
+                        return true;
+                    }
+                    return store.findMembership(workspace.getId(), accountId)
+                            .map(Membership::role)
+                            .map(AuthService::isManager)
+                            .orElse(false);
+                })
+                .flatMap(workspace -> store.listPendingWorkspaceAccessRequests(workspace.getId()).stream()
+                        .map(item -> toWorkspaceAccessRequestView(store, item)))
+                .sorted(Comparator.comparing(WorkspaceAccessRequestView::createdAt))
+                .toList();
+    }
+
+    private static WorkspaceAccessRequestView toWorkspaceAccessRequestView(
+            TenantStore store, TenantStore.WorkspaceAccessRequestRecord item) {
+        Tenant workspace = store.findTenant(item.tenantId()).orElse(null);
+        String workspaceName = workspace == null ? item.tenantId() : workspace.getName();
+        return new WorkspaceAccessRequestView(
+                item.requestId(),
+                item.tenantId(),
+                workspaceName,
+                item.accountId(),
+                item.email(),
+                item.name(),
+                item.message(),
+                item.createdAt());
     }
 
     public MemberView updateMember(String accountId, UpdateMemberRequest request) {
@@ -1061,6 +1112,50 @@ public class AuthService {
         if (StringUtils.isBlank(actorAccountId())) {
             throw new UnauthenticatedException("Sign in to continue");
         }
+    }
+
+    private <T> T runWithWorkspaceManagement(String workspaceId, Supplier<T> action) {
+        requireAuthenticatedScope();
+        TenantStore store = requireStore();
+        Tenant workspace = requireWorkspaceInSessionOrganization(store, workspaceId);
+        String accountId = actorAccountId();
+        String managementRole = resolveWorkspaceManagementRole(store, workspace, accountId);
+        if (managementRole == null) {
+            throw new ForbiddenException("Only organization or workspace owners and admins can manage members");
+        }
+        entitlements().requireWritable(workspace);
+        TenantContext.Scope scope = TenantContext.current();
+        String email = scope == null ? null : scope.email();
+        return TenantContext.callAs(workspaceId, accountId, email, managementRole, action);
+    }
+
+    private Tenant requireWorkspaceInSessionOrganization(TenantStore store, String workspaceId) {
+        Organization contextOrg = organizationForContextTenant(store);
+        Tenant workspace = store.findTenant(workspaceId)
+                .orElseThrow(() -> new ForbiddenException("Workspace not found"));
+        if (StringUtils.isBlank(workspace.getOrgId()) || !workspace.getOrgId().equals(contextOrg.getId())) {
+            throw new ForbiddenException("That workspace is not in your organization");
+        }
+        return workspace;
+    }
+
+    private String resolveWorkspaceManagementRole(TenantStore store, Tenant workspace, String accountId) {
+        Organization organization = requireOrganization(store, workspace);
+        String orgRole = store.findOrgRole(organization.getId(), accountId).orElse(null);
+        String workspaceRole = store.findMembership(workspace.getId(), accountId).map(Membership::role).orElse(null);
+        if ("OWNER".equals(orgRole)) {
+            return "OWNER";
+        }
+        if ("ADMIN".equals(orgRole)) {
+            if ("OWNER".equals(workspaceRole) || "ADMIN".equals(workspaceRole)) {
+                return workspaceRole;
+            }
+            return "ADMIN";
+        }
+        if (isManager(workspaceRole)) {
+            return workspaceRole;
+        }
+        return null;
     }
 
     private static Organization requireCurrentOrganization(TenantStore store) {

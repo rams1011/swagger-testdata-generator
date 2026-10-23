@@ -71,11 +71,11 @@ public class AuthController {
         authService.logout(bearerToken(request));
     }
 
-    @PostMapping("/auth/switch-tenant")
+    @PostMapping({ "/auth/switch-tenant", "/auth/switch-workspace" })
     public AuthSessionView switchTenant(HttpServletRequest request, @RequestBody SwitchTenantRequest body) {
         requireAuth();
         if (body == null || StringUtils.isBlank(body.tenantId())) {
-            throw new IllegalArgumentException("tenantId is required");
+            throw new IllegalArgumentException("tenantId or workspaceId is required");
         }
         return authService.switchTenant(bearerToken(request), body.tenantId());
     }
@@ -142,6 +142,48 @@ public class AuthController {
     public List<TenantView> listOrgWorkspaces() {
         requireAuth();
         return authService.listOrgWorkspaces();
+    }
+
+    @GetMapping("/organizations/current/workspaces/{workspaceId}/members")
+    public List<MemberView> listWorkspaceMembers(@PathVariable String workspaceId) {
+        requireAuth();
+        return authService.listWorkspaceMembers(workspaceId);
+    }
+
+    @PostMapping("/organizations/current/workspaces/{workspaceId}/members")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MemberView grantWorkspaceAccessForWorkspace(@PathVariable String workspaceId,
+                                                       @RequestBody GrantWorkspaceAccessRequest request) {
+        requireAuth();
+        return authService.grantWorkspaceAccessForWorkspace(workspaceId, request);
+    }
+
+    @PutMapping("/organizations/current/workspaces/{workspaceId}/members/{accountId}")
+    public MemberView updateWorkspaceMember(@PathVariable String workspaceId,
+                                            @PathVariable String accountId,
+                                            @RequestBody UpdateMemberRequest request) {
+        requireAuth();
+        return authService.updateWorkspaceMember(workspaceId, accountId, request);
+    }
+
+    @DeleteMapping("/organizations/current/workspaces/{workspaceId}/members/{accountId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeWorkspaceMember(@PathVariable String workspaceId, @PathVariable String accountId) {
+        requireAuth();
+        authService.removeWorkspaceMember(workspaceId, accountId);
+    }
+
+    @GetMapping("/organizations/current/workspaces/{workspaceId}/access-requests")
+    public List<WorkspaceAccessRequestView> listWorkspaceAccessRequestsForWorkspace(
+            @PathVariable String workspaceId) {
+        requireAuth();
+        return authService.listWorkspaceAccessRequestsForWorkspace(workspaceId);
+    }
+
+    @GetMapping("/organizations/current/access-requests")
+    public List<WorkspaceAccessRequestView> listOrganizationAccessRequests() {
+        requireAuth();
+        return authService.listOrganizationAccessRequests();
     }
 
     @PostMapping("/organizations/current/access-requests")
