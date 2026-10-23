@@ -97,6 +97,58 @@ class AuthServiceOrgTest {
     }
 
     @Test
+    void orgAdminCanListOrganizationAccessRequestsAcrossWorkspaces() {
+        StudioProperties properties = new StudioProperties();
+        properties.setEdition("saas");
+
+        Tenant workspaceA = tenant("ws-a", "org-1");
+        Tenant workspaceB = tenant("ws-b", "org-1");
+        Organization organization = organization("org-1");
+
+        TenantStore store = mock(TenantStore.class);
+        when(store.findTenant("ws-a")).thenReturn(Optional.of(workspaceA));
+        when(store.findTenant("ws-b")).thenReturn(Optional.of(workspaceB));
+        when(store.findOrganization("org-1")).thenReturn(Optional.of(organization));
+        when(store.findOrgRole("org-1", "admin-1")).thenReturn(Optional.of("ADMIN"));
+        when(store.listTenantsForOrg("org-1")).thenReturn(List.of(workspaceA, workspaceB));
+        when(store.listPendingWorkspaceAccessRequests("ws-a")).thenReturn(List.of());
+        when(store.listPendingWorkspaceAccessRequests("ws-b")).thenReturn(List.of(
+                new TenantStore.WorkspaceAccessRequestRecord(
+                        "req-1", "ws-b", "user-1", "user@example.com", "User",
+                        "Please add me", Instant.now())));
+
+        AuthService authService = authService(properties, store);
+        TenantContext.setSaasEnabled(true);
+        TenantContext.set(new TenantContext.Scope("ws-a", "admin-1", "admin@example.com", "MEMBER"));
+
+        assertEquals(1, authService.listOrganizationAccessRequests().size());
+    }
+
+    @Test
+    void orgAdminCanListWorkspaceMembersWithoutMembership() {
+        StudioProperties properties = new StudioProperties();
+        properties.setEdition("saas");
+
+        Tenant workspaceA = tenant("ws-a", "org-1");
+        Tenant workspaceB = tenant("ws-b", "org-1");
+        Organization organization = organization("org-1");
+
+        TenantStore store = mock(TenantStore.class);
+        when(store.findTenant("ws-a")).thenReturn(Optional.of(workspaceA));
+        when(store.findTenant("ws-b")).thenReturn(Optional.of(workspaceB));
+        when(store.findOrganization("org-1")).thenReturn(Optional.of(organization));
+        when(store.findOrgRole("org-1", "admin-1")).thenReturn(Optional.of("ADMIN"));
+        when(store.findMembership("ws-b", "admin-1")).thenReturn(Optional.empty());
+        when(store.listMembers("ws-b")).thenReturn(List.of());
+
+        AuthService authService = authService(properties, store);
+        TenantContext.setSaasEnabled(true);
+        TenantContext.set(new TenantContext.Scope("ws-a", "admin-1", "admin@example.com", "MEMBER"));
+
+        assertEquals(0, authService.listWorkspaceMembers("ws-b").size());
+    }
+
+    @Test
     void updateOrgMemberChangesRole() {
         StudioProperties properties = new StudioProperties();
         properties.setEdition("saas");

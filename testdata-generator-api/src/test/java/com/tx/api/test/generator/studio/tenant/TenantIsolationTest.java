@@ -234,7 +234,7 @@ class TenantIsolationTest {
 
     @Test
     void loginReturnsOnlyTheCallersWorkspaces() {
-        authService.register(new RegisterRequest("one@example.com", "password1", "One", "One"));
+        authService.register(new RegisterRequest("one@example.com", "password1", "One", "One Org", "One", null));
         var two = authService.login(new LoginRequest("one@example.com", "password1", null));
         assertEquals("one", two.tenant().slug());
         assertEquals(1, two.tenants().size());
