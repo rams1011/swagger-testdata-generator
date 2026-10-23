@@ -78,9 +78,10 @@ public class AuthService {
         account.setPlatformRole("USER");
         store.saveAccount(account);
 
-        Organization organization = newOrganization(store, request == null ? null : request.workspace(), email, now);
+        ResolvedRegistration names = resolveRegistrationNames(request, email);
+        Organization organization = newOrganization(store, names.organizationName(), email, now);
         provisionTrial(store, organization, now);
-        Tenant tenant = newWorkspace(store, organization, request == null ? null : request.workspace(), email, now);
+        Tenant tenant = newWorkspace(store, organization, names.workspaceName(), email, now);
         store.saveOrgMembership(organization.getId(), account.getId(), "OWNER");
         store.saveMembership(new Membership(tenant.getId(), account.getId(), "OWNER"));
         return issueSession(store, account, tenant, "OWNER");
@@ -727,8 +728,34 @@ public class AuthService {
         );
     }
 
-    private Organization newOrganization(TenantStore store, String workspaceName, String email, Instant now) {
-        String name = StringUtils.defaultIfBlank(workspaceName, displayName(null, email)).trim();
+    private static final String DEFAULT_FIRST_WORKSPACE_NAME = "Default";
+
+    private record ResolvedRegistration(String organizationName, String workspaceName) {
+    }
+
+    private ResolvedRegistration resolveRegistrationNames(RegisterRequest request, String email) {
+        String organizationName = request == null ? null : StringUtils.trimToNull(request.organizationName());
+        String workspaceName = request == null ? null : StringUtils.trimToNull(request.workspaceName());
+        String legacyWorkspace = request == null ? null : StringUtils.trimToNull(request.legacyWorkspace());
+
+        if (organizationName == null && legacyWorkspace != null) {
+            organizationName = legacyWorkspace;
+            workspaceName = null;
+        }
+        if (organizationName == null) {
+            organizationName = displayName(request == null ? null : request.name(), email);
+        }
+        if (StringUtils.isBlank(organizationName)) {
+            throw new IllegalArgumentException("Organization name is required");
+        }
+        if (workspaceName == null) {
+            workspaceName = DEFAULT_FIRST_WORKSPACE_NAME;
+        }
+        return new ResolvedRegistration(organizationName.trim(), workspaceName.trim());
+    }
+
+    private Organization newOrganization(TenantStore store, String organizationName, String email, Instant now) {
+        String name = StringUtils.defaultIfBlank(organizationName, displayName(null, email)).trim();
         Organization organization = new Organization();
         organization.setId(UUID.randomUUID().toString());
         organization.setName(name);

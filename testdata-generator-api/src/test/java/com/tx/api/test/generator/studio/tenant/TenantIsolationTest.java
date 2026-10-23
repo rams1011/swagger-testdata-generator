@@ -308,6 +308,21 @@ class TenantIsolationTest {
     }
 
     @Test
+    void registerSeparatesOrganizationAndWorkspaceNames() {
+        var customer = authService.register(
+                new RegisterRequest("split@acme.test", "password1", "Pat", "Acme Corp", "Payment QA", null));
+        assertEquals("Acme Corp", customer.organization().name());
+        assertEquals("Payment QA", customer.tenant().name());
+    }
+
+    @Test
+    void legacyRegisterUsesWorkspaceFieldForOrganizationOnly() {
+        var customer = authService.register(new RegisterRequest("legacy@acme.test", "password1", "Pat", "Acme"));
+        assertEquals("Acme", customer.organization().name());
+        assertEquals("Default", customer.tenant().name());
+    }
+
+    @Test
     void registerCreatesAnOrganizationTrialThatIsImmediatelyWritable() {
         var customer = authService.register(new RegisterRequest("qa@acme.test", "password1", "Acme QA", "Acme"));
         assertTrue(customer.tenant().ready());
