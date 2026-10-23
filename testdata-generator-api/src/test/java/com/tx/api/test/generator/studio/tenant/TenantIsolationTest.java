@@ -5,6 +5,7 @@ import com.tx.api.test.generator.studio.config.H2Database;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AddMemberRequest;
 import com.tx.api.test.generator.studio.dto.CreateTenantRequest;
+import com.tx.api.test.generator.studio.dto.GrantWorkspaceAccessRequest;
 import com.tx.api.test.generator.studio.dto.LoginRequest;
 import com.tx.api.test.generator.studio.dto.MemberView;
 import com.tx.api.test.generator.studio.dto.RegisterRequest;
@@ -246,8 +247,10 @@ class TenantIsolationTest {
 
         TenantContext.runAs(owner.tenant().id(), owner.account().id(), "OWNER", () -> {
             storage.saveSpec(spec("spec-acme", "employee-service"));
-            MemberView teammate = authService.addMember(
+            MemberView orgMember = authService.addOrgMember(
                     new AddMemberRequest("dev@acme.test", "Acme Dev", "password1", "MEMBER"));
+            MemberView teammate = authService.grantWorkspaceAccess(
+                    new GrantWorkspaceAccessRequest(orgMember.accountId(), "MEMBER"));
             assertEquals("dev@acme.test", teammate.email());
             assertEquals("MEMBER", teammate.role());
             assertEquals(2, authService.listMembers().size());
@@ -271,8 +274,9 @@ class TenantIsolationTest {
         var globex = authService.register(new RegisterRequest("qa@globex.test", "password1", "Globex QA", "Globex"));
 
         TenantContext.runAs(acme.tenant().id(), acme.account().id(), "OWNER", () -> {
-            MemberView invited = authService.addMember(
-                    new AddMemberRequest("qa@globex.test", null, null, "ADMIN"));
+            authService.addOrgMember(new AddMemberRequest("qa@globex.test", null, null, "MEMBER"));
+            MemberView invited = authService.grantWorkspaceAccess(
+                    new GrantWorkspaceAccessRequest(globex.account().id(), "ADMIN"));
             assertEquals(globex.account().id(), invited.accountId());
             assertEquals("ADMIN", invited.role());
         });
@@ -287,7 +291,9 @@ class TenantIsolationTest {
     void memberCannotManageMembersAndLastOwnerCannotBeRemoved() {
         var owner = authService.register(new RegisterRequest("qa@acme.test", "password1", "Acme QA", "Acme"));
         TenantContext.runAs(owner.tenant().id(), owner.account().id(), "OWNER", () -> {
-            authService.addMember(new AddMemberRequest("dev@acme.test", "Dev", "password1", "MEMBER"));
+            MemberView dev = authService.addOrgMember(
+                    new AddMemberRequest("dev@acme.test", "Dev", "password1", "MEMBER"));
+            authService.grantWorkspaceAccess(new GrantWorkspaceAccessRequest(dev.accountId(), "MEMBER"));
             ForbiddenException lastOwner = org.junit.jupiter.api.Assertions.assertThrows(
                     ForbiddenException.class, () -> authService.removeMember(owner.account().id()));
             assertTrue(lastOwner.getMessage().contains("at least one owner"));
@@ -297,7 +303,7 @@ class TenantIsolationTest {
         TenantContext.runAs(member.tenant().id(), member.account().id(), "MEMBER", () -> {
             org.junit.jupiter.api.Assertions.assertThrows(ForbiddenException.class, authService::listMembers);
             org.junit.jupiter.api.Assertions.assertThrows(ForbiddenException.class, () ->
-                    authService.addMember(new AddMemberRequest("other@acme.test", "Other", "password1", "MEMBER")));
+                    authService.addOrgMember(new AddMemberRequest("other@acme.test", "Other", "password1", "MEMBER")));
         });
     }
 
@@ -319,9 +325,9 @@ class TenantIsolationTest {
     void trialSeatLimitAppliesAcrossTheOrganization() {
         var owner = authService.register(new RegisterRequest("qa@acme.test", "password1", "Acme QA", "Acme"));
         TenantContext.runAs(owner.tenant().id(), owner.account().id(), "OWNER", () -> {
-            authService.addMember(new AddMemberRequest("dev@acme.test", "Dev", "password1", "MEMBER"));
+            authService.addOrgMember(new AddMemberRequest("dev@acme.test", "Dev", "password1", "MEMBER"));
             ForbiddenException denied = assertThrows(ForbiddenException.class, () ->
-                    authService.addMember(new AddMemberRequest("other@acme.test", "Other", "password1", "MEMBER")));
+                    authService.addOrgMember(new AddMemberRequest("other@acme.test", "Other", "password1", "MEMBER")));
             assertTrue(denied.getMessage().contains("seat"));
         });
     }
@@ -409,8 +415,10 @@ class TenantIsolationTest {
         assertTrue(admin.tenant().ready());
 
         TenantContext.runAs(admin.tenant().id(), admin.account().id(), "OWNER", () -> {
-            MemberView member = authService.addMember(
+            MemberView orgMember = authService.addOrgMember(
                     new AddMemberRequest("dev@studio.test", "Dev", "password1", "MEMBER"));
+            MemberView member = authService.grantWorkspaceAccess(
+                    new GrantWorkspaceAccessRequest(orgMember.accountId(), "MEMBER"));
             assertEquals("dev@studio.test", member.email());
             storage.saveSpec(spec("spec-dc", "employee-service"));
             assertEquals(1, storage.listSpecs().size());

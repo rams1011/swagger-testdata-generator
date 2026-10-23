@@ -1,0 +1,20 @@
+-- ADR-001: Every org member gets workspace membership for each workspace in that org.
+-- Idempotent: skips existing td_membership rows.
+-- Org OWNER/ADMIN -> workspace ADMIN on backfill; org MEMBER -> workspace MEMBER.
+
+INSERT INTO td_membership (tenant_id, account_id, role, created_at)
+SELECT t.tenant_id,
+       om.account_id,
+       CASE
+         WHEN om.role IN ('OWNER', 'ADMIN') THEN 'ADMIN'
+         ELSE 'MEMBER'
+       END,
+       CURRENT_TIMESTAMP
+  FROM td_org_membership om
+  JOIN td_tenant t ON t.org_id = om.org_id
+ WHERE NOT EXISTS (
+       SELECT 1
+         FROM td_membership m
+        WHERE m.tenant_id = t.tenant_id
+          AND m.account_id = om.account_id
+ );

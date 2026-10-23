@@ -14,7 +14,7 @@ import static org.mockito.Mockito.when;
 class AuthServiceLdapTest {
 
     @Test
-    void addMemberRejectsNewAccountWhenLdapIsOn() {
+    void addOrgMemberRejectsNewAccountWhenLdapIsOn() {
         StudioProperties properties = new StudioProperties();
         properties.setEdition("datacenter");
         properties.getAuth().setProvider("ldap");
@@ -24,8 +24,11 @@ class AuthServiceLdapTest {
         Tenant tenant = new Tenant();
         tenant.setId("tenant-1");
         tenant.setOrgId("org-1");
+        Organization organization = new Organization();
+        organization.setId("org-1");
         TenantStore store = mock(TenantStore.class);
         when(store.findTenant("tenant-1")).thenReturn(Optional.of(tenant));
+        when(store.findOrganization("org-1")).thenReturn(Optional.of(organization));
         when(store.findAccountByEmail("new@example.com")).thenReturn(Optional.empty());
 
         @SuppressWarnings("unchecked")
@@ -40,9 +43,10 @@ class AuthServiceLdapTest {
 
         AuthService authService = new AuthService(properties, tenantStores, entitlements, ldap);
         TenantContext.setSaasEnabled(true);
+        when(store.findOrgRole("org-1", "admin-1")).thenReturn(Optional.of("OWNER"));
         TenantContext.set(new TenantContext.Scope("tenant-1", "admin-1", "admin@example.com", "OWNER"));
         try {
-            assertThrows(IllegalArgumentException.class, () -> authService.addMember(
+            assertThrows(IllegalArgumentException.class, () -> authService.addOrgMember(
                     new AddMemberRequest("new@example.com", "New User", null, "MEMBER")));
         } finally {
             TenantContext.clear();

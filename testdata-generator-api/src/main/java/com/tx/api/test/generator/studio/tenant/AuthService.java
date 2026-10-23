@@ -5,6 +5,8 @@ import com.tx.api.test.generator.studio.dto.AccountView;
 import com.tx.api.test.generator.studio.dto.AddMemberRequest;
 import com.tx.api.test.generator.studio.dto.AuthSessionView;
 import com.tx.api.test.generator.studio.dto.CreateTenantRequest;
+import com.tx.api.test.generator.studio.dto.CreateWorkspaceAccessRequest;
+import com.tx.api.test.generator.studio.dto.GrantWorkspaceAccessRequest;
 import com.tx.api.test.generator.studio.dto.LoginRequest;
 import com.tx.api.test.generator.studio.dto.MemberView;
 import com.tx.api.test.generator.studio.dto.OrganizationView;
@@ -13,6 +15,7 @@ import com.tx.api.test.generator.studio.dto.SubscriptionView;
 import com.tx.api.test.generator.studio.dto.TenantView;
 import com.tx.api.test.generator.studio.dto.UpdateMemberRequest;
 import com.tx.api.test.generator.studio.dto.UpdateSubscriptionRequest;
+import com.tx.api.test.generator.studio.dto.WorkspaceAccessRequestView;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -133,23 +136,12 @@ public class AuthService {
             account.setDisplayName(profile.displayName());
             store.saveAccount(account);
         }
-        Tenant workspace = requireCompanyWorkspace(store);
-        Optional<Membership> membership = store.findMembership(workspace.getId(), account.getId());
-        String role = membership.map(Membership::role).orElse("MEMBER");
-        String mappedRole = resolveDirectoryRole(profile);
-        if (mappedRole != null) {
-            role = mappedRole;
+        Tenant contextWorkspace = requireCompanyWorkspace(store);
+        List<Tenant> workspaces = store.listTenantsForAccount(account.getId());
+        if (workspaces.isEmpty()) {
+            return issueSessionWithoutWorkspaceAccess(store, account, contextWorkspace);
         }
-        if (membership.isEmpty()) {
-            store.saveMembership(new Membership(workspace.getId(), account.getId(), role));
-            if (store.findOrgRole(workspace.getOrgId(), account.getId()).isEmpty()) {
-                store.saveOrgMembership(workspace.getOrgId(), account.getId(), "MEMBER");
-            }
-        } else if (mappedRole != null && !mappedRole.equals(membership.get().role())) {
-            store.updateMembershipRole(workspace.getId(), account.getId(), mappedRole);
-            role = mappedRole;
-        }
-        return issueSession(store, account, workspace, role);
+        return issueSessionForAccount(store, account, request == null ? null : request.tenantId());
     }
 
     private AuthSessionView tryLocalAdminFallback(String rawLogin, String password, LoginRequest request) {
@@ -187,11 +179,50 @@ public class AuthService {
                 }
                 return issueSession(store, account, platform, "OWNER");
             }
-            throw new ForbiddenException("This account has no workspace");
+            Tenant context = contextWorkspaceForAccount(store, account);
+            if (context != null) {
+                return issueSessionWithoutWorkspaceAccess(store, account, context);
+            }
+            throw new ForbiddenException(
+                    "This account has no workspace access. Ask an administrator or request access after sign-in.");
         }
         Tenant tenant = selectTenant(workspaces, requestedTenantId);
-        String role = store.findMembership(tenant.getId(), account.getId()).map(Membership::role).orElse("MEMBER");
+        String role = store.findMembership(tenant.getId(), account.getId())
+                .map(Membership::role)
+                .orElseThrow(() -> new ForbiddenException("You are not a member of that workspace"));
         return issueSession(store, account, tenant, role);
+    }
+
+    private Tenant contextWorkspaceForAccount(TenantStore store, Account account) {
+        List<Tenant> memberWorkspaces = store.listTenantsForAccount(account.getId());
+        if (!memberWorkspaces.isEmpty()) {
+            return memberWorkspaces.get(0);
+        }
+        List<Organization> organizations = store.listOrganizationsForAccount(account.getId());
+        for (Organization organization : organizations) {
+            List<Tenant> orgWorkspaces = store.listTenantsForOrg(organization.getId());
+            if (!orgWorkspaces.isEmpty()) {
+                return orgWorkspaces.get(0);
+            }
+        }
+        if (properties.isLdapAuth() && !properties.isBillingEnabled()) {
+            return requireCompanyWorkspace(store);
+        }
+        return null;
+    }
+
+    private AuthSessionView issueSessionWithoutWorkspaceAccess(TenantStore store, Account account,
+                                                               Tenant contextWorkspace) {
+        String token = newToken();
+        Instant now = Instant.now();
+        StoredSession session = new StoredSession();
+        session.setTokenHash(hashToken(token));
+        session.setAccountId(account.getId());
+        session.setTenantId(contextWorkspace.getId());
+        session.setCreatedAt(now);
+        session.setExpiresAt(now.plus(properties.getSaas().resolvedSessionDays(), ChronoUnit.DAYS));
+        store.saveSession(session);
+        return toView(token, account, contextWorkspace, null);
     }
 
     private String resolveDirectoryRole(LdapUserProfile profile) {
@@ -281,7 +312,7 @@ public class AuthService {
         if (account == null || tenant == null) {
             return Optional.empty();
         }
-        String role = store.findMembership(tenant.getId(), account.getId()).map(Membership::role).orElse("MEMBER");
+        String role = store.findMembership(tenant.getId(), account.getId()).map(Membership::role).orElse(null);
         return Optional.of(new ResolvedSession(session, account, tenant, role));
     }
 
@@ -315,25 +346,33 @@ public class AuthService {
                 .toList();
     }
 
-    public MemberView addMember(AddMemberRequest request) {
-        requireManager();
+    public List<MemberView> listOrgMembers() {
+        requireOrgManagerOrWorkspaceManager();
+        Organization organization = requireCurrentOrganization(requireStore());
+        return requireStore().listOrgMemberDetails(organization.getId()).stream()
+                .map(AuthService::toMemberView)
+                .toList();
+    }
+
+    public MemberView addOrgMember(AddMemberRequest request) {
+        requireOrgAdmin();
         TenantStore store = requireStore();
-        String tenantId = TenantContext.tenantId();
-        Tenant tenant = store.findTenant(tenantId)
+        Organization organization = requireCurrentOrganization(store);
+        Tenant tenant = store.findTenant(TenantContext.tenantId())
                 .orElseThrow(() -> new ForbiddenException("Workspace not found"));
         entitlements().requireWritable(tenant);
         String email = normalizeEmail(request == null ? null : request.email());
-        String role = normalizeAssignableRole(request == null ? null : request.role());
-        assertCanAssign(role);
+        String role = normalizeOrgRole(request == null ? null : request.role());
+        assertCanAssignOrgRole(role);
 
         Account account = store.findAccountByEmail(email).orElse(null);
         if (account != null) {
-            if (store.findMembership(tenantId, account.getId()).isPresent()) {
-                throw new IllegalArgumentException("That person is already a member of this workspace");
+            if (store.findOrgRole(organization.getId(), account.getId()).isPresent()) {
+                throw new IllegalArgumentException("That person is already a member of this organization");
             }
         } else if (properties.isLdapAuth()) {
             throw new IllegalArgumentException(
-                    "That person must sign in with the company directory before you can add them to this workspace");
+                    "That person must sign in with the company directory before you can add them to this organization");
         } else {
             requirePassword(request == null ? null : request.password());
             Instant now = Instant.now();
@@ -345,13 +384,148 @@ public class AuthService {
             account.setCreatedAt(now);
             store.saveAccount(account);
         }
-        String orgId = tenant.getOrgId();
-        entitlements().requireSeat(orgId, account.getId());
-        store.saveMembership(new Membership(tenantId, account.getId(), role));
-        if (store.findOrgRole(orgId, account.getId()).isEmpty()) {
-            store.saveOrgMembership(orgId, account.getId(), "MEMBER");
-        }
+        entitlements().requireSeat(organization.getId(), account.getId());
+        store.saveOrgMembership(organization.getId(), account.getId(), role);
         return new MemberView(account.getId(), account.getEmail(), account.getDisplayName(), role);
+    }
+
+    public MemberView updateOrgMember(String accountId, UpdateMemberRequest request) {
+        requireOrgAdmin();
+        TenantStore store = requireStore();
+        Organization organization = requireCurrentOrganization(store);
+        String role = normalizeOrgRole(request == null ? null : request.role());
+        String currentRole = store.findOrgRole(organization.getId(), accountId)
+                .orElseThrow(() -> new NoSuchElementException("Organization member not found"));
+        assertCanAssignOrgRole(role);
+        assertCanManageOrgTarget(currentRole);
+        if ("OWNER".equals(currentRole) && !"OWNER".equals(role) && store.countOrgOwners(organization.getId()) <= 1) {
+            throw new ForbiddenException("The organization needs at least one owner");
+        }
+        store.updateOrgMembershipRole(organization.getId(), accountId, role);
+        Account account = store.findAccount(accountId)
+                .orElseThrow(() -> new NoSuchElementException("Organization member not found"));
+        return new MemberView(account.getId(), account.getEmail(), account.getDisplayName(), role);
+    }
+
+    public void removeOrgMember(String accountId) {
+        requireOrgAdmin();
+        TenantStore store = requireStore();
+        Organization organization = requireCurrentOrganization(store);
+        String currentRole = store.findOrgRole(organization.getId(), accountId)
+                .orElseThrow(() -> new NoSuchElementException("Organization member not found"));
+        assertCanManageOrgTarget(currentRole);
+        if ("OWNER".equals(currentRole) && store.countOrgOwners(organization.getId()) <= 1) {
+            throw new ForbiddenException("The organization needs at least one owner");
+        }
+        store.deleteWorkspaceMembershipsForOrg(organization.getId(), accountId);
+        store.deleteOrgMembership(organization.getId(), accountId);
+    }
+
+    public List<TenantView> listOrgWorkspaces() {
+        requireAuthenticatedScope();
+        TenantStore store = requireStore();
+        Organization organization = organizationForContextTenant(store);
+        String accountId = actorAccountId();
+        return store.listTenantsForOrg(organization.getId()).stream()
+                .map(workspace -> {
+                    String role = store.findMembership(workspace.getId(), accountId)
+                            .map(Membership::role)
+                            .orElse(null);
+                    return toTenantView(store, workspace, role);
+                })
+                .toList();
+    }
+
+    public MemberView grantWorkspaceAccess(GrantWorkspaceAccessRequest request) {
+        requireManager();
+        TenantStore store = requireStore();
+        String tenantId = TenantContext.tenantId();
+        Tenant tenant = store.findTenant(tenantId)
+                .orElseThrow(() -> new ForbiddenException("Workspace not found"));
+        entitlements().requireWritable(tenant);
+        String accountId = request == null ? null : StringUtils.trimToNull(request.accountId());
+        if (accountId == null) {
+            throw new IllegalArgumentException("accountId is required");
+        }
+        String role = normalizeAssignableRole(request == null ? null : request.role());
+        assertCanAssign(role);
+
+        Account account = store.findAccount(accountId)
+                .orElseThrow(() -> new IllegalArgumentException("Account not found"));
+        if (store.findMembership(tenantId, accountId).isPresent()) {
+            throw new IllegalArgumentException("That person already has access to this workspace");
+        }
+        String orgId = tenant.getOrgId();
+        if (StringUtils.isBlank(orgId)) {
+            throw new IllegalArgumentException("This workspace is not attached to an organization");
+        }
+        if (store.findOrgRole(orgId, accountId).isEmpty()) {
+            entitlements().requireSeat(orgId, accountId);
+            store.saveOrgMembership(orgId, accountId, "MEMBER");
+        }
+        store.saveMembership(new Membership(tenantId, accountId, role));
+        store.findPendingWorkspaceAccessRequest(tenantId, accountId).ifPresent(pending ->
+                store.resolveWorkspaceAccessRequest(pending.requestId(), "GRANTED"));
+        return new MemberView(account.getId(), account.getEmail(), account.getDisplayName(), role);
+    }
+
+    public WorkspaceAccessRequestView requestWorkspaceAccess(CreateWorkspaceAccessRequest request) {
+        requireAuthenticatedScope();
+        TenantStore store = requireStore();
+        String accountId = actorAccountId();
+        String workspaceId = request == null ? null : StringUtils.trimToNull(request.workspaceId());
+        if (workspaceId == null) {
+            throw new IllegalArgumentException("workspaceId is required");
+        }
+        Tenant workspace = store.findTenant(workspaceId)
+                .orElseThrow(() -> new IllegalArgumentException("Workspace not found"));
+        Organization contextOrg = organizationForContextTenant(store);
+        if (StringUtils.isBlank(workspace.getOrgId())
+                || !workspace.getOrgId().equals(contextOrg.getId())) {
+            throw new ForbiddenException("That workspace is not in your organization");
+        }
+        if (store.findMembership(workspaceId, accountId).isPresent()) {
+            throw new IllegalArgumentException("You already have access to that workspace");
+        }
+        if (store.findPendingWorkspaceAccessRequest(workspaceId, accountId).isPresent()) {
+            throw new IllegalArgumentException("You already requested access to that workspace");
+        }
+        String message = StringUtils.trimToNull(request == null ? null : request.message());
+        Instant now = Instant.now();
+        String requestId = UUID.randomUUID().toString();
+        store.saveWorkspaceAccessRequest(requestId, workspaceId, accountId, message, now);
+        Account account = store.findAccount(accountId)
+                .orElseThrow(() -> new UnauthenticatedException("Sign in to continue"));
+        return new WorkspaceAccessRequestView(
+                requestId,
+                workspaceId,
+                workspace.getName(),
+                accountId,
+                account.getEmail(),
+                account.getDisplayName(),
+                message,
+                now);
+    }
+
+    public List<WorkspaceAccessRequestView> listWorkspaceAccessRequests() {
+        requireManager();
+        TenantStore store = requireStore();
+        String tenantId = TenantContext.tenantId();
+        return store.listPendingWorkspaceAccessRequests(tenantId).stream()
+                .map(item -> {
+                    Tenant workspace = store.findTenant(item.tenantId()).orElse(null);
+                    String workspaceName = workspace == null ? item.tenantId() : workspace.getName();
+                    return new WorkspaceAccessRequestView(
+                            item.requestId(),
+                            item.tenantId(),
+                            workspaceName,
+                            item.accountId(),
+                            item.email(),
+                            item.name(),
+                            item.message(),
+                            item.createdAt());
+                })
+                .toList();
     }
 
     public MemberView updateMember(String accountId, UpdateMemberRequest request) {
@@ -493,6 +667,17 @@ public class AuthService {
         return entitlements().isWritable(tenant);
     }
 
+    public boolean hasWorkspaceMembership(String tenantId, String accountId) {
+        if (StringUtils.isBlank(tenantId) || StringUtils.isBlank(accountId)) {
+            return false;
+        }
+        TenantStore store = tenantStores.getIfAvailable();
+        if (store == null) {
+            return false;
+        }
+        return store.findMembership(tenantId, accountId).isPresent();
+    }
+
     private AuthSessionView issueSession(TenantStore store, Account account, Tenant tenant, String role) {
         String token = newToken();
         Instant now = Instant.now();
@@ -530,7 +715,10 @@ public class AuthService {
                 tenants,
                 isSaasAdmin(account),
                 organization == null ? null : new OrganizationView(
-                        organization.getId(), organization.getSlug(), organization.getName()),
+                        organization.getId(),
+                        organization.getSlug(),
+                        organization.getName(),
+                        store.findOrgRole(organization.getId(), account.getId()).orElse(null)),
                 !properties.isBillingEnabled() || subscription == null || organization == null
                         ? null
                         : toSubscriptionView(store, organization, subscription),
@@ -806,6 +994,68 @@ public class AuthService {
         }
     }
 
+    private void requireOrgMember() {
+        requireAuthenticatedScope();
+        Organization organization = requireCurrentOrganization(requireStore());
+        if (requireStore().findOrgRole(organization.getId(), actorAccountId()).isEmpty()) {
+            throw new ForbiddenException("You are not a member of this organization");
+        }
+    }
+
+    private void requireOrgAdmin() {
+        requireAuthenticatedScope();
+        Organization organization = requireCurrentOrganization(requireStore());
+        String orgRole = requireStore().findOrgRole(organization.getId(), actorAccountId())
+                .orElseThrow(() -> new ForbiddenException("You are not a member of this organization"));
+        if (!isManager(orgRole)) {
+            throw new ForbiddenException("Only organization owners and admins can manage the organization roster");
+        }
+    }
+
+    private void requireOrgManagerOrWorkspaceManager() {
+        requireAuthenticatedScope();
+        TenantStore store = requireStore();
+        Organization organization = requireCurrentOrganization(store);
+        String orgRole = store.findOrgRole(organization.getId(), actorAccountId()).orElse(null);
+        if (isManager(orgRole)) {
+            return;
+        }
+        TenantContext.Scope scope = TenantContext.current();
+        if (scope != null && isManager(scope.role())) {
+            return;
+        }
+        throw new ForbiddenException("Only organization or workspace owners and admins can list organization members");
+    }
+
+    private void requireAuthenticatedScope() {
+        if (!properties.isAuthEnabled()) {
+            throw new ForbiddenException("Member management is only available when login is enabled");
+        }
+        if (StringUtils.isBlank(actorAccountId())) {
+            throw new UnauthenticatedException("Sign in to continue");
+        }
+    }
+
+    private static Organization requireCurrentOrganization(TenantStore store) {
+        return organizationForContextTenant(store);
+    }
+
+    private static Organization organizationForContextTenant(TenantStore store) {
+        String tenantId = TenantContext.tenantId();
+        Tenant tenant = store.findTenant(tenantId)
+                .orElseThrow(() -> new ForbiddenException("Workspace not found"));
+        if (StringUtils.isBlank(tenant.getOrgId())) {
+            throw new ForbiddenException("This workspace is not attached to an organization");
+        }
+        return store.findOrganization(tenant.getOrgId())
+                .orElseThrow(() -> new ForbiddenException("Organization not found"));
+    }
+
+    private static String actorAccountId() {
+        TenantContext.Scope scope = TenantContext.current();
+        return scope == null ? null : scope.accountId();
+    }
+
     private void assertCanAssign(String role) {
         if ("OWNER".equals(role) && !"OWNER".equals(actorRole())) {
             throw new ForbiddenException("Only an owner can add or promote owners");
@@ -835,6 +1085,31 @@ public class AuthService {
         return value;
     }
 
+    private static String normalizeOrgRole(String role) {
+        return normalizeAssignableRole(role);
+    }
+
+    private void assertCanAssignOrgRole(String role) {
+        if ("OWNER".equals(role) && !"OWNER".equals(orgActorRole())) {
+            throw new ForbiddenException("Only an organization owner can add or promote owners");
+        }
+    }
+
+    private void assertCanManageOrgTarget(String targetRole) {
+        if ("OWNER".equals(targetRole) && !"OWNER".equals(orgActorRole())) {
+            throw new ForbiddenException("Only an organization owner can change another owner");
+        }
+    }
+
+    private String orgActorRole() {
+        TenantStore store = tenantStores.getIfAvailable();
+        if (store == null) {
+            return null;
+        }
+        Organization organization = requireCurrentOrganization(store);
+        return store.findOrgRole(organization.getId(), actorAccountId()).orElse(null);
+    }
+
     private static MemberView toMemberView(TenantStore.MemberRecord member) {
         return new MemberView(member.accountId(), member.email(), member.name(), member.role());
     }
@@ -859,6 +1134,37 @@ public class AuthService {
         }
         int at = email.indexOf('@');
         return at > 0 ? email.substring(0, at) : email;
+    }
+
+    /** ADR-001: org roster implies access to every workspace in the org (default workspace role). */
+    private static void provisionOrgMemberOnAllWorkspaces(TenantStore store, String orgId,
+                                                         String accountId, String orgRole) {
+        String defaultRole = defaultWorkspaceRoleForOrgRole(orgRole);
+        for (Tenant workspace : store.listTenantsForOrg(orgId)) {
+            if (store.findMembership(workspace.getId(), accountId).isEmpty()) {
+                store.saveMembership(new Membership(workspace.getId(), accountId, defaultRole));
+            }
+        }
+    }
+
+    private static void provisionAllOrgMembersOnWorkspace(TenantStore store, String orgId,
+                                                        String workspaceId, String skipAccountId) {
+        for (TenantStore.OrgMemberRecord member : store.listOrgMembers(orgId)) {
+            if (member.accountId().equals(skipAccountId)) {
+                continue;
+            }
+            if (store.findMembership(workspaceId, member.accountId()).isEmpty()) {
+                store.saveMembership(new Membership(workspaceId, member.accountId(),
+                        defaultWorkspaceRoleForOrgRole(member.role())));
+            }
+        }
+    }
+
+    private static String defaultWorkspaceRoleForOrgRole(String orgRole) {
+        if ("OWNER".equals(orgRole) || "ADMIN".equals(orgRole)) {
+            return "ADMIN";
+        }
+        return "MEMBER";
     }
 
     private static String newToken() {

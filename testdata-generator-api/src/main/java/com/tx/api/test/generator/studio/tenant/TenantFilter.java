@@ -60,19 +60,26 @@ public class TenantFilter extends OncePerRequestFilter {
                 return;
             }
             String tenantId = StringUtils.defaultIfBlank(request.getHeader(TENANT_HEADER), resolved.tenant().getId());
+            String accountId = resolved.account().getId();
+            String workspaceRole;
             if (!resolved.tenant().getId().equals(tenantId)) {
-                var membership = authService.membership(tenantId, resolved.account().getId()).orElse(null);
+                var membership = authService.membership(tenantId, accountId).orElse(null);
                 if (membership == null) {
                     forbidden(response, "You are not a member of that workspace");
                     return;
                 }
-                TenantContext.set(new TenantContext.Scope(
-                        tenantId, resolved.account().getId(), resolved.account().getEmail(), membership.role()));
+                workspaceRole = membership.role();
             } else {
-                TenantContext.set(new TenantContext.Scope(
-                        resolved.tenant().getId(), resolved.account().getId(),
-                        resolved.account().getEmail(), resolved.role()));
+                workspaceRole = resolved.role();
             }
+            boolean hasMembership = authService.hasWorkspaceMembership(tenantId, accountId);
+            if (!hasMembership && !allowedWithoutWorkspaceMembership(request)) {
+                forbidden(response,
+                        "You do not have access to this workspace yet. Request access from an administrator.");
+                return;
+            }
+            TenantContext.set(new TenantContext.Scope(
+                    tenantId, accountId, resolved.account().getEmail(), workspaceRole));
             if (properties.isBillingEnabled() && !isReadOnlyAllowed(request)) {
                 Tenant tenant = authService.findTenant(tenantId).orElse(resolved.tenant());
                 if (!authService.isTenantReady(tenant)) {
@@ -119,6 +126,30 @@ public class TenantFilter extends OncePerRequestFilter {
             return true;
         }
         return "POST".equalsIgnoreCase(method) && "/api/auth/switch-tenant".equals(path);
+    }
+
+    private static boolean allowedWithoutWorkspaceMembership(HttpServletRequest request) {
+        if (isPublic(request)) {
+            return true;
+        }
+        String path = request.getRequestURI();
+        String method = request.getMethod();
+        if ("GET".equalsIgnoreCase(method) && "/api/auth/session".equals(path)) {
+            return true;
+        }
+        if ("POST".equalsIgnoreCase(method) && "/api/auth/logout".equals(path)) {
+            return true;
+        }
+        if ("POST".equalsIgnoreCase(method) && "/api/auth/switch-tenant".equals(path)) {
+            return true;
+        }
+        if ("GET".equalsIgnoreCase(method) && "/api/organizations/current/workspaces".equals(path)) {
+            return true;
+        }
+        if ("POST".equalsIgnoreCase(method) && "/api/organizations/current/access-requests".equals(path)) {
+            return true;
+        }
+        return false;
     }
 
     private static boolean isStatic(HttpServletRequest request) {

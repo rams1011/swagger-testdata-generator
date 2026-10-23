@@ -225,6 +225,73 @@ public class JdbcTenantStore implements TenantStore {
     }
 
     @Override
+    public List<OrgMemberRecord> listOrgMembers(String orgId) {
+        return jdbcTemplate.query(
+                "SELECT account_id, role FROM td_org_membership WHERE org_id = ? ORDER BY role, account_id",
+                (rs, rowNum) -> new OrgMemberRecord(rs.getString("account_id"), rs.getString("role")),
+                orgId);
+    }
+
+    @Override
+    public List<MemberRecord> listOrgMemberDetails(String orgId) {
+        return jdbcTemplate.query("""
+                        SELECT a.account_id, a.email, a.display_name, m.role, m.created_at
+                          FROM td_org_membership m
+                          JOIN td_account a ON a.account_id = m.account_id
+                         WHERE m.org_id = ?
+                         ORDER BY CASE m.role WHEN 'OWNER' THEN 0 WHEN 'ADMIN' THEN 1 ELSE 2 END, a.email
+                        """,
+                (rs, rowNum) -> {
+                    Timestamp created = rs.getTimestamp("created_at");
+                    return new MemberRecord(
+                            rs.getString("account_id"),
+                            rs.getString("email"),
+                            rs.getString("display_name"),
+                            rs.getString("role"),
+                            created == null ? Instant.now() : created.toInstant());
+                },
+                orgId);
+    }
+
+    @Override
+    public void updateOrgMembershipRole(String orgId, String accountId, String role) {
+        int updated = jdbcTemplate.update(
+                "UPDATE td_org_membership SET role = ? WHERE org_id = ? AND account_id = ?",
+                role, orgId, accountId);
+        if (updated == 0) {
+            throw new java.util.NoSuchElementException("Organization member not found");
+        }
+    }
+
+    @Override
+    public void deleteOrgMembership(String orgId, String accountId) {
+        int deleted = jdbcTemplate.update(
+                "DELETE FROM td_org_membership WHERE org_id = ? AND account_id = ?",
+                orgId, accountId);
+        if (deleted == 0) {
+            throw new java.util.NoSuchElementException("Organization member not found");
+        }
+    }
+
+    @Override
+    public void deleteWorkspaceMembershipsForOrg(String orgId, String accountId) {
+        jdbcTemplate.update("""
+                        DELETE FROM td_membership
+                         WHERE account_id = ?
+                           AND tenant_id IN (SELECT tenant_id FROM td_tenant WHERE org_id = ?)
+                        """,
+                accountId, orgId);
+    }
+
+    @Override
+    public int countOrgOwners(String orgId) {
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM td_org_membership WHERE org_id = ? AND role = 'OWNER'",
+                Integer.class, orgId);
+        return count == null ? 0 : count;
+    }
+
+    @Override
     public int countSpecsForOrg(String orgId) {
         Integer count = jdbcTemplate.queryForObject("""
                         SELECT COUNT(*)
@@ -492,5 +559,73 @@ public class JdbcTenantStore implements TenantStore {
             session.setCreatedAt(created == null ? Instant.now() : created.toInstant());
             return session;
         };
+    }
+
+    @Override
+    public void saveWorkspaceAccessRequest(String requestId, String tenantId, String accountId,
+                                           String message, Instant createdAt) {
+        jdbcTemplate.update("""
+                        INSERT INTO td_workspace_access_request
+                            (request_id, tenant_id, account_id, message, status, created_at)
+                        VALUES (?, ?, ?, ?, 'PENDING', ?)
+                        """,
+                requestId, tenantId, accountId, message, Timestamp.from(createdAt));
+    }
+
+    @Override
+    public Optional<WorkspaceAccessRequestRecord> findPendingWorkspaceAccessRequest(String tenantId,
+                                                                                    String accountId) {
+        List<WorkspaceAccessRequestRecord> rows = jdbcTemplate.query("""
+                        SELECT r.request_id, r.tenant_id, r.account_id, a.email, a.display_name, r.message, r.created_at
+                          FROM td_workspace_access_request r
+                          JOIN td_account a ON a.account_id = r.account_id
+                         WHERE r.tenant_id = ? AND r.account_id = ? AND r.status = 'PENDING'
+                         ORDER BY r.created_at DESC
+                         LIMIT 1
+                        """,
+                accessRequestMapper(), tenantId, accountId);
+        return rows.stream().findFirst();
+    }
+
+    @Override
+    public List<WorkspaceAccessRequestRecord> listPendingWorkspaceAccessRequests(String tenantId) {
+        return jdbcTemplate.query("""
+                        SELECT r.request_id, r.tenant_id, r.account_id, a.email, a.display_name, r.message, r.created_at
+                          FROM td_workspace_access_request r
+                          JOIN td_account a ON a.account_id = r.account_id
+                         WHERE r.tenant_id = ? AND r.status = 'PENDING'
+                         ORDER BY r.created_at
+                        """,
+                accessRequestMapper(), tenantId);
+    }
+
+    @Override
+    public void resolveWorkspaceAccessRequest(String requestId, String status) {
+        jdbcTemplate.update(
+                "UPDATE td_workspace_access_request SET status = ? WHERE request_id = ?",
+                status, requestId);
+    }
+
+    @Override
+    public List<Organization> listOrganizationsForAccount(String accountId) {
+        return jdbcTemplate.query("""
+                        SELECT o.*
+                          FROM td_organization o
+                          JOIN td_org_membership m ON m.org_id = o.org_id
+                         WHERE m.account_id = ?
+                         ORDER BY o.name
+                        """,
+                organizationMapper(), accountId);
+    }
+
+    private RowMapper<WorkspaceAccessRequestRecord> accessRequestMapper() {
+        return (rs, rowNum) -> new WorkspaceAccessRequestRecord(
+                rs.getString("request_id"),
+                rs.getString("tenant_id"),
+                rs.getString("account_id"),
+                rs.getString("email"),
+                rs.getString("display_name"),
+                rs.getString("message"),
+                instant(rs.getTimestamp("created_at"), Instant.now()));
     }
 }

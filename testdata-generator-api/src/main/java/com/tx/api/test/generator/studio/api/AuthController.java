@@ -2,8 +2,10 @@ package com.tx.api.test.generator.studio.api;
 
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AddMemberRequest;
+import com.tx.api.test.generator.studio.dto.GrantWorkspaceAccessRequest;
 import com.tx.api.test.generator.studio.dto.AuthSessionView;
 import com.tx.api.test.generator.studio.dto.CreateTenantRequest;
+import com.tx.api.test.generator.studio.dto.CreateWorkspaceAccessRequest;
 import com.tx.api.test.generator.studio.dto.LoginRequest;
 import com.tx.api.test.generator.studio.dto.MemberView;
 import com.tx.api.test.generator.studio.dto.RegisterRequest;
@@ -12,6 +14,7 @@ import com.tx.api.test.generator.studio.dto.SubscriptionView;
 import com.tx.api.test.generator.studio.dto.TenantView;
 import com.tx.api.test.generator.studio.dto.UpdateMemberRequest;
 import com.tx.api.test.generator.studio.dto.UpdateSubscriptionRequest;
+import com.tx.api.test.generator.studio.dto.WorkspaceAccessRequestView;
 import com.tx.api.test.generator.studio.tenant.AuthService;
 import com.tx.api.test.generator.studio.tenant.ForbiddenException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -91,9 +94,9 @@ public class AuthController {
 
     @PostMapping("/tenants/current/members")
     @ResponseStatus(HttpStatus.CREATED)
-    public MemberView addMember(@RequestBody AddMemberRequest request) {
+    public MemberView grantWorkspaceAccess(@RequestBody GrantWorkspaceAccessRequest request) {
         requireAuth();
-        return authService.addMember(request);
+        return authService.grantWorkspaceAccess(request);
     }
 
     @PutMapping("/tenants/current/members/{accountId}")
@@ -107,6 +110,51 @@ public class AuthController {
     public void removeMember(@PathVariable String accountId) {
         requireAuth();
         authService.removeMember(accountId);
+    }
+
+    @GetMapping("/organizations/current/members")
+    public List<MemberView> listOrgMembers() {
+        requireAuth();
+        return authService.listOrgMembers();
+    }
+
+    @PostMapping("/organizations/current/members")
+    @ResponseStatus(HttpStatus.CREATED)
+    public MemberView addOrgMember(@RequestBody AddMemberRequest request) {
+        requireAuth();
+        return authService.addOrgMember(request);
+    }
+
+    @PutMapping("/organizations/current/members/{accountId}")
+    public MemberView updateOrgMember(@PathVariable String accountId, @RequestBody UpdateMemberRequest request) {
+        requireAuth();
+        return authService.updateOrgMember(accountId, request);
+    }
+
+    @DeleteMapping("/organizations/current/members/{accountId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void removeOrgMember(@PathVariable String accountId) {
+        requireAuth();
+        authService.removeOrgMember(accountId);
+    }
+
+    @GetMapping("/organizations/current/workspaces")
+    public List<TenantView> listOrgWorkspaces() {
+        requireAuth();
+        return authService.listOrgWorkspaces();
+    }
+
+    @PostMapping("/organizations/current/access-requests")
+    @ResponseStatus(HttpStatus.CREATED)
+    public WorkspaceAccessRequestView requestWorkspaceAccess(@RequestBody CreateWorkspaceAccessRequest request) {
+        requireAuth();
+        return authService.requestWorkspaceAccess(request);
+    }
+
+    @GetMapping("/tenants/current/access-requests")
+    public List<WorkspaceAccessRequestView> listWorkspaceAccessRequests() {
+        requireAuth();
+        return authService.listWorkspaceAccessRequests();
     }
 
     @GetMapping("/saas/subscription")
