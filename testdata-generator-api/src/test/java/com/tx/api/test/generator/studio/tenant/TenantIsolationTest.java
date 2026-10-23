@@ -233,6 +233,19 @@ class TenantIsolationTest {
     }
 
     @Test
+    void loginIsPublicEvenWithExistingSessionToken() throws Exception {
+        var session = authService.register(new RegisterRequest("login@example.com", "password1", "Login", "Org", "Ws", null));
+        TenantFilter filter = new TenantFilter(properties, authService, new EntitlementService(
+                properties, new FixedProvider<>(new JdbcTenantStore(new JdbcTemplate(dataSource)))));
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/auth/login");
+        request.addHeader("Authorization", "Bearer " + session.token());
+        request.addHeader(TenantFilter.WORKSPACE_HEADER, "some-other-workspace");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, new MockFilterChain());
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
     void loginReturnsOnlyTheCallersWorkspaces() {
         authService.register(new RegisterRequest("one@example.com", "password1", "One", "One Org", "One", null));
         var two = authService.login(new LoginRequest("one@example.com", "password1", null));

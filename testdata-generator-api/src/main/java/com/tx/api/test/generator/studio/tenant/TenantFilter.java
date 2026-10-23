@@ -47,30 +47,34 @@ public class TenantFilter extends OncePerRequestFilter {
                 filterChain.doFilter(request, response);
                 return;
             }
+            if (isPublic(request)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
             String token = bearerToken(request);
-            boolean publicPath = isPublic(request);
             AuthService.ResolvedSession resolved = StringUtils.isBlank(token)
                     ? null
                     : authService.resolve(token).orElse(null);
             if (resolved == null) {
-                if (publicPath) {
-                    filterChain.doFilter(request, response);
-                    return;
-                }
                 unauthorized(response, "Sign in to continue");
                 return;
             }
-            String tenantId = StringUtils.defaultIfBlank(requestedWorkspaceId(request), resolved.tenant().getId());
+            String requested = requestedWorkspaceId(request);
             String accountId = resolved.account().getId();
+            String tenantId;
             String workspaceRole;
-            if (!resolved.tenant().getId().equals(tenantId)) {
-                var membership = authService.membership(tenantId, accountId).orElse(null);
-                if (membership == null) {
-                    forbidden(response, "You are not a member of that workspace");
-                    return;
+            if (StringUtils.isNotBlank(requested) && !requested.equals(resolved.tenant().getId())) {
+                var membership = authService.membership(requested, accountId).orElse(null);
+                if (membership != null) {
+                    tenantId = requested;
+                    workspaceRole = membership.role();
+                } else {
+                    // Stale X-Tenant-Id / X-Workspace-Id — stay on the session workspace instead of 403.
+                    tenantId = resolved.tenant().getId();
+                    workspaceRole = resolved.role();
                 }
-                workspaceRole = membership.role();
             } else {
+                tenantId = StringUtils.defaultIfBlank(requested, resolved.tenant().getId());
                 workspaceRole = resolved.role();
             }
             boolean hasMembership = authService.hasWorkspaceMembership(tenantId, accountId);
@@ -126,7 +130,8 @@ public class TenantFilter extends OncePerRequestFilter {
         if ("POST".equalsIgnoreCase(method) && "/api/auth/logout".equals(path)) {
             return true;
         }
-        return "POST".equalsIgnoreCase(method) && "/api/auth/switch-tenant".equals(path);
+        return "POST".equalsIgnoreCase(method)
+                && ("/api/auth/switch-tenant".equals(path) || "/api/auth/switch-workspace".equals(path));
     }
 
     private static boolean allowedWithoutWorkspaceMembership(HttpServletRequest request) {
@@ -141,7 +146,8 @@ public class TenantFilter extends OncePerRequestFilter {
         if ("POST".equalsIgnoreCase(method) && "/api/auth/logout".equals(path)) {
             return true;
         }
-        if ("POST".equalsIgnoreCase(method) && "/api/auth/switch-tenant".equals(path)) {
+        if ("POST".equalsIgnoreCase(method)
+                && ("/api/auth/switch-tenant".equals(path) || "/api/auth/switch-workspace".equals(path))) {
             return true;
         }
         if ("GET".equalsIgnoreCase(method) && "/api/organizations/current/workspaces".equals(path)) {
