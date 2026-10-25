@@ -150,6 +150,7 @@ public class TestDataStudioService {
             throw new IllegalArgumentException("A spec must keep at least one test plan");
         }
         studioStorage.deletePlan(planId);
+        log.info("Deleted plan {} from spec {}", planId, specId);
     }
 
     public TestCaseView create(SaveTestDataRequest request) {
@@ -161,6 +162,7 @@ public class TestDataStudioService {
         bindCaseFiles(testCase);
         saveOverlay(testCase, request);
         auditService.recordCaseCreated(testCase);
+        log.info("Saved case {} ({}) on spec {}", testCase.getId(), testCase.getTestName(), testCase.getSpecId());
         return toView(testCase, request == null ? null : request.environmentId());
     }
 
@@ -182,6 +184,7 @@ public class TestDataStudioService {
         saveOverlay(testCase, request);
         auditService.recordCaseUpdated(testCase);
         StudioTestCase persisted = requireCase(id);
+        log.info("Updated case {} ({}) on spec {}", persisted.getId(), persisted.getTestName(), persisted.getSpecId());
         return toView(persisted, environmentId);
     }
 
@@ -233,6 +236,7 @@ public class TestDataStudioService {
 
     private void removeCase(StudioTestCase testCase) {
         auditService.recordCaseDeleted(testCase.getSpecId(), testCase.getId(), testCase.getTestName());
+        log.info("Deleted case {} ({}) from spec {}", testCase.getId(), testCase.getTestName(), testCase.getSpecId());
         removeOverlays(testCase.getSpecId(), testCase.getId());
         studioStorage.deleteRequestFilesForCase(testCase.getId());
         studioStorage.deleteTestCase(testCase.getId());
@@ -326,6 +330,7 @@ public class TestDataStudioService {
         runPrerequisites(testCase, request.auth(), trigger, variables, environmentId);
         RunTestResult result = testRunService.execute(testCase, request.auth(), variables);
         runHistoryService.recordSingle(trigger, environmentId, testCase, result);
+        log.info("Finished {} for case {} passed={}", trigger, testCase.getId(), result.passed());
         return result;
     }
 
@@ -383,6 +388,8 @@ public class TestDataStudioService {
             }
         }
         runHistoryService.recordPlan(request.specId(), request.planId(), request.environmentId(), results, cases);
+        log.info("Finished plan {} on spec {} passed={} failed={} skipped={}",
+                request.planId(), request.specId(), passed, failed, skipped);
         return new RunPlanResult(request.specId(), request.planId(), passed, failed, skipped,
                 failed == 0 && passed > 0, results);
     }
@@ -716,7 +723,7 @@ public class TestDataStudioService {
             config.put("loginHint", "you@" + domain);
         }
         config.put("runHistoryMaxPerSpec", String.valueOf(properties.getRunHistory().resolvedMaxPerSpec()));
-        if (datasourceSettings.isH2() && properties.getH2().isConsole()) {
+        if (!properties.isAuthEnabled() && datasourceSettings.isH2() && properties.getH2().isConsole()) {
             config.put("h2JdbcUrl", datasourceSettings.jdbcUrl());
             config.put("h2Username", properties.getH2().getUsername());
             config.put("h2Console", "http://localhost:" + serverPort + "/h2-console");

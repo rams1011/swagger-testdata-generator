@@ -49,6 +49,10 @@ public class DatacenterConfigurationValidator {
             throw new IllegalStateException(
                     "testdata.edition=datacenter requires a non-H2 JDBC database (SPRING_DATASOURCE_URL).");
         }
+        if (properties.getH2().isConsole()) {
+            throw new IllegalStateException(
+                    "testdata.edition=datacenter refuses the H2 console. Leave testdata.h2.console false.");
+        }
         if (properties.isLdapAuth()) {
             String ldapUrl = StringUtils.defaultString(properties.getAuth().getLdap().getUrl());
             if (ldapUrl.toLowerCase().contains(SAMPLE_LDAP_HOST)) {

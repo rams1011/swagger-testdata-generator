@@ -17,6 +17,16 @@ class DatacenterConfigurationValidatorTest {
     }
 
     @Test
+    void refusesH2Console() {
+        StudioProperties properties = datacenter();
+        properties.getSaas().setAdminEmail("ops@example.com");
+        properties.getSaas().setAdminPassword("change-me-now");
+        properties.getH2().setConsole(true);
+        assertThrows(IllegalStateException.class, () -> DatacenterConfigurationValidator.check(
+                properties, HostingProfile.DATACENTER, "jdbc:postgresql://db/studio"));
+    }
+
+    @Test
     void refusesMissingLocalAdminSecrets() {
         assertThrows(IllegalStateException.class, () -> DatacenterConfigurationValidator.check(
                 datacenter(), HostingProfile.DATACENTER, "jdbc:postgresql://db/studio"));

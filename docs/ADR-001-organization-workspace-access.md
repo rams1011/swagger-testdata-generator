@@ -93,7 +93,7 @@ When account `A` is in `td_org_membership` for org `O`:
 | Phase | Endpoint | Notes |
 |-------|----------|--------|
 | 1 | Existing `/api/tenants/current/members` | Becomes “workspace members”; behavior unchanged |
-| 2 | `GET/POST/PUT/DELETE /api/organizations/current/members` | Org roster; POST provisions all workspaces |
+| 2 | `GET/POST/PUT/DELETE /api/organizations/current/members` | Org Owner/Admin only. POST does not grant workspace access. |
 | 2 | `GET /api/organizations/current/workspaces` | All workspaces in org (for admin UI) |
 | 3 | `POST /api/auth/switch-workspace` | Alias of `switch-tenant`; old path kept |
 | 3 | Request header `X-Workspace-Id` | Alias of `X-Tenant-Id` |

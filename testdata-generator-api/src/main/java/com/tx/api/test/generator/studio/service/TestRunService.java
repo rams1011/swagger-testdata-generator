@@ -10,6 +10,8 @@ import com.tx.api.test.generator.studio.dto.RunTestResult;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
@@ -35,6 +37,7 @@ import java.util.regex.Pattern;
 @Service
 public class TestRunService {
 
+    private static final Logger log = LoggerFactory.getLogger(TestRunService.class);
     private static final String NA = "NA";
     private static final int MAX_BODY_CHARS = 100_000;
     private static final long MIN_TIMEOUT_MS = 10_000L;
@@ -219,6 +222,16 @@ public class TestRunService {
 
         boolean assertionsPassed = assertions.stream().allMatch(AssertionCheck::passed);
         boolean passed = error == null && statusMatched && !timedOut && assertionsPassed;
+        log.info("HTTP {} {} -> {} expected {} passed={} {}ms case={}",
+                StringUtils.defaultIfBlank(testCase.getMethod(), "GET"),
+                urlForLog(url),
+                actualStatus,
+                expectedStatus,
+                passed,
+                elapsedMs,
+                testCase.getId());
+        log.debug("Case {} checks={} timedOut={} error={}",
+                testCase.getId(), assertions.size(), timedOut, error);
         return new RunTestResult(
                 passed,
                 false,
@@ -475,6 +488,15 @@ public class TestRunService {
             return HttpRequest.BodyPublishers.noBody();
         }
         return HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8);
+    }
+
+    /** Query strings can carry tokens, so logs keep only scheme, host, and path. */
+    private static String urlForLog(String url) {
+        if (url == null) {
+            return "";
+        }
+        int query = url.indexOf('?');
+        return query < 0 ? url : url.substring(0, query);
     }
 
     static String buildUrl(String baseUrl, String endpoint, Map<String, String> query) {

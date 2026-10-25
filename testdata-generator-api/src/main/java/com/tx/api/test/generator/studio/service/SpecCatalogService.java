@@ -23,6 +23,8 @@ import com.tx.api.test.generator.studio.tenant.EntitlementService;
 import com.tx.api.test.generator.studio.tenant.TenantContext;
 import io.swagger.v3.oas.models.OpenAPI;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
@@ -42,6 +44,8 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 @DependsOn("tenantBootstrap")
 public class SpecCatalogService {
+
+    private static final Logger log = LoggerFactory.getLogger(SpecCatalogService.class);
 
     private final StudioStorage studioStorage;
     private final EntitlementService entitlements;
@@ -106,6 +110,7 @@ public class SpecCatalogService {
         );
         cacheLoadedSpec(specId, loadedSpec);
         studioStorage.saveSpec(toStoredSpec(loadedSpec, request, content, name));
+        log.info("Loaded spec {} ({}) with {} operations", specId, name, operations.size());
         return toSummary(loadedSpec, request == null ? null : request.location(),
                 request == null ? null : request.label());
     }
@@ -132,6 +137,7 @@ public class SpecCatalogService {
                 new LoadSpecRequest(null, content, null, baseUrl, name,
                         request == null ? null : request.label(), true, null, null),
                 content, name));
+        log.info("Created manual catalog {} ({})", specId, name);
         return toSummary(loadedSpec, null, request == null ? null : request.label());
     }
 
@@ -151,6 +157,7 @@ public class SpecCatalogService {
         String nextContent = ManualSpecDocument.removeOperation(
                 jsonSource(stored.getSourceContent()), page.method(), page.path());
         persistManualContent(stored, nextContent, null, null);
+        log.info("Deleted operation {} from spec {}", operationKey, specId);
     }
 
     public SpecSummary rename(String specId, SaveSpecRequest request) {
@@ -188,6 +195,7 @@ public class SpecCatalogService {
         if (auditService != null) {
             auditService.recordSpecRenamed(specId, stored.getName());
         }
+        log.info("Renamed spec {} to {}", specId, stored.getName());
         return getSummary(specId);
     }
 
@@ -200,6 +208,7 @@ public class SpecCatalogService {
         studioStorage.deleteSpec(specId);
         specs.remove(specId);
         specCacheRevision.remove(specId);
+        log.info("Deleted spec {} ({})", specId, stored.getName());
     }
 
     public ReloadSpecResult reload(String specId, LoadSpecRequest request) {
@@ -269,6 +278,7 @@ public class SpecCatalogService {
         if (auditService != null) {
             auditService.recordSpecReloaded(specId, result);
         }
+        log.info("Reloaded spec {} added={} removed={} unchanged={}", specId, added.size(), removed.size(), unchanged);
         return result;
     }
 
