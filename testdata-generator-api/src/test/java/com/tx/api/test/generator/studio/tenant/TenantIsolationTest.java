@@ -246,6 +246,29 @@ class TenantIsolationTest {
     }
 
     @Test
+    void foreignWorkspaceHeaderIsRejected() throws Exception {
+        var session = authService.register(new RegisterRequest("header@example.com", "password1", "Header", "Org", "Ws", null));
+        TenantFilter filter = new TenantFilter(properties, authService, new EntitlementService(
+                properties, new FixedProvider<>(new JdbcTenantStore(new JdbcTemplate(dataSource)))));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/specs");
+        request.addHeader("Authorization", "Bearer " + session.token());
+        request.addHeader(TenantFilter.TENANT_HEADER, "some-other-workspace");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, new MockFilterChain());
+        assertEquals(403, response.getStatus());
+    }
+
+    @Test
+    void h2ConsoleIsRejectedWhenLoginIsEnabled() throws Exception {
+        TenantFilter filter = new TenantFilter(properties, authService, new EntitlementService(
+                properties, new FixedProvider<>(new JdbcTenantStore(new JdbcTemplate(dataSource)))));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/h2-console");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        filter.doFilter(request, response, new MockFilterChain());
+        assertEquals(403, response.getStatus());
+    }
+
+    @Test
     void loginReturnsOnlyTheCallersWorkspaces() {
         authService.register(new RegisterRequest("one@example.com", "password1", "One", "One Org", "One", null));
         var two = authService.login(new LoginRequest("one@example.com", "password1", null));
@@ -458,6 +481,9 @@ class TenantIsolationTest {
         assertTrue(member.tenant().ready());
         assertNull(member.subscription());
         assertFalse(member.billing());
+        ForbiddenException denied = assertThrows(ForbiddenException.class, () ->
+                authService.createWorkspace(member.token(), new CreateTenantRequest("Sneaky", null)));
+        assertTrue(denied.getMessage().toLowerCase().contains("organization"));
     }
 
     @Test

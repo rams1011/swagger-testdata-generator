@@ -2,9 +2,11 @@
 
 Implements [ADR-001](./ADR-001-organization-workspace-access.md). Work in order; each phase should ship with tests.
 
-## Phase 0 — Data repair (Flyway V5)
+## Phase 0 — Data repair (Flyway V5, reversed by V7)
 
-**Goal:** Every org member has workspace membership for every workspace in that org.
+**V5** backfilled a workspace membership for every org member. That shared catalogs inside an organization. **V7** removes those bulk rows (same `created_at`, default role). Explicit grants and workspace `OWNER` rows stay. Do not re-enable automatic provisioning.
+
+**Historical goal of V5 (do not repeat):** Every org member has workspace membership for every workspace in that org.
 
 - Apply `V5__org_workspace_membership_sync.sql` (PostgreSQL/H2 and MySQL copies).
 - Verify on staging:
@@ -41,8 +43,8 @@ Call sites:
 | Method | Change |
 |--------|--------|
 | `addMember` (workspace) | After save, unchanged; already adds org `MEMBER` if missing |
-| **New** `addOrgMember` | Seat check → `saveOrgMembership` → `provisionWorkspaceMembershipsForOrgMember(..., MEMBER)` |
-| `createWorkspace` | After creator `OWNER`, call `provisionAllOrgMembersOnWorkspace` (others → `MEMBER`) |
+| **New** `addOrgMember` | Seat check → `saveOrgMembership` only. Do not create workspace rows. |
+| `createWorkspace` | Creator becomes workspace `OWNER`. Other org members are not added. |
 | `register` | Optional: call provisioner for consistency (already has both rows for first workspace) |
 | LDAP first login | When org/workspace bootstrap runs, use same provisioner |
 

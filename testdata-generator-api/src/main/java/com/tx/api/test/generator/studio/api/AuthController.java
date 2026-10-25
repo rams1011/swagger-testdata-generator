@@ -144,6 +144,12 @@ public class AuthController {
         return authService.listOrgWorkspaces();
     }
 
+    @GetMapping("/organizations/current/workspaces/{workspaceId}/grant-candidates")
+    public List<MemberView> listWorkspaceGrantCandidates(@PathVariable String workspaceId) {
+        requireAuth();
+        return authService.listWorkspaceGrantCandidates(workspaceId);
+    }
+
     @GetMapping("/organizations/current/workspaces/{workspaceId}/members")
     public List<MemberView> listWorkspaceMembers(@PathVariable String workspaceId) {
         requireAuth();

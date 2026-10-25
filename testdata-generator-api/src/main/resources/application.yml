@@ -87,4 +87,9 @@ testdata:
 logging:
   level:
     com.tx.api.test.generator.studio: INFO
+    # Per-method traces. Leave at WARN. Set this logger to DEBUG only when tracing a single call.
     com.tx.api.test.generator.studio.logging.MethodLoggingAspect: WARN
+    # Sign-in provider, workspace header selection, and run check counts.
+    com.tx.api.test.generator.studio.tenant.TenantFilter: DEBUG
+    com.tx.api.test.generator.studio.service.TestRunService: DEBUG
+    com.tx.api.test.generator.studio.tenant.AuthService: DEBUG

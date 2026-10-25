@@ -6,6 +6,8 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
@@ -19,6 +21,8 @@ import java.util.Locale;
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
 public class TenantFilter extends OncePerRequestFilter {
+
+    private static final Logger log = LoggerFactory.getLogger(TenantFilter.class);
 
     public static final String TENANT_HEADER = "X-Tenant-Id";
     public static final String WORKSPACE_HEADER = "X-Workspace-Id";
@@ -41,6 +45,14 @@ public class TenantFilter extends OncePerRequestFilter {
             return;
         }
         try {
+            if (isH2Console(request)) {
+                if (properties.isAuthEnabled()) {
+                    forbidden(response, "H2 console is disabled when login is enabled");
+                    return;
+                }
+                filterChain.doFilter(request, response);
+                return;
+            }
             if (!properties.isAuthEnabled()) {
                 TenantContext.set(new TenantContext.Scope(
                         TenantContext.LOCAL_TENANT_ID, null, null, "OWNER"));
@@ -56,6 +68,7 @@ public class TenantFilter extends OncePerRequestFilter {
                     ? null
                     : authService.resolve(token).orElse(null);
             if (resolved == null) {
+                log.debug("Rejected unauthenticated {} {}", request.getMethod(), request.getRequestURI());
                 unauthorized(response, "Sign in to continue");
                 return;
             }
@@ -65,20 +78,23 @@ public class TenantFilter extends OncePerRequestFilter {
             String workspaceRole;
             if (StringUtils.isNotBlank(requested) && !requested.equals(resolved.tenant().getId())) {
                 var membership = authService.membership(requested, accountId).orElse(null);
-                if (membership != null) {
-                    tenantId = requested;
-                    workspaceRole = membership.role();
-                } else {
-                    // Stale X-Tenant-Id / X-Workspace-Id — stay on the session workspace instead of 403.
-                    tenantId = resolved.tenant().getId();
-                    workspaceRole = resolved.role();
+                if (membership == null) {
+                    log.info("Rejected workspace header {} for account {} on {}",
+                            requested, accountId, request.getRequestURI());
+                    forbidden(response, "You do not have access to this workspace.");
+                    return;
                 }
+                tenantId = requested;
+                workspaceRole = membership.role();
+                log.debug("Selected workspace {} for account {} from header", tenantId, accountId);
             } else {
                 tenantId = StringUtils.defaultIfBlank(requested, resolved.tenant().getId());
                 workspaceRole = resolved.role();
             }
             boolean hasMembership = authService.hasWorkspaceMembership(tenantId, accountId);
             if (!hasMembership && !allowedWithoutWorkspaceMembership(request)) {
+                log.info("Account {} has no membership on workspace {} for {}",
+                        accountId, tenantId, request.getRequestURI());
                 forbidden(response,
                         "You do not have access to this workspace yet. Request access from an administrator.");
                 return;
@@ -102,9 +118,6 @@ public class TenantFilter extends OncePerRequestFilter {
     private static boolean isPublic(HttpServletRequest request) {
         String path = request.getRequestURI();
         String method = request.getMethod();
-        if (path.startsWith("/h2-console")) {
-            return true;
-        }
         if ("GET".equalsIgnoreCase(method) && (
                 "/api/health".equals(path)
                         || "/api/testdata/config".equals(path)
@@ -174,7 +187,13 @@ public class TenantFilter extends OncePerRequestFilter {
         String suffix = rest.substring(slash);
         return "/members".equals(suffix)
                 || suffix.startsWith("/members/")
+                || "/grant-candidates".equals(suffix)
                 || "/access-requests".equals(suffix);
+    }
+
+    private static boolean isH2Console(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return path.equals("/h2-console") || path.startsWith("/h2-console/");
     }
 
     private static boolean isStatic(HttpServletRequest request) {
