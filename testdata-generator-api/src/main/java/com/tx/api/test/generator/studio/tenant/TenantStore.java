@@ -62,6 +62,19 @@ public interface TenantStore {
 
     void saveAccount(Account account);
 
+    default void updateAccountPassword(String accountId, String passwordHash, Instant changedAt, boolean mustChangePassword) {
+    }
+
+    default void rememberPasswordHash(String accountId, String passwordHash, Instant retiredAt) {
+    }
+
+    default List<String> listPasswordHashes(String accountId, int limit) {
+        return List.of();
+    }
+
+    default void trimPasswordHistory(String accountId, int keep) {
+    }
+
     Optional<Account> findAccount(String accountId);
 
     Optional<Account> findAccountByEmail(String email);

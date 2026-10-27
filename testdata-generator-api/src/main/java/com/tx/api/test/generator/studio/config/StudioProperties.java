@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.config;
 
+import com.tx.api.test.generator.studio.tenant.PasswordPolicy;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "testdata")
@@ -356,6 +357,8 @@ public class StudioProperties {
     public static class Auth {
         private String provider = "local";
         private boolean localAdminFallback = true;
+        private int passwordMaxAgeDays = PasswordPolicy.DEFAULT_MAX_AGE_DAYS;
+        private int passwordHistory = PasswordPolicy.DEFAULT_HISTORY;
         private Ldap ldap = new Ldap();
 
         public String getProvider() {
@@ -364,6 +367,30 @@ public class StudioProperties {
 
         public void setProvider(String provider) {
             this.provider = provider;
+        }
+
+        public int getPasswordMaxAgeDays() {
+            return passwordMaxAgeDays;
+        }
+
+        public void setPasswordMaxAgeDays(int passwordMaxAgeDays) {
+            this.passwordMaxAgeDays = passwordMaxAgeDays;
+        }
+
+        public int resolvedPasswordMaxAgeDays() {
+            return Math.max(passwordMaxAgeDays, 0);
+        }
+
+        public int getPasswordHistory() {
+            return passwordHistory;
+        }
+
+        public void setPasswordHistory(int passwordHistory) {
+            this.passwordHistory = passwordHistory;
+        }
+
+        public int resolvedPasswordHistory() {
+            return passwordHistory < 1 ? 1 : passwordHistory;
         }
 
         public boolean isLocalAdminFallback() {

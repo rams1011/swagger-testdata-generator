@@ -15,5 +15,6 @@ public enum AuditAction {
     GRANTED,
     ROLE_CHANGED,
     REVOKED,
-    ACCESS_REQUESTED
+    ACCESS_REQUESTED,
+    PASSWORD_CHANGED
 }

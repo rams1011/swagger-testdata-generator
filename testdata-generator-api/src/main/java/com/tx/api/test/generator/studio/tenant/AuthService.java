@@ -71,7 +71,7 @@ public class AuthService {
         TenantStore store = requireStore();
         String email = normalizeEmail(request == null ? null : request.email());
         String password = request == null ? null : request.password();
-        requirePassword(password);
+        PasswordPolicy.requireAcceptable(password, email);
         if (store.findAccountByEmail(email).isPresent()) {
             throw new IllegalArgumentException("An account with that email already exists");
         }
@@ -82,6 +82,7 @@ public class AuthService {
         account.setPasswordHash(PasswordHasher.hash(password));
         account.setDisplayName(displayName(request == null ? null : request.name(), email));
         account.setCreatedAt(now);
+        account.setPasswordChangedAt(now);
         account.setPlatformRole("USER");
         store.saveAccount(account);
 
@@ -149,6 +150,7 @@ public class AuthService {
             account.setPasswordHash(LdapAccounts.EXTERNAL_PASSWORD_MARKER);
             account.setDisplayName(profile.displayName());
             account.setCreatedAt(now);
+            account.setPasswordChangedAt(now);
             account.setPlatformRole("USER");
             store.saveAccount(account);
         } else if (StringUtils.isNotBlank(profile.displayName())
@@ -456,7 +458,7 @@ public class AuthService {
             throw new IllegalArgumentException(
                     "That person must sign in with the company directory before you can add them to this organization");
         } else {
-            requirePassword(request == null ? null : request.password());
+            PasswordPolicy.requireAcceptable(request == null ? null : request.password(), email);
             Instant now = Instant.now();
             account = new Account();
             account.setId(UUID.randomUUID().toString());
@@ -464,6 +466,7 @@ public class AuthService {
             account.setPasswordHash(PasswordHasher.hash(request.password()));
             account.setDisplayName(displayName(request.name(), email));
             account.setCreatedAt(now);
+            account.setPasswordChangedAt(now);
             store.saveAccount(account);
         }
         entitlements().requireSeat(organization.getId(), account.getId());
@@ -720,7 +723,9 @@ public class AuthService {
         Account account = store.findAccountByEmail(email).orElse(null);
         if (account == null) {
             String password = properties.getSaas().getAdminPassword();
-            requirePassword(password);
+            if (StringUtils.isBlank(password)) {
+                throw new IllegalArgumentException("Admin password is required");
+            }
             Instant now = Instant.now();
             account = new Account();
             account.setId(UUID.randomUUID().toString());
@@ -728,6 +733,8 @@ public class AuthService {
             account.setPasswordHash(PasswordHasher.hash(password));
             account.setDisplayName(properties.isDatacenter() ? "Studio admin" : "SaaS admin");
             account.setCreatedAt(now);
+            account.setPasswordChangedAt(now);
+            account.setMustChangePassword(PasswordPolicy.problem(password, email) != null);
             account.setPlatformRole("SAAS_ADMIN");
             store.saveAccount(account);
         } else if (!isSaasAdmin(account)) {
@@ -865,7 +872,9 @@ public class AuthService {
                         ? null
                         : toSubscriptionView(store, organization, subscription),
                 properties.editionName(),
-                properties.isBillingEnabled()
+                properties.isBillingEnabled(),
+                passwordChangeRequired(account),
+                !LdapAccounts.isDirectoryManaged(account.getPasswordHash())
         );
     }
 
@@ -1365,10 +1374,58 @@ public class AuthService {
         return trimmed.toLowerCase(Locale.ROOT);
     }
 
-    private static void requirePassword(String password) {
-        if (StringUtils.isBlank(password) || password.length() < 8) {
-            throw new IllegalArgumentException("Password must be at least 8 characters");
+    public boolean passwordChangeRequired(Account account) {
+        return PasswordPolicy.changeRequired(
+                account, properties.getAuth().resolvedPasswordMaxAgeDays(), Instant.now());
+    }
+
+    public AuthSessionView changePassword(String rawToken, com.tx.api.test.generator.studio.dto.ChangePasswordRequest request) {
+        ResolvedSession resolved = resolve(rawToken)
+                .orElseThrow(() -> new UnauthenticatedException("Sign in to continue"));
+        Account account = resolved.account();
+        if (LdapAccounts.isDirectoryManaged(account.getPasswordHash())) {
+            throw new IllegalArgumentException("The company directory owns this password");
         }
+        String current = request == null ? null : request.currentPassword();
+        String next = request == null ? null : request.newPassword();
+        if (!PasswordHasher.matches(current, account.getPasswordHash())) {
+            throw new UnauthenticatedException("Current password is incorrect");
+        }
+        applyLocalPassword(requireStore(), account, next, false);
+        audit(() -> auditService.recordPasswordChanged(account.getId(), account.getEmail()));
+        Account updated = requireStore().findAccount(account.getId()).orElse(account);
+        return toView(rawToken, updated, resolved.tenant(), resolved.role());
+    }
+
+    public void forcePasswordChange(String accountId) {
+        requireOrgAdmin();
+        TenantStore store = requireStore();
+        Account account = store.findAccount(accountId)
+                .orElseThrow(() -> new NoSuchElementException("Organization member not found"));
+        if (LdapAccounts.isDirectoryManaged(account.getPasswordHash())) {
+            throw new IllegalArgumentException("The company directory owns this password");
+        }
+        Organization organization = requireCurrentOrganization(store);
+        if (store.findOrgRole(organization.getId(), accountId).isEmpty()) {
+            throw new NoSuchElementException("Organization member not found");
+        }
+        store.updateAccountPassword(accountId, account.getPasswordHash(), account.getPasswordChangedAt(), true);
+        log.info("Required a password change for {}", account.getEmail());
+        audit(() -> auditService.recordPasswordResetRequired(accountId, account.getEmail()));
+    }
+
+    private void applyLocalPassword(TenantStore store, Account account, String nextPassword, boolean mustChange) {
+        PasswordPolicy.requireAcceptable(nextPassword, account.getEmail());
+        java.util.List<String> prior = new java.util.ArrayList<>();
+        prior.add(account.getPasswordHash());
+        prior.addAll(store.listPasswordHashes(account.getId(), properties.getAuth().resolvedPasswordHistory()));
+        if (PasswordPolicy.reuses(nextPassword, prior)) {
+            throw new IllegalArgumentException("Choose a password you have not used recently");
+        }
+        Instant now = Instant.now();
+        store.rememberPasswordHash(account.getId(), account.getPasswordHash(), now);
+        store.trimPasswordHistory(account.getId(), properties.getAuth().resolvedPasswordHistory());
+        store.updateAccountPassword(account.getId(), PasswordHasher.hash(nextPassword), now, mustChange);
     }
 
     private static String displayName(String name, String email) {

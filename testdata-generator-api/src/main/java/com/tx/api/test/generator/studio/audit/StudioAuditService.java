@@ -119,6 +119,16 @@ public class StudioAuditService {
                 "Removed " + StringUtils.defaultString(email) + " from the " + scope);
     }
 
+    public void recordPasswordChanged(String accountId, String email) {
+        append(null, AuditResourceType.ACCOUNT, accountId, AuditAction.PASSWORD_CHANGED,
+                "Changed password for " + StringUtils.defaultString(email));
+    }
+
+    public void recordPasswordResetRequired(String accountId, String email) {
+        append(null, AuditResourceType.ACCOUNT, accountId, AuditAction.PASSWORD_CHANGED,
+                "Required a password change for " + StringUtils.defaultString(email));
+    }
+
     public void recordAccessRequested(String workspaceId, String accountId, String email, String workspaceName) {
         appendForTenant(workspaceId, accountId, email, null, AuditResourceType.WORKSPACE, workspaceId,
                 AuditAction.ACCESS_REQUESTED,

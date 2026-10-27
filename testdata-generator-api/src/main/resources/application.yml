@@ -85,6 +85,9 @@ testdata:
     provider: ${TESTDATA_AUTH_PROVIDER:local}
     # When provider=ldap, bootstrap admin (testdata.saas.admin-*) may still sign in locally if LDAP is down.
     local-admin-fallback: ${TESTDATA_AUTH_LOCAL_ADMIN_FALLBACK:true}
+    # Local accounts only. Directory passwords are not stored or aged here.
+    password-max-age-days: ${TESTDATA_PASSWORD_MAX_AGE_DAYS:90}
+    password-history: ${TESTDATA_PASSWORD_HISTORY:5}
     ldap:
       # Required when provider=ldap. Prefer ldaps://. No sample host — startup fails if this is empty.
       url: ${TESTDATA_LDAP_URL:}

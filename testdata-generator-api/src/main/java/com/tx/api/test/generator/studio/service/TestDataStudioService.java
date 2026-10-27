@@ -727,6 +727,9 @@ public class TestDataStudioService {
         config.put("billing", String.valueOf(properties.isBillingEnabled()));
         config.put("saas", String.valueOf(properties.isAuthEnabled()));
         config.put("authProvider", properties.resolvedAuthProvider());
+        config.put("passwordMinLength", String.valueOf(
+                com.tx.api.test.generator.studio.tenant.PasswordPolicy.MIN_LENGTH));
+        config.put("passwordRule", com.tx.api.test.generator.studio.tenant.PasswordPolicy.RULE);
         if (properties.isLdapAuth()) {
             String domain = properties.getAuth().getLdap().normalizedDomain();
             config.put("loginHint", "you@" + domain);

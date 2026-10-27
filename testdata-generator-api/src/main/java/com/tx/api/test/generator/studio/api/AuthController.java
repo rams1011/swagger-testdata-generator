@@ -5,6 +5,7 @@ import com.tx.api.test.generator.studio.dto.AddMemberRequest;
 import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.dto.GrantWorkspaceAccessRequest;
 import com.tx.api.test.generator.studio.dto.AuthSessionView;
+import com.tx.api.test.generator.studio.dto.ChangePasswordRequest;
 import com.tx.api.test.generator.studio.dto.CreateTenantRequest;
 import com.tx.api.test.generator.studio.dto.CreateWorkspaceAccessRequest;
 import com.tx.api.test.generator.studio.dto.LoginRequest;
@@ -65,6 +66,12 @@ public class AuthController {
             return authService.localSession();
         }
         return authService.session(bearerToken(request));
+    }
+
+    @PostMapping("/auth/password")
+    public AuthSessionView changePassword(HttpServletRequest request, @RequestBody ChangePasswordRequest body) {
+        requireAuth();
+        return authService.changePassword(bearerToken(request), body);
     }
 
     @PostMapping("/auth/logout")
@@ -131,6 +138,13 @@ public class AuthController {
     public MemberView updateOrgMember(@PathVariable String accountId, @RequestBody UpdateMemberRequest request) {
         requireAuth();
         return authService.updateOrgMember(accountId, request);
+    }
+
+    @PostMapping("/organizations/current/members/{accountId}/password-reset")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void forcePasswordChange(@PathVariable String accountId) {
+        requireAuth();
+        authService.forcePasswordChange(accountId);
     }
 
     @DeleteMapping("/organizations/current/members/{accountId}")
