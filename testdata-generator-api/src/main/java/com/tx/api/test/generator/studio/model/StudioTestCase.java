@@ -26,6 +26,7 @@ public class StudioTestCase {
     private String responseType;
     private String expectedResponse;
     private String enabled;
+    private String lifecycle;
     private String testGroup;
     private String jsonPathAssertions;
     private String extracts;
@@ -198,6 +199,14 @@ public class StudioTestCase {
 
     public void setEnabled(String enabled) {
         this.enabled = enabled;
+    }
+
+    public String getLifecycle() {
+        return lifecycle;
+    }
+
+    public void setLifecycle(String lifecycle) {
+        this.lifecycle = lifecycle;
     }
 
     public String getTestGroup() {

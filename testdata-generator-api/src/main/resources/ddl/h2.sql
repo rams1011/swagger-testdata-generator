@@ -311,6 +311,7 @@ ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS created_by_account_id VARCHAR(
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS created_by_label VARCHAR(320);
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS updated_by_account_id VARCHAR(36);
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS updated_by_label VARCHAR(320);
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS lifecycle VARCHAR(16) NOT NULL DEFAULT 'READY';
 ALTER TABLE td_request_file DROP COLUMN IF EXISTS environment_name;
 
 CREATE TABLE IF NOT EXISTS td_organization (

@@ -135,6 +135,7 @@ public final class EnvironmentOverlay {
         copy.setResponseType(source.getResponseType());
         copy.setExpectedResponse(source.getExpectedResponse());
         copy.setEnabled(source.getEnabled());
+        copy.setLifecycle(source.getLifecycle());
         copy.setTestGroup(source.getTestGroup());
         copy.setJsonPathAssertions(source.getJsonPathAssertions());
         copy.setExtracts(source.getExtracts());

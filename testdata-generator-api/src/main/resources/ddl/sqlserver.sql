@@ -210,6 +210,7 @@ BEGIN
         response_type          VARCHAR(32)   NULL,
         expected_response      NVARCHAR(MAX) NULL,
         enabled                VARCHAR(8)    NOT NULL CONSTRAINT DF_td_test_case_enabled DEFAULT ('Y'),
+        lifecycle              VARCHAR(16)   NOT NULL CONSTRAINT DF_td_test_case_lifecycle DEFAULT ('READY'),
         test_group             VARCHAR(128)  NULL,
         json_path_assertions   NVARCHAR(MAX) NULL,
         extracts               NVARCHAR(MAX) NULL,
@@ -226,6 +227,10 @@ BEGIN
             REFERENCES dbo.td_spec (spec_id) ON DELETE CASCADE
     );
 END;
+
+IF COL_LENGTH('dbo.td_test_case', 'lifecycle') IS NULL
+    ALTER TABLE dbo.td_test_case ADD lifecycle VARCHAR(16) NOT NULL
+        CONSTRAINT DF_td_test_case_lifecycle_add DEFAULT ('READY');
 
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
