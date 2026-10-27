@@ -230,7 +230,7 @@ class AuthServiceOrgTest {
         when(entitlements.getIfAvailable()).thenReturn(entitlementService);
         @SuppressWarnings("unchecked")
         ObjectProvider<LdapAuthenticator> ldap = mock(ObjectProvider.class);
-        return new AuthService(properties, tenantStores, entitlements, ldap);
+        return new AuthService(properties, tenantStores, entitlements, ldap, null);
     }
 
     private static Tenant tenant(String id, String orgId) {

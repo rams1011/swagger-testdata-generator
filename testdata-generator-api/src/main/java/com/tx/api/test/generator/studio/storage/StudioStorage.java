@@ -107,4 +107,18 @@ public interface StudioStorage {
     default List<AuditEventView> listAuditEventsForSpec(String specId, int limit) {
         return List.of();
     }
+
+    /**
+     * Writes an event for a workspace that is not the caller's current one.
+     * Sign-in has no workspace context yet, and an access request targets another workspace.
+     */
+    default void appendAuditEventForTenant(String tenantId, String eventId, String specId,
+                                           AuditResourceType resourceType, String resourceId,
+                                           AuditAction action, String actorAccountId, String actorLabel,
+                                           String detail, Instant occurredAt) {
+    }
+
+    default List<AuditEventView> listAuditEventsForTenant(int limit) {
+        return List.of();
+    }
 }

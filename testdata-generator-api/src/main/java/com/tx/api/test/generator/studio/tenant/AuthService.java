@@ -1,6 +1,8 @@
 package com.tx.api.test.generator.studio.tenant;
 
+import com.tx.api.test.generator.studio.audit.StudioAuditService;
 import com.tx.api.test.generator.studio.config.StudioProperties;
+import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.dto.AccountView;
 import com.tx.api.test.generator.studio.dto.AddMemberRequest;
 import com.tx.api.test.generator.studio.dto.AuthSessionView;
@@ -47,14 +49,17 @@ public class AuthService {
     private final ObjectProvider<TenantStore> tenantStores;
     private final ObjectProvider<EntitlementService> entitlements;
     private final ObjectProvider<LdapAuthenticator> ldapAuthenticators;
+    private final StudioAuditService auditService;
 
     public AuthService(StudioProperties properties, ObjectProvider<TenantStore> tenantStores,
                        ObjectProvider<EntitlementService> entitlements,
-                       ObjectProvider<LdapAuthenticator> ldapAuthenticators) {
+                       ObjectProvider<LdapAuthenticator> ldapAuthenticators,
+                       StudioAuditService auditService) {
         this.properties = properties;
         this.tenantStores = tenantStores;
         this.entitlements = entitlements;
         this.ldapAuthenticators = ldapAuthenticators;
+        this.auditService = auditService;
     }
 
     public AuthSessionView localSession() {
@@ -86,17 +91,26 @@ public class AuthService {
         Tenant tenant = newWorkspace(store, organization, names.workspaceName(), email, now);
         store.saveOrgMembership(organization.getId(), account.getId(), "OWNER");
         store.saveMembership(new Membership(tenant.getId(), account.getId(), "OWNER"));
-        return issueSession(store, account, tenant, "OWNER");
+        AuthSessionView session = issueSession(store, account, tenant, "OWNER");
+        audit(() -> auditService.recordRegistered(tenant.getId(), account.getId(), email));
+        return session;
     }
 
     public AuthSessionView login(LoginRequest request) {
         boolean directory = properties.isLdapAuth();
         log.debug("Sign-in started provider={}", directory ? "ldap" : "local");
-        AuthSessionView session = directory ? loginWithDirectory(request) : loginWithLocalPassword(request);
-        String email = session.account() == null ? "" : session.account().email();
-        String workspaceId = session.tenant() == null ? "" : session.tenant().id();
-        log.info("Signed in {} workspace {}", email, workspaceId);
-        return session;
+        try {
+            AuthSessionView session = directory ? loginWithDirectory(request) : loginWithLocalPassword(request);
+            String email = session.account() == null ? "" : session.account().email();
+            String workspaceId = session.tenant() == null ? "" : session.tenant().id();
+            String accountId = session.account() == null ? null : session.account().id();
+            log.info("Signed in {} workspace {}", email, workspaceId);
+            audit(() -> auditService.recordLogin(workspaceId, accountId, email));
+            return session;
+        } catch (UnauthenticatedException exception) {
+            auditLoginFailed(request);
+            throw exception;
+        }
     }
 
     private AuthSessionView loginWithLocalPassword(LoginRequest request) {
@@ -276,6 +290,8 @@ public class AuthService {
                 .orElseThrow(() -> new ForbiddenException("Workspace not found"));
         store.switchSessionTenant(hashToken(rawToken), tenantId);
         log.info("Switched {} to workspace {}", resolved.account().getEmail(), tenant.getId());
+        audit(() -> auditService.recordSwitched(
+                tenant.getId(), resolved.account().getId(), resolved.account().getEmail(), tenant.getName()));
         return toView(rawToken, resolved.account(), tenant, membership.role());
     }
 
@@ -297,6 +313,8 @@ public class AuthService {
         store.saveMembership(new Membership(tenant.getId(), accountId, "OWNER"));
         store.switchSessionTenant(hashToken(rawToken), tenant.getId());
         log.info("Created workspace {} ({}) for {}", tenant.getName(), tenant.getId(), resolved.account().getEmail());
+        audit(() -> auditService.recordWorkspaceCreated(
+                tenant.getId(), accountId, resolved.account().getEmail(), tenant.getName()));
         return toTenantView(store, tenant, "OWNER");
     }
 
@@ -312,6 +330,8 @@ public class AuthService {
             return;
         }
         log.info("Signed out {}", resolved.account().getEmail());
+        audit(() -> auditService.recordLogout(
+                resolved.tenant().getId(), resolved.account().getId(), resolved.account().getEmail()));
     }
 
     public Optional<ResolvedSession> resolve(String rawToken) {
@@ -354,6 +374,13 @@ public class AuthService {
         Tenant tenant = store.findTenant(tenantId)
                 .orElseThrow(() -> new ForbiddenException("Workspace not found"));
         return toTenantView(store, tenant, null);
+    }
+
+    public List<AuditEventView> listWorkspaceAudit(String workspaceId, int limit) {
+        if (auditService == null) {
+            return List.of();
+        }
+        return runWithWorkspaceManagement(workspaceId, () -> auditService.listForWorkspace(limit));
     }
 
     public List<MemberView> listMembers() {
@@ -441,8 +468,10 @@ public class AuthService {
         }
         entitlements().requireSeat(organization.getId(), account.getId());
         store.saveOrgMembership(organization.getId(), account.getId(), role);
-        log.info("Added organization member {} as {}", account.getEmail(), role);
-        return new MemberView(account.getId(), account.getEmail(), account.getDisplayName(), role);
+        Account member = account;
+        log.info("Added organization member {} as {}", member.getEmail(), role);
+        audit(() -> auditService.recordGrant(member.getId(), member.getEmail(), "organization role " + role));
+        return new MemberView(member.getId(), member.getEmail(), member.getDisplayName(), role);
     }
 
     public MemberView updateOrgMember(String accountId, UpdateMemberRequest request) {
@@ -461,6 +490,7 @@ public class AuthService {
         Account account = store.findAccount(accountId)
                 .orElseThrow(() -> new NoSuchElementException("Organization member not found"));
         log.info("Changed organization role for {} from {} to {}", account.getEmail(), currentRole, role);
+        audit(() -> auditService.recordRoleChanged(account.getId(), account.getEmail(), currentRole, role, "Organization"));
         return new MemberView(account.getId(), account.getEmail(), account.getDisplayName(), role);
     }
 
@@ -474,9 +504,12 @@ public class AuthService {
         if ("OWNER".equals(currentRole) && store.countOrgOwners(organization.getId()) <= 1) {
             throw new ForbiddenException("The organization needs at least one owner");
         }
+        Account removed = store.findAccount(accountId).orElse(null);
+        String removedEmail = removed == null ? accountId : removed.getEmail();
         store.deleteWorkspaceMembershipsForOrg(organization.getId(), accountId);
         store.deleteOrgMembership(organization.getId(), accountId);
         log.info("Removed account {} from organization {}", accountId, organization.getId());
+        audit(() -> auditService.recordRevoked(accountId, removedEmail, "organization"));
     }
 
     public List<TenantView> listOrgWorkspaces() {
@@ -541,6 +574,7 @@ public class AuthService {
         store.findPendingWorkspaceAccessRequest(tenantId, accountId).ifPresent(pending ->
                 store.resolveWorkspaceAccessRequest(pending.requestId(), "GRANTED"));
         log.info("Granted {} {} on workspace {}", account.getEmail(), role, tenantId);
+        audit(() -> auditService.recordGrant(account.getId(), account.getEmail(), "workspace role " + role));
         return new MemberView(account.getId(), account.getEmail(), account.getDisplayName(), role);
     }
 
@@ -571,6 +605,7 @@ public class AuthService {
         store.saveWorkspaceAccessRequest(requestId, workspaceId, accountId, message, now);
         Account account = store.findAccount(accountId)
                 .orElseThrow(() -> new UnauthenticatedException("Sign in to continue"));
+        audit(() -> auditService.recordAccessRequested(workspaceId, accountId, account.getEmail(), workspace.getName()));
         return new WorkspaceAccessRequestView(
                 requestId,
                 workspaceId,
@@ -645,6 +680,7 @@ public class AuthService {
         Account account = store.findAccount(accountId)
                 .orElseThrow(() -> new NoSuchElementException("Member not found"));
         log.info("Changed workspace role for {} from {} to {}", account.getEmail(), current.role(), role);
+        audit(() -> auditService.recordRoleChanged(account.getId(), account.getEmail(), current.role(), role, "Workspace"));
         return new MemberView(account.getId(), account.getEmail(), account.getDisplayName(), role);
     }
 
@@ -658,8 +694,11 @@ public class AuthService {
         if ("OWNER".equals(current.role()) && store.countOwners(tenantId) <= 1) {
             throw new ForbiddenException("The workspace needs at least one owner");
         }
+        Account removed = store.findAccount(accountId).orElse(null);
+        String removedEmail = removed == null ? accountId : removed.getEmail();
         store.deleteMembership(tenantId, accountId);
         log.info("Removed account {} from workspace {}", accountId, tenantId);
+        audit(() -> auditService.recordRevoked(accountId, removedEmail, "workspace"));
     }
 
     public String ensureSaasAdmin() {
@@ -1229,6 +1268,52 @@ public class AuthService {
     private static String actorRole() {
         TenantContext.Scope scope = TenantContext.current();
         return scope == null ? null : scope.role();
+    }
+
+    private void audit(Runnable action) {
+        if (auditService == null || action == null) {
+            return;
+        }
+        try {
+            action.run();
+        } catch (RuntimeException exception) {
+            log.warn("Could not write audit event: {}", exception.getMessage());
+        }
+    }
+
+    private void auditLoginFailed(LoginRequest request) {
+        audit(() -> {
+            String raw = request == null ? null : request.email();
+            String label = StringUtils.defaultIfBlank(raw, "unknown").trim();
+            try {
+                label = normalizeEmail(raw);
+            } catch (IllegalArgumentException ignored) {
+                // Keep the raw login text. The password is never stored.
+            }
+            auditService.recordLoginFailed(auditTenantForLoginFailure(label), label);
+        });
+    }
+
+    private String auditTenantForLoginFailure(String email) {
+        TenantStore store = tenantStores.getIfAvailable();
+        if (store == null) {
+            return null;
+        }
+        if (StringUtils.isNotBlank(email)) {
+            Account account = store.findAccountByEmail(email).orElse(null);
+            if (account != null) {
+                Tenant home = contextWorkspaceForAccount(store, account);
+                if (home != null) {
+                    return home.getId();
+                }
+            }
+        }
+        try {
+            Tenant home = properties.isBillingEnabled() ? requirePlatformTenant(store) : requireCompanyWorkspace(store);
+            return home == null ? null : home.getId();
+        } catch (RuntimeException exception) {
+            return null;
+        }
     }
 
     private static boolean isManager(String role) {

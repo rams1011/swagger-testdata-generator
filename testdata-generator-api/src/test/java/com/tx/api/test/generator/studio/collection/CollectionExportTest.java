@@ -113,6 +113,21 @@ class CollectionExportTest {
     }
 
     @Test
+    void leavesDisabledCasesOutOfTheCollection() throws Exception {
+        CollectionMapper.writeTo(storage, CollectionDocuments.parseCollection(readGolden()));
+        var disabled = storage.findTestCase("case-get-role").orElseThrow();
+        disabled.setEnabled("N");
+        storage.saveTestCase(disabled);
+
+        CollectionExport exported = CollectionExporter.export(storage, "spec-employee-service", "plan-default");
+
+        StudioCollection parsed = CollectionDocuments.parseCollection(
+                new String(exported.content(), StandardCharsets.UTF_8));
+        assertEquals(1, parsed.cases().size());
+        assertEquals("case-create-role", parsed.cases().get(0).id());
+    }
+
+    @Test
     void rejectsAnEmptyPlan() throws Exception {
         CollectionMapper.writeTo(storage, CollectionDocuments.parseCollection(readGolden()));
         storage.deleteTestCase("case-create-role");

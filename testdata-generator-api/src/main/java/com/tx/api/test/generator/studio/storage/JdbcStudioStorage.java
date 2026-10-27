@@ -1052,6 +1052,33 @@ public class JdbcStudioStorage implements StudioStorage {
                 auditEventMapper(), tenantId(), specId, limit);
     }
 
+    @Override
+    public void appendAuditEventForTenant(String tenantId, String eventId, String specId,
+                                          AuditResourceType resourceType, String resourceId,
+                                          AuditAction action, String actorAccountId, String actorLabel,
+                                          String detail, Instant occurredAt) {
+        jdbcTemplate.update("""
+                        INSERT INTO td_audit_event (
+                            event_id, tenant_id, spec_id, resource_type, resource_id, action,
+                            actor_account_id, actor_label, detail, occurred_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                eventId, tenantId, specId, resourceType.name(), resourceId, action.name(),
+                actorAccountId, actorLabel, detail, Timestamp.from(occurredAt));
+    }
+
+    @Override
+    public List<AuditEventView> listAuditEventsForTenant(int limit) {
+        return jdbcTemplate.query("""
+                        SELECT event_id, spec_id, resource_type, resource_id, action, actor_label, detail, occurred_at
+                          FROM td_audit_event
+                         WHERE tenant_id = ?
+                         ORDER BY occurred_at DESC
+                         LIMIT ?
+                        """,
+                auditEventMapper(), tenantId(), limit);
+    }
+
     private RowMapper<AuditEventView> auditEventMapper() {
         return (rs, rowNum) -> new AuditEventView(
                 rs.getString("event_id"),

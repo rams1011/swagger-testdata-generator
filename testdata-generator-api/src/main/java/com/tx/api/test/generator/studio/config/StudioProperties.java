@@ -7,6 +7,7 @@ public class StudioProperties {
 
     private H2 h2 = new H2();
     private RunHistory runHistory = new RunHistory();
+    private Run run = new Run();
     private Saas saas = new Saas();
     private Auth auth = new Auth();
     /**
@@ -32,6 +33,14 @@ public class StudioProperties {
 
     public void setRunHistory(RunHistory runHistory) {
         this.runHistory = runHistory;
+    }
+
+    public Run getRun() {
+        return run;
+    }
+
+    public void setRun(Run run) {
+        this.run = run == null ? new Run() : run;
     }
 
     public Saas getSaas() {
@@ -192,6 +201,48 @@ public class StudioProperties {
                 return 100;
             }
             return maxPerSpec;
+        }
+    }
+
+    /**
+     * Limits where Try and Run plan may send the API process.
+     */
+    public static class Run {
+        /**
+         * When false, loopback, private, link-local, and cloud-metadata targets are rejected.
+         * The local profile turns this on so a desktop app can call localhost.
+         */
+        private boolean allowPrivateNetworks = false;
+        /**
+         * Comma-separated hosts. {@code *.example.com} matches subdomains only.
+         * Empty means any host that passes the network check.
+         */
+        private String allowHosts = "";
+
+        public boolean isAllowPrivateNetworks() {
+            return allowPrivateNetworks;
+        }
+
+        public void setAllowPrivateNetworks(boolean allowPrivateNetworks) {
+            this.allowPrivateNetworks = allowPrivateNetworks;
+        }
+
+        public String getAllowHosts() {
+            return allowHosts;
+        }
+
+        public void setAllowHosts(String allowHosts) {
+            this.allowHosts = allowHosts;
+        }
+
+        public java.util.List<String> allowHostRules() {
+            if (allowHosts == null || allowHosts.isBlank()) {
+                return java.util.List.of();
+            }
+            return java.util.Arrays.stream(allowHosts.split(","))
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .toList();
         }
     }
 

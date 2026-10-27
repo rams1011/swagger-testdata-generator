@@ -2,6 +2,7 @@ package com.tx.api.test.generator.studio.api;
 
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AddMemberRequest;
+import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.dto.GrantWorkspaceAccessRequest;
 import com.tx.api.test.generator.studio.dto.AuthSessionView;
 import com.tx.api.test.generator.studio.dto.CreateTenantRequest;
@@ -26,6 +27,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
@@ -154,6 +156,13 @@ public class AuthController {
     public List<MemberView> listWorkspaceMembers(@PathVariable String workspaceId) {
         requireAuth();
         return authService.listWorkspaceMembers(workspaceId);
+    }
+
+    @GetMapping("/organizations/current/workspaces/{workspaceId}/audit")
+    public List<AuditEventView> workspaceAudit(@PathVariable String workspaceId,
+                                               @RequestParam(defaultValue = "50") int limit) {
+        requireAuth();
+        return authService.listWorkspaceAudit(workspaceId, limit);
     }
 
     @PostMapping("/organizations/current/workspaces/{workspaceId}/members")

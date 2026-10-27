@@ -18,6 +18,8 @@ spring:
         web-allow-others: false
 
 testdata:
+  run:
+    allow-private-networks: ${TESTDATA_RUN_ALLOW_PRIVATE_NETWORKS:true}
   h2:
     file: ${TESTDATA_H2_FILE:./studio-output/testdata}
     username: sa

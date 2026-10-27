@@ -78,7 +78,8 @@ class TenantIsolationTest {
         FixedProvider<TenantStore> stores = new FixedProvider<>(new JdbcTenantStore(jdbcTemplate));
         authService = new AuthService(properties, stores,
                 new FixedProvider<>(new EntitlementService(properties, stores)),
-                new FixedProvider<>(null));
+                new FixedProvider<>(null),
+                new com.tx.api.test.generator.studio.audit.StudioAuditService(storage));
     }
 
     @AfterEach

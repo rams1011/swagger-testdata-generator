@@ -48,14 +48,17 @@ public class TestRunService {
 
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
+            // A public response must not redirect this process onto an internal address.
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
     private final StudioStorage studioStorage;
     private final StudioProperties properties;
+    private final OutboundUrlPolicy outboundUrlPolicy;
 
-    public TestRunService(StudioStorage studioStorage, StudioProperties properties) {
+    public TestRunService(StudioStorage studioStorage, StudioProperties properties, OutboundUrlPolicy outboundUrlPolicy) {
         this.studioStorage = studioStorage;
         this.properties = properties;
+        this.outboundUrlPolicy = outboundUrlPolicy;
     }
 
     public RunTestResult execute(StudioTestCase testCase, RunAuth auth) {
@@ -85,6 +88,7 @@ public class TestRunService {
         String url;
         try {
             url = buildUrl(bound.getBaseUrl(), bound.getEndpoint(), query);
+            outboundUrlPolicy.check(url);
         } catch (IllegalArgumentException exception) {
             return failed(bound, "", headers, 0, false, List.of(), exception.getMessage());
         }
@@ -392,6 +396,7 @@ public class TestRunService {
         if (StringUtils.isBlank(auth.tokenUrl())) {
             throw new IllegalArgumentException("tokenUrl is required for OAuth2, or paste a bearer token");
         }
+        outboundUrlPolicy.check(auth.tokenUrl().trim());
         String grant = StringUtils.defaultIfBlank(auth.grantType(), "client_credentials").trim();
         if ("authorization_code".equalsIgnoreCase(grant) || "implicit".equalsIgnoreCase(grant)) {
             throw new IllegalArgumentException("This OAuth flow needs a bearer token pasted in Run authentication");

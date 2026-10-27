@@ -73,6 +73,12 @@ testdata:
   run-history:
     # Oldest batches are deleted after each write. 0 disables pruning.
     max-per-spec: 100
+  run:
+    # Try and Run plan. Hosted editions cannot call loopback, private, link-local, or cloud metadata.
+    # The local profile allows private networks so a desktop app can call localhost.
+    allow-private-networks: ${TESTDATA_RUN_ALLOW_PRIVATE_NETWORKS:false}
+    # Optional tighter list. Example: api.example.com,*.partner.test
+    allow-hosts: ${TESTDATA_RUN_ALLOW_HOSTS:}
   # Studio user sign-in (not run-auth on Try/Run). Ignored when testdata.edition=local.
   auth:
     # local = PBKDF2 passwords in td_account. ldap = directory bind at POST /api/auth/login only.
