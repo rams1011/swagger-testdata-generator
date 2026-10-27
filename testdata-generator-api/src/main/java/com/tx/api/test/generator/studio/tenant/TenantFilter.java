@@ -40,7 +40,7 @@ public class TenantFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        if ("OPTIONS".equalsIgnoreCase(request.getMethod()) || isStatic(request)) {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod()) || isStatic(request) || isObservability(request)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -199,6 +199,11 @@ public class TenantFilter extends OncePerRequestFilter {
     private static boolean isStatic(HttpServletRequest request) {
         String path = request.getRequestURI();
         return "/favicon.ico".equals(path) || "/error".equals(path);
+    }
+
+    private static boolean isObservability(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/actuator".equals(path) || path.startsWith("/actuator/");
     }
 
     static String requestedWorkspaceId(HttpServletRequest request) {
