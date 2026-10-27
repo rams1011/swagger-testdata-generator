@@ -6,7 +6,7 @@ import java.util.Locale;
 
 /**
  * Authoring state for a saved case. Drafts stay in Studio and are omitted from export, Run plan, and JDBC CI.
- * {@code enabled} still controls whether a published case runs.
+ * A published case with {@code enabled=N} stays in Studio and is omitted from export. Run plan already skips it.
  */
 public final class CaseLifecycle {
 
@@ -44,8 +44,16 @@ public final class CaseLifecycle {
         return testCase != null && isDraft(testCase.getLifecycle());
     }
 
-    /** Published cases are eligible for collection/Excel export (enabled=N still exports). */
+    /** Blank or anything other than N counts as enabled. */
+    public static boolean isEnabled(StudioTestCase testCase) {
+        if (testCase == null) {
+            return false;
+        }
+        return !"N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()));
+    }
+
+    /** Published, enabled cases are eligible for collection and Excel export. */
     public static boolean isExportable(StudioTestCase testCase) {
-        return testCase != null && !isDraft(testCase);
+        return testCase != null && !isDraft(testCase) && isEnabled(testCase);
     }
 }

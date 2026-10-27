@@ -9,6 +9,8 @@ public class Account {
     private String passwordHash;
     private String displayName;
     private Instant createdAt;
+    private Instant passwordChangedAt;
+    private boolean mustChangePassword;
     private String platformRole = "USER";
 
     public String getId() {
@@ -49,6 +51,22 @@ public class Account {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Instant getPasswordChangedAt() {
+        return passwordChangedAt;
+    }
+
+    public void setPasswordChangedAt(Instant passwordChangedAt) {
+        this.passwordChangedAt = passwordChangedAt;
+    }
+
+    public boolean isMustChangePassword() {
+        return mustChangePassword;
+    }
+
+    public void setMustChangePassword(boolean mustChangePassword) {
+        this.mustChangePassword = mustChangePassword;
     }
 
     public String getPlatformRole() {

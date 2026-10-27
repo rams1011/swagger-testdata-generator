@@ -76,6 +76,26 @@ IF NOT EXISTS (
 )
     CREATE UNIQUE INDEX ux_td_account_email ON dbo.td_account (email);
 
+IF COL_LENGTH('dbo.td_account', 'password_changed_at') IS NULL
+    ALTER TABLE dbo.td_account ADD password_changed_at DATETIME2(3) NULL;
+IF COL_LENGTH('dbo.td_account', 'must_change_password') IS NULL
+    ALTER TABLE dbo.td_account ADD must_change_password BIT NOT NULL
+        CONSTRAINT DF_td_account_must_change DEFAULT (0);
+
+IF OBJECT_ID(N'dbo.td_password_history', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.td_password_history (
+        history_id     VARCHAR(36)   NOT NULL,
+        account_id     VARCHAR(36)   NOT NULL,
+        password_hash  VARCHAR(255)  NOT NULL,
+        retired_at     DATETIME2(3)  NOT NULL,
+        CONSTRAINT pk_td_password_history PRIMARY KEY (history_id),
+        CONSTRAINT fk_td_password_history_account FOREIGN KEY (account_id)
+            REFERENCES dbo.td_account (account_id) ON DELETE CASCADE
+    );
+    CREATE INDEX ix_td_password_history_account ON dbo.td_password_history (account_id, retired_at);
+END;
+
 /* ---------- td_membership ---------- */
 IF OBJECT_ID(N'dbo.td_membership', N'U') IS NULL
 BEGIN

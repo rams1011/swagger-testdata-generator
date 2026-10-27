@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.collection;
 
 import com.tx.api.test.generator.studio.dto.CollectionImportResult;
+import com.tx.api.test.generator.studio.model.CaseLifecycle;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
@@ -27,8 +28,14 @@ public final class CollectionImporter {
 
     public static CollectionImportResult importInto(StudioStorage storage, byte[] bytes, String fileName,
                                                     String targetSpecId, String environmentName) {
+        return importInto(storage, bytes, fileName, targetSpecId, environmentName, true);
+    }
+
+    public static CollectionImportResult importInto(StudioStorage storage, byte[] bytes, String fileName,
+                                                    String targetSpecId, String environmentName,
+                                                    boolean publishReady) {
         CollectionArchive archive = CollectionPackage.parse(bytes, fileName);
-        return importInto(storage, archive.collection(), archive.files(), targetSpecId, environmentName);
+        return importInto(storage, archive.collection(), archive.files(), targetSpecId, environmentName, publishReady);
     }
 
     public static CollectionImportResult importInto(StudioStorage storage, StudioCollection collection,
@@ -39,6 +46,12 @@ public final class CollectionImporter {
     public static CollectionImportResult importInto(StudioStorage storage, StudioCollection collection,
                                                     Map<String, byte[]> files, String targetSpecId,
                                                     String environmentName) {
+        return importInto(storage, collection, files, targetSpecId, environmentName, true);
+    }
+
+    public static CollectionImportResult importInto(StudioStorage storage, StudioCollection collection,
+                                                    Map<String, byte[]> files, String targetSpecId,
+                                                    String environmentName, boolean publishReady) {
         CollectionMapper.validate(collection);
         StoredSpec spec = resolveSpec(storage, collection, targetSpecId);
         PlanResolution plan = resolvePlan(storage, spec, collection.plan());
@@ -57,6 +70,9 @@ public final class CollectionImporter {
                     item.baseUrl(), collection.spec().baseUrl(), spec.getBaseUrl()));
             if (StringUtils.isNotBlank(environmentName)) {
                 testCase.setEnvironments(EnvironmentScope.normalize(List.of(environmentName)));
+            }
+            if (!publishReady) {
+                testCase.setLifecycle(CaseLifecycle.DRAFT);
             }
             if (storage.findTestCase(testCase.getId()).isPresent()) {
                 updated++;

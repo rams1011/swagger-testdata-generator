@@ -40,7 +40,7 @@ public class TenantFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
-        if ("OPTIONS".equalsIgnoreCase(request.getMethod()) || isStatic(request)) {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod()) || isStatic(request) || isObservability(request)) {
             filterChain.doFilter(request, response);
             return;
         }
@@ -101,6 +101,10 @@ public class TenantFilter extends OncePerRequestFilter {
             }
             TenantContext.set(new TenantContext.Scope(
                     tenantId, accountId, resolved.account().getEmail(), workspaceRole));
+            if (authService.passwordChangeRequired(resolved.account()) && !allowedDuringPasswordChange(request)) {
+                forbidden(response, "Change your password to continue");
+                return;
+            }
             if (properties.isBillingEnabled() && !isReadOnlyAllowed(request)) {
                 Tenant tenant = authService.findTenant(tenantId).orElse(resolved.tenant());
                 if (!authService.isTenantReady(tenant)) {
@@ -113,6 +117,17 @@ public class TenantFilter extends OncePerRequestFilter {
         } finally {
             TenantContext.clear();
         }
+    }
+
+    private static boolean allowedDuringPasswordChange(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        String method = request.getMethod();
+        if ("GET".equalsIgnoreCase(method) && (
+                "/api/auth/session".equals(path) || "/api/testdata/config".equals(path))) {
+            return true;
+        }
+        return "POST".equalsIgnoreCase(method)
+                && ("/api/auth/password".equals(path) || "/api/auth/logout".equals(path));
     }
 
     private static boolean isPublic(HttpServletRequest request) {
@@ -156,7 +171,8 @@ public class TenantFilter extends OncePerRequestFilter {
         if ("GET".equalsIgnoreCase(method) && "/api/auth/session".equals(path)) {
             return true;
         }
-        if ("POST".equalsIgnoreCase(method) && "/api/auth/logout".equals(path)) {
+        if ("POST".equalsIgnoreCase(method)
+                && ("/api/auth/logout".equals(path) || "/api/auth/password".equals(path))) {
             return true;
         }
         if ("POST".equalsIgnoreCase(method)
@@ -199,6 +215,11 @@ public class TenantFilter extends OncePerRequestFilter {
     private static boolean isStatic(HttpServletRequest request) {
         String path = request.getRequestURI();
         return "/favicon.ico".equals(path) || "/error".equals(path);
+    }
+
+    private static boolean isObservability(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/actuator".equals(path) || path.startsWith("/actuator/");
     }
 
     static String requestedWorkspaceId(HttpServletRequest request) {

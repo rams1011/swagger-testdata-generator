@@ -41,6 +41,7 @@ import com.tx.api.test.generator.studio.dto.SaveTestPlanRequest;
 import com.tx.api.test.generator.studio.dto.TestCaseView;
 import com.tx.api.test.generator.studio.dto.TestPlanView;
 import com.tx.api.test.generator.studio.model.CaseLifecycle;
+import com.tx.api.test.generator.studio.model.PublishPolicy;
 import com.tx.api.test.generator.studio.model.LoadedSpec;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
@@ -52,6 +53,8 @@ import com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency;
 import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 import com.tx.api.test.generator.studio.tenant.EntitlementService;
+import com.tx.api.test.generator.studio.tenant.ForbiddenException;
+import com.tx.api.test.generator.studio.tenant.TenantContext;
 import com.tx.api.test.generator.writer.TestDataExcelWriter;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -158,11 +161,13 @@ public class TestDataStudioService {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setId(UUID.randomUUID().toString());
         apply(testCase, request, true);
+        assertPublisherWhenReady(testCase);
         RequestFileSupport.stampTestCaseId(testCase.getRequestBody(), testCase.getId());
         studioStorage.saveTestCase(testCase);
         bindCaseFiles(testCase);
         saveOverlay(testCase, request);
         auditService.recordCaseCreated(testCase);
+        auditPublished(testCase, true);
         log.info("Saved case {} ({}) on spec {}", testCase.getId(), testCase.getTestName(), testCase.getSpecId());
         return toView(testCase, request == null ? null : request.environmentId());
     }
@@ -170,9 +175,11 @@ public class TestDataStudioService {
     public TestCaseView update(String id, SaveTestDataRequest request) {
         String environmentId = request == null ? null : request.environmentId();
         StudioTestCase base = requireCase(id);
+        boolean wasDraft = CaseLifecycle.isDraft(base);
         assertCaseRevision(base, request, environmentId);
         StudioTestCase testCase = applyOverlay(base, environmentId);
         apply(testCase, request, false);
+        assertPublisherWhenReady(testCase);
         applyCaseWriteOptionsForSave(testCase, request);
         RequestFileSupport.stampTestCaseId(testCase.getRequestBody(), testCase.getId());
         try {
@@ -184,6 +191,7 @@ public class TestDataStudioService {
         bindCaseFiles(testCase);
         saveOverlay(testCase, request);
         auditService.recordCaseUpdated(testCase);
+        auditPublished(testCase, wasDraft);
         StudioTestCase persisted = requireCase(id);
         log.info("Updated case {} ({}) on spec {}", persisted.getId(), persisted.getTestName(), persisted.getSpecId());
         return toView(persisted, environmentId);
@@ -461,15 +469,7 @@ public class TestDataStudioService {
         List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), plan.getId(), null);
         String environmentName = requireEnvironmentNameForScopedCases(
                 request.specId(), request.environmentId(), storedCases, "export this plan");
-        List<StudioTestCase> cases = storedCases.stream()
-                .filter(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName))
-                .filter(CaseLifecycle::isExportable)
-                .toList();
-        if (cases.isEmpty()) {
-            throw new IllegalStateException(environmentName == null
-                    ? "No published test cases have been saved for this plan yet"
-                    : "No published test cases in environment '" + environmentName + "' for this plan");
-        }
+        List<StudioTestCase> cases = exportableCases(environmentName, storedCases);
 
         List<TestDataRow> rows = new ArrayList<>();
         Map<String, byte[]> binaries = new LinkedHashMap<>();
@@ -488,6 +488,7 @@ public class TestDataStudioService {
         ExcelExport exported = ExcelExportPackage.toDownload(fileName, output.toByteArray(), binaries, rows.size());
         log.info("Prepared {} api-automation rows for plan {} as {} ({} files)",
                 rows.size(), plan.getName(), exported.fileName(), exported.fileCount());
+        auditService.recordExported(request.specId(), "Excel", exported.fileName(), exported.rowCount());
         return exported;
     }
 
@@ -500,17 +501,11 @@ public class TestDataStudioService {
         List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), planId, null);
         String environmentName = requireEnvironmentNameForScopedCases(
                 request.specId(), request.environmentId(), storedCases, "export this collection");
-        boolean anyVisible = storedCases.stream()
-                .anyMatch(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName)
-                        && CaseLifecycle.isExportable(testCase));
-        if (!anyVisible) {
-            throw new IllegalStateException(environmentName == null
-                    ? "No published test cases have been saved for this plan yet"
-                    : "No published test cases in environment '" + environmentName + "' for this plan");
-        }
+        exportableCases(environmentName, storedCases);
         CollectionExport exported = CollectionExporter.export(studioStorage, request.specId(), planId, environmentName);
         log.info("Prepared collection {} ({} cases, {} files)", exported.fileName(), exported.caseCount(),
                 exported.fileCount());
+        auditService.recordExported(request.specId(), "Collection", exported.fileName(), exported.caseCount());
         return exported;
     }
 
@@ -527,7 +522,7 @@ public class TestDataStudioService {
         }
         String environmentName = environmentName(specId, environmentId);
         CollectionImportResult imported = CollectionImporter.importInto(
-                studioStorage, bytes, fileName, specId, environmentName);
+                studioStorage, bytes, fileName, specId, environmentName, canPublish());
         log.info("Imported collection into spec {} plan {} (created={}, updated={}, files={})",
                 imported.specName(), imported.planName(), imported.createdCases(), imported.updatedCases(),
                 imported.importedFiles());
@@ -546,6 +541,7 @@ public class TestDataStudioService {
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + request.specId()));
         EnvironmentExport exported = EnvironmentExporter.export(spec, stored);
         log.info("Prepared environment {} for spec {}", exported.fileName(), spec.getName());
+        auditService.recordExported(request.specId(), "Environment", exported.fileName(), 1);
         return exported;
     }
 
@@ -731,6 +727,9 @@ public class TestDataStudioService {
         config.put("billing", String.valueOf(properties.isBillingEnabled()));
         config.put("saas", String.valueOf(properties.isAuthEnabled()));
         config.put("authProvider", properties.resolvedAuthProvider());
+        config.put("passwordMinLength", String.valueOf(
+                com.tx.api.test.generator.studio.tenant.PasswordPolicy.MIN_LENGTH));
+        config.put("passwordRule", com.tx.api.test.generator.studio.tenant.PasswordPolicy.RULE);
         if (properties.isLdapAuth()) {
             String domain = properties.getAuth().getLdap().normalizedDomain();
             config.put("loginHint", "you@" + domain);
@@ -1032,6 +1031,7 @@ public class TestDataStudioService {
         StudioEnvironment target = CollectionDocuments.parseEnvironment(targetStored.getDocumentJson());
         StudioTestCase copy = EnvironmentOverlay.copy(source);
         copy.setId(UUID.randomUUID().toString());
+        copy.setLifecycle(CaseLifecycle.DRAFT);
         copy.setEnvironments(EnvironmentScope.normalize(List.of(target.name())));
         copy.setRequestBody(copyRequestFiles(source.getId(), copy.getId(), source.getRequestBody()));
         RequestFileSupport.stampTestCaseId(copy.getRequestBody(), copy.getId());
@@ -1039,6 +1039,41 @@ public class TestDataStudioService {
         bindCaseFiles(copy);
         auditService.recordCaseCreated(copy);
         return toView(copy, request.toEnvironmentId());
+    }
+
+    private List<StudioTestCase> exportableCases(String environmentName, List<StudioTestCase> storedCases) {
+        List<StudioTestCase> visible = storedCases.stream()
+                .filter(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName))
+                .toList();
+        List<StudioTestCase> cases = visible.stream().filter(CaseLifecycle::isExportable).toList();
+        if (!cases.isEmpty()) {
+            return cases;
+        }
+        if (visible.stream().anyMatch(testCase -> !CaseLifecycle.isDraft(testCase))) {
+            throw new IllegalStateException("Published cases are disabled and were left out of the export");
+        }
+        throw new IllegalStateException(environmentName == null
+                ? "No published test cases have been saved for this plan yet"
+                : "No published test cases in environment '" + environmentName + "' for this plan");
+    }
+
+    private void assertPublisherWhenReady(StudioTestCase testCase) {
+        if (testCase == null || CaseLifecycle.isDraft(testCase) || canPublish()) {
+            return;
+        }
+        throw new ForbiddenException("An owner or admin has to publish a case");
+    }
+
+    private boolean canPublish() {
+        TenantContext.Scope scope = TenantContext.current();
+        String role = scope == null ? null : scope.role();
+        return PublishPolicy.allows(properties.isAuthEnabled(), role);
+    }
+
+    private void auditPublished(StudioTestCase testCase, boolean wasDraftOrNew) {
+        if (wasDraftOrNew && testCase != null && !CaseLifecycle.isDraft(testCase)) {
+            auditService.recordPublished(testCase);
+        }
     }
 
     private void saveOverlay(StudioTestCase testCase, SaveTestDataRequest request) {

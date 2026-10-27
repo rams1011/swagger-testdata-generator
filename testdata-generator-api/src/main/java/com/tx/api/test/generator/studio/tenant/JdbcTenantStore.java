@@ -341,14 +341,69 @@ public class JdbcTenantStore implements TenantStore {
 
     @Override
     public void saveAccount(Account account) {
+        Instant changedAt = account.getPasswordChangedAt() != null
+                ? account.getPasswordChangedAt()
+                : account.getCreatedAt();
         jdbcTemplate.update("""
-                        INSERT INTO td_account (account_id, email, password_hash, display_name, created_at, platform_role)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO td_account (
+                            account_id, email, password_hash, display_name, created_at, platform_role,
+                            password_changed_at, must_change_password
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                 account.getId(), account.getEmail(), account.getPasswordHash(),
                 account.getDisplayName(), Timestamp.from(account.getCreatedAt()),
                 account.getPlatformRole() == null || account.getPlatformRole().isBlank()
-                        ? "USER" : account.getPlatformRole());
+                        ? "USER" : account.getPlatformRole(),
+                changedAt == null ? null : Timestamp.from(changedAt),
+                account.isMustChangePassword());
+    }
+
+    @Override
+    public void updateAccountPassword(String accountId, String passwordHash, Instant changedAt, boolean mustChangePassword) {
+        jdbcTemplate.update("""
+                        UPDATE td_account
+                           SET password_hash = ?, password_changed_at = ?, must_change_password = ?
+                         WHERE account_id = ?
+                        """,
+                passwordHash, changedAt == null ? null : Timestamp.from(changedAt), mustChangePassword, accountId);
+    }
+
+    @Override
+    public void rememberPasswordHash(String accountId, String passwordHash, Instant retiredAt) {
+        jdbcTemplate.update("""
+                        INSERT INTO td_password_history (history_id, account_id, password_hash, retired_at)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                java.util.UUID.randomUUID().toString(), accountId, passwordHash,
+                Timestamp.from(retiredAt == null ? Instant.now() : retiredAt));
+    }
+
+    @Override
+    public java.util.List<String> listPasswordHashes(String accountId, int limit) {
+        int size = limit < 1 ? 1 : limit;
+        return jdbcTemplate.query("""
+                        SELECT password_hash
+                          FROM td_password_history
+                         WHERE account_id = ?
+                         ORDER BY retired_at DESC
+                         LIMIT ?
+                        """,
+                (rs, rowNum) -> rs.getString("password_hash"), accountId, size);
+    }
+
+    @Override
+    public void trimPasswordHistory(String accountId, int keep) {
+        java.util.List<String> ids = jdbcTemplate.query("""
+                        SELECT history_id
+                          FROM td_password_history
+                         WHERE account_id = ?
+                         ORDER BY retired_at DESC
+                        """,
+                (rs, rowNum) -> rs.getString("history_id"), accountId);
+        int retain = Math.max(keep, 0);
+        for (int index = retain; index < ids.size(); index++) {
+            jdbcTemplate.update("DELETE FROM td_password_history WHERE history_id = ?", ids.get(index));
+        }
     }
 
     @Override
@@ -543,6 +598,8 @@ public class JdbcTenantStore implements TenantStore {
             account.setCreatedAt(created == null ? Instant.now() : created.toInstant());
             String platformRole = rs.getString("platform_role");
             account.setPlatformRole(platformRole == null || platformRole.isBlank() ? "USER" : platformRole);
+            account.setPasswordChangedAt(instant(rs.getTimestamp("password_changed_at")));
+            account.setMustChangePassword(rs.getBoolean("must_change_password"));
             return account;
         };
     }

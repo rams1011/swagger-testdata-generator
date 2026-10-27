@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.collection;
 import com.tx.api.test.generator.studio.config.H2Database;
 import com.tx.api.test.generator.studio.dto.CollectionExport;
 import com.tx.api.test.generator.studio.dto.CollectionImportResult;
+import com.tx.api.test.generator.studio.model.CaseLifecycle;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
@@ -156,6 +157,16 @@ class CollectionImportTest {
         assertEquals(1, imported.importedFiles());
         assertArrayEquals("png-bytes".getBytes(StandardCharsets.UTF_8),
                 storage.findRequestFile("case-create-role", "file-photo").orElseThrow().getContent());
+    }
+
+    @Test
+    void memberImportKeepsPublishedCasesAsDrafts() throws Exception {
+        storage.saveSpec(localSpec());
+
+        CollectionImporter.importInto(storage, goldenBytes(), "collection.json", "spec-local", null, false);
+
+        assertEquals(CaseLifecycle.DRAFT, storage.findTestCase("case-create-role").orElseThrow().getLifecycle());
+        assertEquals(CaseLifecycle.DRAFT, storage.findTestCase("case-get-role").orElseThrow().getLifecycle());
     }
 
     @Test

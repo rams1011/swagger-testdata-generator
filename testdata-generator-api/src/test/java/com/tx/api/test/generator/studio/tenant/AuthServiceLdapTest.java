@@ -41,7 +41,7 @@ class AuthServiceLdapTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<LdapAuthenticator> ldap = mock(ObjectProvider.class);
 
-        AuthService authService = new AuthService(properties, tenantStores, entitlements, ldap);
+        AuthService authService = new AuthService(properties, tenantStores, entitlements, ldap, null);
         TenantContext.setSaasEnabled(true);
         when(store.findOrgRole("org-1", "admin-1")).thenReturn(Optional.of("OWNER"));
         TenantContext.set(new TenantContext.Scope("tenant-1", "admin-1", "admin@example.com", "OWNER"));

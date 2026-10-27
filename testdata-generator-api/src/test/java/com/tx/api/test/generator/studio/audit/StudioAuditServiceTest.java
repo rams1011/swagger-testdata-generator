@@ -21,6 +21,7 @@ import java.sql.Connection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class StudioAuditServiceTest {
 
@@ -69,6 +70,28 @@ class StudioAuditServiceTest {
             assertEquals("CREATED", events.get(1).action());
             assertEquals("qa@test", events.get(0).actorLabel());
             assertFalse(events.get(0).detail().isBlank());
+        });
+    }
+
+    @Test
+    void recordsSignInAndPublishOutsideASpec() {
+        TenantContext.runAs("tenant-9", "acct-9", "qa@test", "OWNER", () -> {
+            auditService.recordLogin("tenant-9", "acct-9", "qa@test");
+            auditService.recordLoginFailed("tenant-9", "nobody@test");
+            auditService.recordPublished(caseRow("case-9", "spec-9"));
+            auditService.recordExported("spec-9", "Collection", "demo.json", 2);
+
+            java.util.List<AuditEventView> events = auditService.listForWorkspace(10);
+            assertEquals(4, events.size());
+            java.util.Map<String, AuditEventView> byAction = new java.util.HashMap<>();
+            for (AuditEventView event : events) {
+                byAction.put(event.action(), event);
+            }
+            assertEquals("qa@test", byAction.get("LOGGED_IN").actorLabel());
+            assertEquals("Sign-in failed", byAction.get("LOGIN_FAILED").detail());
+            assertEquals("nobody@test", byAction.get("LOGIN_FAILED").actorLabel());
+            assertEquals("PUBLISHED", byAction.get("PUBLISHED").action());
+            assertTrue(byAction.get("EXPORTED").detail().contains("demo.json"));
         });
     }
 

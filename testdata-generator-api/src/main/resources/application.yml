@@ -2,6 +2,38 @@ server:
   port: ${SERVER_PORT:8083}
   forward-headers-strategy: framework
 
+management:
+  # Separate from the API so Prometheus scrapes are not gated by workspace auth.
+  # Keep this port off the public network.
+  server:
+    port: ${MANAGEMENT_PORT:8084}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: never
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+    export:
+      # Off unless a collector is configured. Boot 4 enables this exporter by default.
+      otlp:
+        enabled: ${OTEL_EXPORTER_OTLP_ENABLED:false}
+  otlp:
+    metrics:
+      export:
+        # The OpenTelemetry starter otherwise pushes metrics to localhost:4318.
+        enabled: ${OTEL_EXPORTER_OTLP_METRICS_ENABLED:false}
+  opentelemetry:
+    tracing:
+      export:
+        otlp:
+          endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
+
 spring:
   application:
     name: testdata-studio
@@ -41,12 +73,21 @@ testdata:
   run-history:
     # Oldest batches are deleted after each write. 0 disables pruning.
     max-per-spec: 100
+  run:
+    # Try and Run plan. Hosted editions cannot call loopback, private, link-local, or cloud metadata.
+    # The local profile allows private networks so a desktop app can call localhost.
+    allow-private-networks: ${TESTDATA_RUN_ALLOW_PRIVATE_NETWORKS:false}
+    # Optional tighter list. Example: api.example.com,*.partner.test
+    allow-hosts: ${TESTDATA_RUN_ALLOW_HOSTS:}
   # Studio user sign-in (not run-auth on Try/Run). Ignored when testdata.edition=local.
   auth:
     # local = PBKDF2 passwords in td_account. ldap = directory bind at POST /api/auth/login only.
     provider: ${TESTDATA_AUTH_PROVIDER:local}
     # When provider=ldap, bootstrap admin (testdata.saas.admin-*) may still sign in locally if LDAP is down.
     local-admin-fallback: ${TESTDATA_AUTH_LOCAL_ADMIN_FALLBACK:true}
+    # Local accounts only. Directory passwords are not stored or aged here.
+    password-max-age-days: ${TESTDATA_PASSWORD_MAX_AGE_DAYS:90}
+    password-history: ${TESTDATA_PASSWORD_HISTORY:5}
     ldap:
       # Required when provider=ldap. Prefer ldaps://. No sample host — startup fails if this is empty.
       url: ${TESTDATA_LDAP_URL:}
@@ -85,11 +126,9 @@ testdata:
     workspace-name: ${TESTDATA_SAAS_WORKSPACE_NAME:Default}
 
 logging:
+  pattern:
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{requestId:-}] [%X{traceId:-}/%X{spanId:-}] %logger{40} - %msg%n"
   level:
     com.tx.api.test.generator.studio: INFO
     # Per-method traces. Leave at WARN. Set this logger to DEBUG only when tracing a single call.
     com.tx.api.test.generator.studio.logging.MethodLoggingAspect: WARN
-    # Sign-in provider, workspace header selection, and run check counts.
-    com.tx.api.test.generator.studio.tenant.TenantFilter: DEBUG
-    com.tx.api.test.generator.studio.service.TestRunService: DEBUG
-    com.tx.api.test.generator.studio.tenant.AuthService: DEBUG

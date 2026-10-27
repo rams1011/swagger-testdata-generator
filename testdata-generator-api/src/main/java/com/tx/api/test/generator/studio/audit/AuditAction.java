@@ -5,5 +5,16 @@ public enum AuditAction {
     UPDATED,
     DELETED,
     RENAMED,
-    RELOADED
+    RELOADED,
+    PUBLISHED,
+    EXPORTED,
+    LOGGED_IN,
+    LOGIN_FAILED,
+    LOGGED_OUT,
+    SWITCHED,
+    GRANTED,
+    ROLE_CHANGED,
+    REVOKED,
+    ACCESS_REQUESTED,
+    PASSWORD_CHANGED
 }

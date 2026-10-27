@@ -44,7 +44,7 @@ class AuthServiceOrgTest {
         TenantContext.setSaasEnabled(true);
         TenantContext.set(new TenantContext.Scope("ws-a", "admin-1", "admin@example.com", "OWNER"));
 
-        authService.addOrgMember(new AddMemberRequest("new@example.com", "New User", "password123", "MEMBER"));
+        authService.addOrgMember(new AddMemberRequest("new@example.com", "New User", "password1234", "MEMBER"));
 
         verify(store).saveOrgMembership(eq("org-1"), any(String.class), eq("MEMBER"));
         verify(store, never()).saveMembership(any(Membership.class));
@@ -230,7 +230,7 @@ class AuthServiceOrgTest {
         when(entitlements.getIfAvailable()).thenReturn(entitlementService);
         @SuppressWarnings("unchecked")
         ObjectProvider<LdapAuthenticator> ldap = mock(ObjectProvider.class);
-        return new AuthService(properties, tenantStores, entitlements, ldap);
+        return new AuthService(properties, tenantStores, entitlements, ldap, null);
     }
 
     private static Tenant tenant(String id, String orgId) {

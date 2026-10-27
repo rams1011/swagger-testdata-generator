@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.config;
 
+import com.tx.api.test.generator.studio.tenant.PasswordPolicy;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 @ConfigurationProperties(prefix = "testdata")
@@ -7,6 +8,7 @@ public class StudioProperties {
 
     private H2 h2 = new H2();
     private RunHistory runHistory = new RunHistory();
+    private Run run = new Run();
     private Saas saas = new Saas();
     private Auth auth = new Auth();
     /**
@@ -32,6 +34,14 @@ public class StudioProperties {
 
     public void setRunHistory(RunHistory runHistory) {
         this.runHistory = runHistory;
+    }
+
+    public Run getRun() {
+        return run;
+    }
+
+    public void setRun(Run run) {
+        this.run = run == null ? new Run() : run;
     }
 
     public Saas getSaas() {
@@ -195,6 +205,48 @@ public class StudioProperties {
         }
     }
 
+    /**
+     * Limits where Try and Run plan may send the API process.
+     */
+    public static class Run {
+        /**
+         * When false, loopback, private, link-local, and cloud-metadata targets are rejected.
+         * The local profile turns this on so a desktop app can call localhost.
+         */
+        private boolean allowPrivateNetworks = false;
+        /**
+         * Comma-separated hosts. {@code *.example.com} matches subdomains only.
+         * Empty means any host that passes the network check.
+         */
+        private String allowHosts = "";
+
+        public boolean isAllowPrivateNetworks() {
+            return allowPrivateNetworks;
+        }
+
+        public void setAllowPrivateNetworks(boolean allowPrivateNetworks) {
+            this.allowPrivateNetworks = allowPrivateNetworks;
+        }
+
+        public String getAllowHosts() {
+            return allowHosts;
+        }
+
+        public void setAllowHosts(String allowHosts) {
+            this.allowHosts = allowHosts;
+        }
+
+        public java.util.List<String> allowHostRules() {
+            if (allowHosts == null || allowHosts.isBlank()) {
+                return java.util.List.of();
+            }
+            return java.util.Arrays.stream(allowHosts.split(","))
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .toList();
+        }
+    }
+
     public static class Saas {
         /**
          * Deprecated. Hosting mode is {@code testdata.edition} only.
@@ -305,6 +357,8 @@ public class StudioProperties {
     public static class Auth {
         private String provider = "local";
         private boolean localAdminFallback = true;
+        private int passwordMaxAgeDays = PasswordPolicy.DEFAULT_MAX_AGE_DAYS;
+        private int passwordHistory = PasswordPolicy.DEFAULT_HISTORY;
         private Ldap ldap = new Ldap();
 
         public String getProvider() {
@@ -313,6 +367,30 @@ public class StudioProperties {
 
         public void setProvider(String provider) {
             this.provider = provider;
+        }
+
+        public int getPasswordMaxAgeDays() {
+            return passwordMaxAgeDays;
+        }
+
+        public void setPasswordMaxAgeDays(int passwordMaxAgeDays) {
+            this.passwordMaxAgeDays = passwordMaxAgeDays;
+        }
+
+        public int resolvedPasswordMaxAgeDays() {
+            return Math.max(passwordMaxAgeDays, 0);
+        }
+
+        public int getPasswordHistory() {
+            return passwordHistory;
+        }
+
+        public void setPasswordHistory(int passwordHistory) {
+            this.passwordHistory = passwordHistory;
+        }
+
+        public int resolvedPasswordHistory() {
+            return passwordHistory < 1 ? 1 : passwordHistory;
         }
 
         public boolean isLocalAdminFallback() {
