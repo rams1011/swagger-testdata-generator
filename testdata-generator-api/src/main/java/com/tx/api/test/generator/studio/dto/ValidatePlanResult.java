@@ -7,6 +7,7 @@ public record ValidatePlanResult(
         String planId,
         int runnableCount,
         int skippedDisabled,
+        int skippedDraft,
         int skippedEnvironment,
         boolean ready,
         List<ValidatePlanCaseEntry> executionOrder,

@@ -338,7 +338,7 @@ public class JdbcStudioStorage implements StudioStorage {
                                SET spec_id = ?, plan_id = ?, operation_key = ?, test_name = ?, http_method = ?, raw_path = ?,
                                    endpoint = ?, base_url = ?, content_type = ?, request_body_json = ?,
                                    response_schema_json = ?, status_code = ?, response_type = ?, expected_response = ?,
-                                   enabled = ?, test_group = ?, json_path_assertions = ?, extracts = ?, max_response_time_ms = ?,
+                                   enabled = ?, lifecycle = ?, test_group = ?, json_path_assertions = ?, extracts = ?, max_response_time_ms = ?,
                                    environment_names = ?, updated_at = ?, updated_by_account_id = ?, updated_by_label = ?
                              WHERE test_case_id = ?
                                AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
@@ -359,6 +359,8 @@ public class JdbcStudioStorage implements StudioStorage {
             args.add(testCase.getResponseType());
             args.add(testCase.getExpectedResponse());
             args.add(testCase.getEnabled());
+            args.add(com.tx.api.test.generator.studio.model.CaseLifecycle.normalizeOr(testCase.getLifecycle(),
+                    com.tx.api.test.generator.studio.model.CaseLifecycle.READY));
             args.add(testCase.getTestGroup());
             args.add(testCase.getJsonPathAssertions());
             args.add(testCase.getExtracts());
@@ -398,16 +400,18 @@ public class JdbcStudioStorage implements StudioStorage {
                             INSERT INTO td_test_case (
                                 test_case_id, spec_id, plan_id, operation_key, test_name, http_method, raw_path, endpoint,
                                 base_url, content_type, request_body_json, response_schema_json, status_code,
-                                response_type, expected_response, enabled, test_group, json_path_assertions, extracts,
+                                response_type, expected_response, enabled, lifecycle, test_group, json_path_assertions, extracts,
                                 max_response_time_ms, environment_names, created_at, updated_at,
                                 created_by_account_id, created_by_label, updated_by_account_id, updated_by_label)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
                     testCase.getId(), testCase.getSpecId(), testCase.getPlanId(), testCase.getOperationKey(),
                     testCase.getTestName(), testCase.getMethod(), testCase.getRawPath(), testCase.getEndpoint(),
                     testCase.getBaseUrl(), testCase.getContentType(), JsonMaps.toJson(testCase.getRequestBody()),
                     JsonMaps.toJson(testCase.getResponseJsonSchema()), testCase.getStatusCode(),
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getEnabled(),
+                    com.tx.api.test.generator.studio.model.CaseLifecycle.normalizeOr(testCase.getLifecycle(),
+                            com.tx.api.test.generator.studio.model.CaseLifecycle.READY),
                     testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
                     testCase.getMaxResponseTimeMs(), JsonMaps.toJson(testCase.getEnvironments()),
                     createdAt, updatedAt, testCase.getCreatedByAccountId(), testCase.getCreatedByLabel(),
@@ -702,6 +706,8 @@ public class JdbcStudioStorage implements StudioStorage {
             testCase.setResponseType(rs.getString("response_type"));
             testCase.setExpectedResponse(rs.getString("expected_response"));
             testCase.setEnabled(rs.getString("enabled"));
+            testCase.setLifecycle(com.tx.api.test.generator.studio.model.CaseLifecycle.normalizeOr(
+                    rs.getString("lifecycle"), com.tx.api.test.generator.studio.model.CaseLifecycle.READY));
             testCase.setTestGroup(rs.getString("test_group"));
             testCase.setJsonPathAssertions(rs.getString("json_path_assertions"));
             testCase.setExtracts(rs.getString("extracts"));

@@ -40,6 +40,7 @@ import com.tx.api.test.generator.studio.dto.SaveTestDataRequest;
 import com.tx.api.test.generator.studio.dto.SaveTestPlanRequest;
 import com.tx.api.test.generator.studio.dto.TestCaseView;
 import com.tx.api.test.generator.studio.dto.TestPlanView;
+import com.tx.api.test.generator.studio.model.CaseLifecycle;
 import com.tx.api.test.generator.studio.model.LoadedSpec;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
@@ -373,7 +374,8 @@ public class TestDataStudioService {
         int failed = 0;
         int skipped = 0;
         for (StudioTestCase testCase : cases) {
-            if ("N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()))
+            if (CaseLifecycle.isDraft(testCase)
+                    || "N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()))
                     || !EnvironmentScope.visible(testCase.getEnvironments(), environmentName)) {
                 results.add(testRunService.skipped(testCase));
                 skipped++;
@@ -407,9 +409,14 @@ public class TestDataStudioService {
         List<ValidatePlanCaseEntry> executionOrder = new ArrayList<>();
         int runnableCount = 0;
         int skippedDisabled = 0;
+        int skippedDraft = 0;
         int skippedEnvironment = 0;
         Set<String> availableExtracts = new LinkedHashSet<>();
         for (StudioTestCase testCase : cases) {
+            if (CaseLifecycle.isDraft(testCase)) {
+                skippedDraft++;
+                continue;
+            }
             if ("N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()))) {
                 skippedDisabled++;
                 continue;
@@ -433,12 +440,16 @@ public class TestDataStudioService {
                     testCase.getId(), testName, testCase.getMethod(), testCase.getEndpoint()));
             runnableCount++;
         }
-        if (runnableCount == 0) {
-            warnings.add("No enabled cases run in this environment.");
+        if (skippedDraft > 0) {
+            warnings.add(skippedDraft + " draft case" + (skippedDraft == 1 ? " is" : "s are")
+                    + " excluded from Run plan and export.");
         }
-        boolean ready = runnableCount > 0 && warnings.isEmpty();
+        if (runnableCount == 0) {
+            warnings.add("No published cases run in this environment.");
+        }
+        boolean ready = runnableCount > 0 && warnings.stream().noneMatch(line -> !line.contains("draft case"));
         return new ValidatePlanResult(request.specId(), request.planId(), runnableCount,
-                skippedDisabled, skippedEnvironment, ready, executionOrder, warnings);
+                skippedDisabled, skippedDraft, skippedEnvironment, ready, executionOrder, warnings);
     }
 
     public ExcelExport export(ExportRequest request) {
@@ -452,11 +463,12 @@ public class TestDataStudioService {
                 request.specId(), request.environmentId(), storedCases, "export this plan");
         List<StudioTestCase> cases = storedCases.stream()
                 .filter(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName))
+                .filter(CaseLifecycle::isExportable)
                 .toList();
         if (cases.isEmpty()) {
             throw new IllegalStateException(environmentName == null
-                    ? "No test cases have been saved for this plan yet"
-                    : "No test cases in environment '" + environmentName + "' for this plan");
+                    ? "No published test cases have been saved for this plan yet"
+                    : "No published test cases in environment '" + environmentName + "' for this plan");
         }
 
         List<TestDataRow> rows = new ArrayList<>();
@@ -489,11 +501,12 @@ public class TestDataStudioService {
         String environmentName = requireEnvironmentNameForScopedCases(
                 request.specId(), request.environmentId(), storedCases, "export this collection");
         boolean anyVisible = storedCases.stream()
-                .anyMatch(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName));
+                .anyMatch(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName)
+                        && CaseLifecycle.isExportable(testCase));
         if (!anyVisible) {
             throw new IllegalStateException(environmentName == null
-                    ? "No test cases have been saved for this plan yet"
-                    : "No test cases in environment '" + environmentName + "' for this plan");
+                    ? "No published test cases have been saved for this plan yet"
+                    : "No published test cases in environment '" + environmentName + "' for this plan");
         }
         CollectionExport exported = CollectionExporter.export(studioStorage, request.specId(), planId, environmentName);
         log.info("Prepared collection {} ({} cases, {} files)", exported.fileName(), exported.caseCount(),
@@ -834,6 +847,13 @@ public class TestDataStudioService {
         }
         testCase.setExpectedResponse(StringUtils.defaultIfBlank(request.expectedResponse(), NA));
         testCase.setEnabled(StringUtils.defaultIfBlank(request.enabled(), "Y"));
+        if (creating) {
+            testCase.setLifecycle(CaseLifecycle.normalizeOr(request.lifecycle(), CaseLifecycle.DRAFT));
+        } else if (StringUtils.isNotBlank(request.lifecycle())) {
+            testCase.setLifecycle(CaseLifecycle.normalize(request.lifecycle()));
+        } else if (StringUtils.isBlank(testCase.getLifecycle())) {
+            testCase.setLifecycle(CaseLifecycle.READY);
+        }
         testCase.setTestGroup(StringUtils.defaultIfBlank(request.testGroup(), operation.tag()));
         if (StringUtils.isNotBlank(request.jsonPathAssertions())) {
             testCase.setJsonPathAssertions(request.jsonPathAssertions());
@@ -989,6 +1009,7 @@ public class TestDataStudioService {
                 view.getResponseType(),
                 view.getExpectedResponse(),
                 view.getEnabled(),
+                CaseLifecycle.normalizeOr(view.getLifecycle(), CaseLifecycle.READY),
                 view.getTestGroup(),
                 view.getJsonPathAssertions(),
                 view.getExtracts(),

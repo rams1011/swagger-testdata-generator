@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.collection;
 
+import com.tx.api.test.generator.studio.model.CaseLifecycle;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
@@ -67,6 +68,7 @@ public final class CollectionMapper {
                 .orElseThrow(() -> new CollectionFormatException("Plan not found: " + planId));
         List<StudioTestCase> cases = storage.listTestCases(specId, planId, null).stream()
                 .filter(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName))
+                .filter(CaseLifecycle::isExportable)
                 .toList();
         Map<String, List<StudioRequestFile>> filesByCaseId = new LinkedHashMap<>();
         for (StudioTestCase testCase : cases) {
@@ -197,6 +199,7 @@ public final class CollectionMapper {
                 testCase.getResponseType(),
                 testCase.getExpectedResponse(),
                 testCase.getEnabled(),
+                CaseLifecycle.isDraft(testCase) ? CaseLifecycle.DRAFT : null,
                 testCase.getTestGroup(),
                 testCase.getJsonPathAssertions(),
                 testCase.getExtracts(),
@@ -268,6 +271,7 @@ public final class CollectionMapper {
         testCase.setResponseType(item.responseType());
         testCase.setExpectedResponse(item.expectedResponse());
         testCase.setEnabled(StringUtils.defaultIfBlank(item.enabled(), "Y"));
+        testCase.setLifecycle(CaseLifecycle.normalizeOr(item.lifecycle(), CaseLifecycle.READY));
         testCase.setTestGroup(item.testGroup());
         testCase.setJsonPathAssertions(item.jsonPathAssertions());
         testCase.setExtracts(item.extracts());

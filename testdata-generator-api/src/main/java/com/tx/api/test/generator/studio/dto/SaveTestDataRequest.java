@@ -17,6 +17,7 @@ public record SaveTestDataRequest(
         String responseType,
         String expectedResponse,
         String enabled,
+        String lifecycle,
         String testGroup,
         String jsonPathAssertions,
         String extracts,
