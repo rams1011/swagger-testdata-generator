@@ -204,7 +204,9 @@ public class RunHistoryService {
         stored.setElapsedMs(result.elapsedMs());
         stored.setMaxResponseTimeMs(result.maxResponseTimeMs());
         stored.setTimedOut(result.timedOut());
-        stored.setError(result.error());
+        stored.setError(result.skipped() && StringUtils.isBlank(result.error())
+                ? result.skipReason()
+                : result.error());
         stored.setRequestHeaders(redactHeaders(result.requestHeaders()));
         stored.setRequestBody(truncate(requestBodySnapshot(testCase)));
         stored.setRequestContentType(testCase.getContentType());

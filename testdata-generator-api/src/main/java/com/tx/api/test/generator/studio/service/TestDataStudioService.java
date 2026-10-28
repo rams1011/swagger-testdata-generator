@@ -336,20 +336,26 @@ public class TestDataStudioService {
                 ? RunHistoryService.TRIGGER_CASE
                 : RunHistoryService.TRIGGER_TRY;
         Map<String, String> variables = new LinkedHashMap<>();
-        runPrerequisites(testCase, request.auth(), trigger, variables, environmentId);
+        RunTestResult failedPrior = runPrerequisites(testCase, request.auth(), trigger, variables, environmentId);
+        if (failedPrior != null) {
+            RunTestResult skipped = testRunService.skipped(testCase, PlanRun.stopReason(failedPrior.testName()));
+            runHistoryService.recordSingle(trigger, environmentId, testCase, skipped);
+            log.info("Skipped {} for case {} because {} failed", trigger, testCase.getId(), failedPrior.testName());
+            return skipped;
+        }
         RunTestResult result = testRunService.execute(testCase, request.auth(), variables);
         runHistoryService.recordSingle(trigger, environmentId, testCase, result);
         log.info("Finished {} for case {} passed={}", trigger, testCase.getId(), result.passed());
         return result;
     }
 
-    private void runPrerequisites(StudioTestCase testCase, RunAuth auth, String trigger,
-                                  Map<String, String> variables, String environmentId) {
+    private RunTestResult runPrerequisites(StudioTestCase testCase, RunAuth auth, String trigger,
+                                           Map<String, String> variables, String environmentId) {
         if (testCase == null || CaseVariables.placeholderNames(testCase).isEmpty()) {
-            return;
+            return null;
         }
         if (StringUtils.isBlank(testCase.getSpecId()) || StringUtils.isBlank(testCase.getPlanId())) {
-            return;
+            return null;
         }
         String environmentName = environmentName(testCase.getSpecId(), environmentId);
         List<StudioTestCase> priors = CaseVariables.prerequisites(
@@ -361,7 +367,11 @@ public class TestDataStudioService {
             }
             RunTestResult priorResult = testRunService.execute(applyOverlay(prior, environmentId), auth, variables);
             runHistoryService.recordSingle(trigger, environmentId, prior, priorResult);
+            if (!priorResult.passed()) {
+                return priorResult;
+            }
         }
+        return null;
     }
 
     public RunPlanResult runPlan(RunPlanRequest request) {
@@ -376,32 +386,33 @@ public class TestDataStudioService {
         String environmentName = requireEnvironmentNameForScopedCases(
                 request.specId(), request.environmentId(), storedCases, "run this plan");
         List<StudioTestCase> cases = CaseVariables.orderForChain(storedCases);
-        List<RunTestResult> results = new ArrayList<>();
         Map<String, String> variables = new LinkedHashMap<>();
-        int passed = 0;
-        int failed = 0;
-        int skipped = 0;
-        for (StudioTestCase testCase : cases) {
-            if (CaseLifecycle.isDraft(testCase)
-                    || "N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()))
-                    || !EnvironmentScope.visible(testCase.getEnvironments(), environmentName)) {
-                results.add(testRunService.skipped(testCase));
-                skipped++;
-                continue;
+        String environmentId = request.environmentId();
+        PlanRun.Outcome outcome = PlanRun.execute(cases, new PlanRun.Actions() {
+            @Override
+            public boolean runnable(StudioTestCase testCase) {
+                return !CaseLifecycle.isDraft(testCase)
+                        && !"N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()))
+                        && EnvironmentScope.visible(testCase.getEnvironments(), environmentName);
             }
-            RunTestResult result = testRunService.execute(applyOverlay(testCase, request.environmentId()), request.auth(), variables);
-            results.add(result);
-            if (result.passed()) {
-                passed++;
-            } else {
-                failed++;
+
+            @Override
+            public RunTestResult execute(StudioTestCase testCase) {
+                return testRunService.execute(applyOverlay(testCase, environmentId), request.auth(), variables);
             }
-        }
-        runHistoryService.recordPlan(request.specId(), request.planId(), request.environmentId(), results, cases);
+
+            @Override
+            public RunTestResult skip(StudioTestCase testCase, String reason) {
+                return reason == null
+                        ? testRunService.skipped(testCase)
+                        : testRunService.skipped(testCase, reason);
+            }
+        });
+        runHistoryService.recordPlan(request.specId(), request.planId(), environmentId, outcome.results(), cases);
         log.info("Finished plan {} on spec {} passed={} failed={} skipped={}",
-                request.planId(), request.specId(), passed, failed, skipped);
-        return new RunPlanResult(request.specId(), request.planId(), passed, failed, skipped,
-                failed == 0 && passed > 0, results);
+                request.planId(), request.specId(), outcome.passed(), outcome.failed(), outcome.skipped());
+        return new RunPlanResult(request.specId(), request.planId(), outcome.passed(), outcome.failed(),
+                outcome.skipped(), outcome.failed() == 0 && outcome.passed() > 0, outcome.results());
     }
 
     public ValidatePlanResult validatePlan(RunPlanRequest request) {

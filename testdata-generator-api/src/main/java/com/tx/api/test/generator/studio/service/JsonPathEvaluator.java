@@ -126,11 +126,11 @@ final class JsonPathEvaluator {
             return null;
         }
         String path = jsonPath.trim();
+        if (!path.startsWith("$")) {
+            path = path.startsWith("[") ? "$" + path : "$." + path;
+        }
         if ("$".equals(path)) {
             return root;
-        }
-        if (!path.startsWith("$")) {
-            return null;
         }
         JsonElement current = root;
         int index = 1;

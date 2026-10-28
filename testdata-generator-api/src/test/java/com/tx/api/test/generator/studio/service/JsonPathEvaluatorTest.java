@@ -25,4 +25,12 @@ class JsonPathEvaluatorTest {
         assertTrue(JsonPathEvaluator.matches(" hello ", actual));
         assertEquals(" hello ", JsonPathEvaluator.formatValue(actual));
     }
+
+    @Test
+    void bareNameReadsTheSameFieldAsADollarPath() {
+        var root = JsonParser.parseString("{\"id\":1}");
+
+        assertEquals("1", JsonPathEvaluator.formatValue(JsonPathEvaluator.read(root, "id")));
+        assertTrue(JsonPathEvaluator.matches("1.0", JsonPathEvaluator.read(root, "$.id")));
+    }
 }

@@ -141,13 +141,13 @@ public class TestRunService {
                 downloadPath = saveDownload(bound, bytes, contentType, firstHeader(rawHeaders, "Content-Disposition"));
                 bodyText = "[binary " + bytes.length + " bytes" + (downloadPath == null ? "" : " saved to " + downloadPath) + "]";
             } else {
-                bodyText = truncate(new String(bytes, charsetOf(contentType)));
+                bodyText = new String(bytes, charsetOf(contentType));
             }
             return evaluate(bound, url, redact(headers), response.statusCode(), rawHeaders,
-                    bodyText, downloadPath, elapsedMs, maxMs, null, store);
+                    bodyText, downloadPath, bytes, elapsedMs, maxMs, null, store);
         } catch (HttpTimeoutException exception) {
             long elapsedMs = elapsed(started);
-            return evaluate(bound, url, redact(headers), 0, Map.of(), null, null, elapsedMs, maxMs,
+            return evaluate(bound, url, redact(headers), 0, Map.of(), null, null, null, elapsedMs, maxMs,
                     "Request timed out after " + timeoutMs + "ms", store);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -159,6 +159,10 @@ public class TestRunService {
     }
 
     public RunTestResult skipped(StudioTestCase testCase) {
+        return skipped(testCase, "Case is disabled (enabled=N)");
+    }
+
+    public RunTestResult skipped(StudioTestCase testCase, String reason) {
         String url = "";
         try {
             url = buildUrl(testCase.getBaseUrl(), testCase.getEndpoint(), copyMap(testCase.getQueryParams()));
@@ -168,7 +172,7 @@ public class TestRunService {
         return new RunTestResult(
                 false,
                 true,
-                "Case is disabled (enabled=N)",
+                StringUtils.defaultIfBlank(reason, "Case is disabled (enabled=N)"),
                 testCase.getId(),
                 testCase.getTestName(),
                 testCase.getMethod(),
@@ -191,7 +195,7 @@ public class TestRunService {
 
     private RunTestResult evaluate(StudioTestCase testCase, String url, Map<String, String> requestHeaders,
                                    int actualStatus, Map<String, List<String>> rawHeaders, String body,
-                                   String downloadPath, long elapsedMs, long maxMs, String error,
+                                   String downloadPath, byte[] rawBody, long elapsedMs, long maxMs, String error,
                                    Map<String, String> variables) {
         int expectedStatus = testCase.getStatusCode();
         boolean statusMatched = error == null && actualStatus == expectedStatus;
@@ -212,11 +216,25 @@ public class TestRunService {
                 !timedOut
         ));
         Map<String, String> extracted = new LinkedHashMap<>();
+        boolean fileResponse = "FILE".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getResponseType()));
         if (error == null) {
+            assertions.addAll(HeaderAssertions.checks(testCase.getJsonPathAssertions(), rawHeaders));
+        }
+        if (error == null && fileResponse) {
+            AssertionCheck download = CiResponseChecks.download(
+                    testCase.getResponseType(), testCase.getExpectedResponse(), rawBody, downloadPath);
+            if (download != null) {
+                assertions.add(download);
+            }
+        } else if (error == null) {
             assertions.addAll(jsonPathChecks(testCase.getJsonPathAssertions(), body));
             AssertionCheck expectedBody = expectedBodyCheck(testCase, body);
             if (expectedBody != null) {
                 assertions.add(expectedBody);
+            }
+            AssertionCheck schema = CiResponseChecks.schema(testCase.getResponseJsonSchema(), body);
+            if (schema != null) {
+                assertions.add(schema);
             }
             assertions.addAll(CaseVariables.extractInto(extracted, testCase.getExtracts(), body, rawHeaders));
             if (variables != null) {
@@ -250,7 +268,7 @@ public class TestRunService {
                 elapsedMs,
                 maxMs,
                 timedOut,
-                body,
+                truncate(body),
                 flattenHeaders(rawHeaders),
                 requestHeaders,
                 assertions,
@@ -268,6 +286,9 @@ public class TestRunService {
         List<AssertionCheck> checks = new ArrayList<>();
         JsonElement root = JsonPathEvaluator.parseJson(body);
         for (Map.Entry<String, String> entry : expected.entrySet()) {
+            if (HeaderAssertions.isTransport(entry.getKey())) {
+                continue;
+            }
             String want = StringUtils.defaultString(entry.getValue());
             String actual;
             boolean match;
