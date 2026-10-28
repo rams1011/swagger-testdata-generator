@@ -305,7 +305,7 @@ public class TestRunService {
                     match = JsonPathEvaluator.matches(want, value);
                 }
             }
-            checks.add(new AssertionCheck("jsonPath", entry.getKey(), want, actual, match));
+            checks.add(new AssertionCheck("jsonPath", entry.getKey(), JsonPathEvaluator.describe(want), actual, match));
         }
         return checks;
     }
