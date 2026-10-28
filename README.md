@@ -137,6 +137,8 @@ TESTDATA_SAAS_ADMIN_EMAIL=admin@company.example
 TESTDATA_SAAS_ADMIN_PASSWORD=change-me
 ```
 
+The API jar does not contain an admin email or password. Datacenter local sign-in exits on startup until both variables are set.
+
 If `TESTDATA_EDITION` is blank or unset, Studio uses `datacenter`. The sample `application.yml` defaults to `local` for desktop dev. Cloud Run must set `TESTDATA_EDITION=saas`.
 
 Public register is off in `datacenter`. The bootstrap admin adds people from **Admin** (or users provision on first LDAP sign-in).

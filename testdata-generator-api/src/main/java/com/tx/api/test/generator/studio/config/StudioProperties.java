@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.config;
 
+import com.tx.api.test.generator.studio.tenant.LoginGuard;
 import com.tx.api.test.generator.studio.tenant.PasswordPolicy;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -359,6 +360,11 @@ public class StudioProperties {
         private boolean localAdminFallback = true;
         private int passwordMaxAgeDays = PasswordPolicy.DEFAULT_MAX_AGE_DAYS;
         private int passwordHistory = PasswordPolicy.DEFAULT_HISTORY;
+        private int loginMaxFailures = LoginGuard.DEFAULT_MAX_FAILURES;
+        private int loginLockoutMinutes = LoginGuard.DEFAULT_LOCKOUT_MINUTES;
+        private int loginIpMaxAttempts = LoginGuard.DEFAULT_IP_MAX_ATTEMPTS;
+        private int loginIpWindowSeconds = LoginGuard.DEFAULT_IP_WINDOW_SECONDS;
+        private int sessionIdleMinutes = LoginGuard.DEFAULT_IDLE_MINUTES;
         private Ldap ldap = new Ldap();
 
         public String getProvider() {
@@ -391,6 +397,66 @@ public class StudioProperties {
 
         public int resolvedPasswordHistory() {
             return passwordHistory < 1 ? 1 : passwordHistory;
+        }
+
+        public int getLoginMaxFailures() {
+            return loginMaxFailures;
+        }
+
+        public void setLoginMaxFailures(int loginMaxFailures) {
+            this.loginMaxFailures = loginMaxFailures;
+        }
+
+        public int resolvedLoginMaxFailures() {
+            return Math.max(loginMaxFailures, 0);
+        }
+
+        public int getLoginLockoutMinutes() {
+            return loginLockoutMinutes;
+        }
+
+        public void setLoginLockoutMinutes(int loginLockoutMinutes) {
+            this.loginLockoutMinutes = loginLockoutMinutes;
+        }
+
+        public int resolvedLoginLockoutMinutes() {
+            return Math.max(loginLockoutMinutes, 0);
+        }
+
+        public int getLoginIpMaxAttempts() {
+            return loginIpMaxAttempts;
+        }
+
+        public void setLoginIpMaxAttempts(int loginIpMaxAttempts) {
+            this.loginIpMaxAttempts = loginIpMaxAttempts;
+        }
+
+        public int resolvedLoginIpMaxAttempts() {
+            return Math.max(loginIpMaxAttempts, 0);
+        }
+
+        public int getLoginIpWindowSeconds() {
+            return loginIpWindowSeconds;
+        }
+
+        public void setLoginIpWindowSeconds(int loginIpWindowSeconds) {
+            this.loginIpWindowSeconds = loginIpWindowSeconds;
+        }
+
+        public int resolvedLoginIpWindowSeconds() {
+            return Math.max(loginIpWindowSeconds, 0);
+        }
+
+        public int getSessionIdleMinutes() {
+            return sessionIdleMinutes;
+        }
+
+        public void setSessionIdleMinutes(int sessionIdleMinutes) {
+            this.sessionIdleMinutes = sessionIdleMinutes;
+        }
+
+        public int resolvedSessionIdleMinutes() {
+            return Math.max(sessionIdleMinutes, 0);
         }
 
         public boolean isLocalAdminFallback() {

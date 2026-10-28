@@ -103,6 +103,22 @@ public interface TenantStore {
 
     void switchSessionTenant(String tokenHash, String tenantId);
 
+    default void touchSession(String tokenHash, Instant lastSeenAt) {
+    }
+
+    default void deleteIdleSessions(Instant lastSeenBefore) {
+    }
+
+    default Optional<LoginGuard.State> findLoginGuard(String subject) {
+        return Optional.empty();
+    }
+
+    default void saveLoginGuard(String subject, LoginGuard.State state) {
+    }
+
+    default void deleteLoginGuard(String subject) {
+    }
+
     void saveWorkspaceAccessRequest(String requestId, String tenantId, String accountId,
                                     String message, Instant createdAt);
 

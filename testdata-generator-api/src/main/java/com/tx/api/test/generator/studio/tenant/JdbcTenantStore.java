@@ -500,12 +500,15 @@ public class JdbcTenantStore implements TenantStore {
 
     @Override
     public void saveSession(StoredSession session) {
+        Instant lastSeen = session.getLastSeenAt() != null ? session.getLastSeenAt() : session.getCreatedAt();
         jdbcTemplate.update("""
-                        INSERT INTO td_session (token_hash, account_id, tenant_id, expires_at, created_at)
-                        VALUES (?, ?, ?, ?, ?)
+                        INSERT INTO td_session (
+                            token_hash, account_id, tenant_id, expires_at, created_at, last_seen_at
+                        ) VALUES (?, ?, ?, ?, ?, ?)
                         """,
                 session.getTokenHash(), session.getAccountId(), session.getTenantId(),
-                Timestamp.from(session.getExpiresAt()), Timestamp.from(session.getCreatedAt()));
+                Timestamp.from(session.getExpiresAt()), Timestamp.from(session.getCreatedAt()),
+                lastSeen == null ? null : Timestamp.from(lastSeen));
     }
 
     @Override
@@ -523,6 +526,64 @@ public class JdbcTenantStore implements TenantStore {
     @Override
     public void deleteExpiredSessions(Instant now) {
         jdbcTemplate.update("DELETE FROM td_session WHERE expires_at < ?", Timestamp.from(now));
+    }
+
+    @Override
+    public void touchSession(String tokenHash, Instant lastSeenAt) {
+        jdbcTemplate.update(
+                "UPDATE td_session SET last_seen_at = ? WHERE token_hash = ?",
+                Timestamp.from(lastSeenAt), tokenHash);
+    }
+
+    @Override
+    public void deleteIdleSessions(Instant lastSeenBefore) {
+        if (lastSeenBefore == null) {
+            return;
+        }
+        jdbcTemplate.update(
+                "DELETE FROM td_session WHERE last_seen_at IS NOT NULL AND last_seen_at < ?",
+                Timestamp.from(lastSeenBefore));
+    }
+
+    @Override
+    public Optional<LoginGuard.State> findLoginGuard(String subject) {
+        List<LoginGuard.State> rows = jdbcTemplate.query("""
+                        SELECT attempt_count, window_started_at, locked_until
+                          FROM td_login_guard
+                         WHERE subject = ?
+                        """,
+                (rs, rowNum) -> new LoginGuard.State(
+                        rs.getInt("attempt_count"),
+                        instant(rs.getTimestamp("window_started_at"), Instant.now()),
+                        instant(rs.getTimestamp("locked_until"))),
+                subject);
+        return rows.stream().findFirst();
+    }
+
+    @Override
+    public void saveLoginGuard(String subject, LoginGuard.State state) {
+        if (subject == null || state == null) {
+            return;
+        }
+        Timestamp locked = state.lockedUntil() == null ? null : Timestamp.from(state.lockedUntil());
+        int updated = jdbcTemplate.update("""
+                        UPDATE td_login_guard
+                           SET attempt_count = ?, window_started_at = ?, locked_until = ?
+                         WHERE subject = ?
+                        """,
+                state.count(), Timestamp.from(state.windowStartedAt()), locked, subject);
+        if (updated == 0) {
+            jdbcTemplate.update("""
+                            INSERT INTO td_login_guard (subject, attempt_count, window_started_at, locked_until)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                    subject, state.count(), Timestamp.from(state.windowStartedAt()), locked);
+        }
+    }
+
+    @Override
+    public void deleteLoginGuard(String subject) {
+        jdbcTemplate.update("DELETE FROM td_login_guard WHERE subject = ?", subject);
     }
 
     @Override
@@ -614,6 +675,7 @@ public class JdbcTenantStore implements TenantStore {
             session.setExpiresAt(expires == null ? Instant.now() : expires.toInstant());
             Timestamp created = rs.getTimestamp("created_at");
             session.setCreatedAt(created == null ? Instant.now() : created.toInstant());
+            session.setLastSeenAt(instant(rs.getTimestamp("last_seen_at")));
             return session;
         };
     }

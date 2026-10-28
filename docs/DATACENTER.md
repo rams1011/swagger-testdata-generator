@@ -111,7 +111,7 @@ spring:
 
 ### Sign-in: local accounts
 
-`testdata.auth.provider: local` stores passwords in the Studio database. `admin-email` and `admin-password` create the first operator on first start. Both are required. Startup fails if either is missing, or if they are still the old samples `saas.admin@local.test` / `admin@local`.
+`testdata.auth.provider: local` stores passwords in the Studio database. Set `TESTDATA_SAAS_ADMIN_EMAIL` and `TESTDATA_SAAS_ADMIN_PASSWORD` (or `testdata.saas.admin-email` and `admin-password` in an external config file). They create the first operator on first start. Both are required. Startup fails if either is missing, or if they are still the old samples `saas.admin@local.test` / `admin@local`. The API jar does not contain an admin email or password.
 
 Change the operator password after the first login. Later password changes in the product do not read this file again for an account that already exists.
 
@@ -210,7 +210,7 @@ The API exits before it serves traffic in these cases. Read the first `IllegalSt
 |----------|-------------|
 | refuses hosting profile `local` | `spring.profiles.active` is not `datacenter`, or the external file was not loaded. |
 | requires a non-H2 JDBC database | `spring.datasource.url` is missing or is an H2 URL. |
-| requires testdata.saas.admin-email and testdata.saas.admin-password | Local sign-in, and the operator account was not set outside the JAR. |
+| requires TESTDATA_SAAS_ADMIN_EMAIL and TESTDATA_SAAS_ADMIN_PASSWORD | Local sign-in, and the operator account was not set outside the JAR. |
 | must not be the sample values | Admin email or password is still the sample. |
 | `testdata.auth.ldap.url` is required | `provider: ldap` but URL is empty. |
 | sample host `ldap.client.com` | LDAP URL was not replaced. |

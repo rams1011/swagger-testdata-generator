@@ -9,6 +9,7 @@ public class StoredSession {
     private String tenantId;
     private Instant expiresAt;
     private Instant createdAt;
+    private Instant lastSeenAt;
 
     public String getTokenHash() {
         return tokenHash;
@@ -48,5 +49,13 @@ public class StoredSession {
 
     public void setCreatedAt(Instant createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public Instant getLastSeenAt() {
+        return lastSeenAt;
+    }
+
+    public void setLastSeenAt(Instant lastSeenAt) {
+        this.lastSeenAt = lastSeenAt;
     }
 }
