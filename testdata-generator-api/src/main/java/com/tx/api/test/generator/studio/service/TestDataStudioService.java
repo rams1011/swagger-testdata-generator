@@ -332,6 +332,7 @@ public class TestDataStudioService {
         } else {
             throw new IllegalArgumentException("caseId or testCase is required");
         }
+        testCase = withLiveResponseSchema(testCase);
         String trigger = request.testCase() == null
                 ? RunHistoryService.TRIGGER_CASE
                 : RunHistoryService.TRIGGER_TRY;
@@ -365,7 +366,8 @@ public class TestDataStudioService {
             if (!EnvironmentScope.visible(prior.getEnvironments(), environmentName)) {
                 continue;
             }
-            RunTestResult priorResult = testRunService.execute(applyOverlay(prior, environmentId), auth, variables);
+            RunTestResult priorResult = testRunService.execute(
+                    withLiveResponseSchema(applyOverlay(prior, environmentId)), auth, variables);
             runHistoryService.recordSingle(trigger, environmentId, prior, priorResult);
             if (!priorResult.passed()) {
                 return priorResult;
@@ -398,7 +400,8 @@ public class TestDataStudioService {
 
             @Override
             public RunTestResult execute(StudioTestCase testCase) {
-                return testRunService.execute(applyOverlay(testCase, environmentId), request.auth(), variables);
+                return testRunService.execute(
+                        withLiveResponseSchema(applyOverlay(testCase, environmentId)), request.auth(), variables);
             }
 
             @Override
@@ -1102,6 +1105,19 @@ public class TestDataStudioService {
             return request.environmentId();
         }
         return request.testCase() == null ? null : request.testCase().environmentId();
+    }
+
+    private StudioTestCase withLiveResponseSchema(StudioTestCase testCase) {
+        if (testCase == null || StringUtils.isBlank(testCase.getSpecId())) {
+            return testCase;
+        }
+        try {
+            ResponseSchemaOracle.apply(testCase, specCatalogService.requireSpec(testCase.getSpecId()));
+        } catch (NoSuchElementException ignored) {
+            log.info("Spec {} is missing; case {} keeps its stored response schema",
+                    testCase.getSpecId(), testCase.getId());
+        }
+        return testCase;
     }
 
     private StudioTestCase applyOverlay(StudioTestCase testCase, String environmentId) {

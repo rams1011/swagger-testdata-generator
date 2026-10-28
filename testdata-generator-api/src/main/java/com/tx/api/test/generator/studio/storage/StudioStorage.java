@@ -13,6 +13,7 @@ import com.tx.api.test.generator.studio.model.StudioTestPlan;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public interface StudioStorage {
@@ -62,6 +63,12 @@ public interface StudioStorage {
     }
 
     void saveTestCase(StudioTestCase testCase);
+
+    /**
+     * Stores the loaded operation schema for CI without changing the case revision.
+     * A null schema clears a copy the current spec no longer describes.
+     */
+    void updateResponseSchema(String testCaseId, Map<String, Object> schema);
 
     void deleteTestCase(String testCaseId);
 
