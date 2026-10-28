@@ -421,6 +421,19 @@ public class JdbcStudioStorage implements StudioStorage {
     }
 
     @Override
+    public void updateResponseSchema(String testCaseId, Map<String, Object> schema) {
+        int rows = jdbcTemplate.update("""
+                        UPDATE td_test_case
+                           SET response_schema_json = ?
+                         WHERE test_case_id = ?
+                           AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                        """, JsonMaps.toJson(schema), testCaseId, tenantId());
+        if (rows == 0) {
+            throw new NoSuchElementException("Test case not found: " + testCaseId);
+        }
+    }
+
+    @Override
     public void deleteTestCase(String testCaseId) {
         requireOwnedTestCase(testCaseId);
         String tenant = tenantId();

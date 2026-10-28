@@ -330,6 +330,24 @@ public class SpecCatalogService {
                 specCacheRevision.put(specId, value.getUpdatedAt());
             }
         });
+        syncResponseSchemas(loaded);
+    }
+
+    private void syncResponseSchemas(LoadedSpec spec) {
+        if (spec == null) {
+            return;
+        }
+        try {
+            for (StudioTestCase testCase : studioStorage.listTestCases(spec.getSpecId(), null, null)) {
+                ResponseSchemaOracle.LiveSchema live = ResponseSchemaOracle.lookup(spec, testCase.getOperationKey());
+                if (ResponseSchemaOracle.unchanged(testCase.getResponseJsonSchema(), live)) {
+                    continue;
+                }
+                studioStorage.updateResponseSchema(testCase.getId(), live.schema());
+            }
+        } catch (RuntimeException exception) {
+            log.warn("Could not store response schemas from spec {}: {}", spec.getSpecId(), exception.getMessage());
+        }
     }
 
     public List<OperationSummary> listOperations(String specId) {
