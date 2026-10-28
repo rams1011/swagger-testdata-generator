@@ -159,6 +159,10 @@ public class TestRunService {
     }
 
     public RunTestResult skipped(StudioTestCase testCase) {
+        return skipped(testCase, "Case is disabled (enabled=N)");
+    }
+
+    public RunTestResult skipped(StudioTestCase testCase, String reason) {
         String url = "";
         try {
             url = buildUrl(testCase.getBaseUrl(), testCase.getEndpoint(), copyMap(testCase.getQueryParams()));
@@ -168,7 +172,7 @@ public class TestRunService {
         return new RunTestResult(
                 false,
                 true,
-                "Case is disabled (enabled=N)",
+                StringUtils.defaultIfBlank(reason, "Case is disabled (enabled=N)"),
                 testCase.getId(),
                 testCase.getTestName(),
                 testCase.getMethod(),
