@@ -217,6 +217,9 @@ public class TestRunService {
         ));
         Map<String, String> extracted = new LinkedHashMap<>();
         boolean fileResponse = "FILE".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getResponseType()));
+        if (error == null) {
+            assertions.addAll(HeaderAssertions.checks(testCase.getJsonPathAssertions(), rawHeaders));
+        }
         if (error == null && fileResponse) {
             AssertionCheck download = CiResponseChecks.download(
                     testCase.getResponseType(), testCase.getExpectedResponse(), rawBody, downloadPath);
@@ -283,6 +286,9 @@ public class TestRunService {
         List<AssertionCheck> checks = new ArrayList<>();
         JsonElement root = JsonPathEvaluator.parseJson(body);
         for (Map.Entry<String, String> entry : expected.entrySet()) {
+            if (HeaderAssertions.isTransport(entry.getKey())) {
+                continue;
+            }
             String want = StringUtils.defaultString(entry.getValue());
             String actual;
             boolean match;
