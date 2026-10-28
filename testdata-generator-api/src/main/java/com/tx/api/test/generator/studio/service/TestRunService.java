@@ -141,13 +141,13 @@ public class TestRunService {
                 downloadPath = saveDownload(bound, bytes, contentType, firstHeader(rawHeaders, "Content-Disposition"));
                 bodyText = "[binary " + bytes.length + " bytes" + (downloadPath == null ? "" : " saved to " + downloadPath) + "]";
             } else {
-                bodyText = truncate(new String(bytes, charsetOf(contentType)));
+                bodyText = new String(bytes, charsetOf(contentType));
             }
             return evaluate(bound, url, redact(headers), response.statusCode(), rawHeaders,
-                    bodyText, downloadPath, elapsedMs, maxMs, null, store);
+                    bodyText, downloadPath, bytes, elapsedMs, maxMs, null, store);
         } catch (HttpTimeoutException exception) {
             long elapsedMs = elapsed(started);
-            return evaluate(bound, url, redact(headers), 0, Map.of(), null, null, elapsedMs, maxMs,
+            return evaluate(bound, url, redact(headers), 0, Map.of(), null, null, null, elapsedMs, maxMs,
                     "Request timed out after " + timeoutMs + "ms", store);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
@@ -195,7 +195,7 @@ public class TestRunService {
 
     private RunTestResult evaluate(StudioTestCase testCase, String url, Map<String, String> requestHeaders,
                                    int actualStatus, Map<String, List<String>> rawHeaders, String body,
-                                   String downloadPath, long elapsedMs, long maxMs, String error,
+                                   String downloadPath, byte[] rawBody, long elapsedMs, long maxMs, String error,
                                    Map<String, String> variables) {
         int expectedStatus = testCase.getStatusCode();
         boolean statusMatched = error == null && actualStatus == expectedStatus;
@@ -216,11 +216,22 @@ public class TestRunService {
                 !timedOut
         ));
         Map<String, String> extracted = new LinkedHashMap<>();
-        if (error == null) {
+        boolean fileResponse = "FILE".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getResponseType()));
+        if (error == null && fileResponse) {
+            AssertionCheck download = CiResponseChecks.download(
+                    testCase.getResponseType(), testCase.getExpectedResponse(), rawBody, downloadPath);
+            if (download != null) {
+                assertions.add(download);
+            }
+        } else if (error == null) {
             assertions.addAll(jsonPathChecks(testCase.getJsonPathAssertions(), body));
             AssertionCheck expectedBody = expectedBodyCheck(testCase, body);
             if (expectedBody != null) {
                 assertions.add(expectedBody);
+            }
+            AssertionCheck schema = CiResponseChecks.schema(testCase.getResponseJsonSchema(), body);
+            if (schema != null) {
+                assertions.add(schema);
             }
             assertions.addAll(CaseVariables.extractInto(extracted, testCase.getExtracts(), body, rawHeaders));
             if (variables != null) {
@@ -254,7 +265,7 @@ public class TestRunService {
                 elapsedMs,
                 maxMs,
                 timedOut,
-                body,
+                truncate(body),
                 flattenHeaders(rawHeaders),
                 requestHeaders,
                 assertions,
