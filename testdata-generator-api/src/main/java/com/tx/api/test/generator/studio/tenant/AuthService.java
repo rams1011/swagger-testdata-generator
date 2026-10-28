@@ -98,18 +98,34 @@ public class AuthService {
     }
 
     public AuthSessionView login(LoginRequest request) {
+        return login(request, null);
+    }
+
+    public AuthSessionView login(LoginRequest request, String clientIp) {
+        TenantStore store = requireStore();
+        Instant now = Instant.now();
+        String loginKey = loginSubject(request);
+        assertIpAllowed(store, clientIp, now);
+        assertLoginAllowed(store, loginKey, now);
         boolean directory = properties.isLdapAuth();
         log.debug("Sign-in started provider={}", directory ? "ldap" : "local");
         try {
             AuthSessionView session = directory ? loginWithDirectory(request) : loginWithLocalPassword(request);
+            store.deleteLoginGuard(loginKey);
             String email = session.account() == null ? "" : session.account().email();
             String workspaceId = session.tenant() == null ? "" : session.tenant().id();
             String accountId = session.account() == null ? null : session.account().id();
             log.info("Signed in {} workspace {}", email, workspaceId);
             audit(() -> auditService.recordLogin(workspaceId, accountId, email));
             return session;
+        } catch (ForbiddenException exception) {
+            store.deleteLoginGuard(loginKey);
+            throw exception;
         } catch (UnauthenticatedException exception) {
             auditLoginFailed(request);
+            if (recordLoginFailure(store, loginKey, Instant.now())) {
+                throw new LoginLimitedException(LoginGuard.TOO_MANY);
+            }
             throw exception;
         }
     }
@@ -242,6 +258,7 @@ public class AuthService {
         session.setAccountId(account.getId());
         session.setTenantId(contextWorkspace.getId());
         session.setCreatedAt(now);
+        session.setLastSeenAt(now);
         session.setExpiresAt(now.plus(properties.getSaas().resolvedSessionDays(), ChronoUnit.DAYS));
         store.saveSession(session);
         return toView(token, account, contextWorkspace, null);
@@ -341,10 +358,24 @@ public class AuthService {
         if (store == null || StringUtils.isBlank(rawToken)) {
             return Optional.empty();
         }
-        store.deleteExpiredSessions(Instant.now());
+        Instant now = Instant.now();
+        store.deleteExpiredSessions(now);
+        int idleMinutes = properties.getAuth().resolvedSessionIdleMinutes();
+        if (idleMinutes > 0) {
+            store.deleteIdleSessions(now.minus(idleMinutes, ChronoUnit.MINUTES));
+        }
         StoredSession session = store.findSession(hashToken(rawToken)).orElse(null);
-        if (session == null || session.getExpiresAt().isBefore(Instant.now())) {
+        if (session == null || session.getExpiresAt().isBefore(now)) {
             return Optional.empty();
+        }
+        Instant lastSeen = session.getLastSeenAt() != null ? session.getLastSeenAt() : session.getCreatedAt();
+        if (LoginGuard.idleExpired(lastSeen, idleMinutes, now)) {
+            store.deleteSession(session.getTokenHash());
+            return Optional.empty();
+        }
+        if (LoginGuard.shouldTouch(lastSeen, now)) {
+            store.touchSession(session.getTokenHash(), now);
+            session.setLastSeenAt(now);
         }
         Account account = store.findAccount(session.getAccountId()).orElse(null);
         Tenant tenant = store.findTenant(session.getTenantId()).orElse(null);
@@ -835,6 +866,7 @@ public class AuthService {
         session.setAccountId(account.getId());
         session.setTenantId(tenant.getId());
         session.setCreatedAt(now);
+        session.setLastSeenAt(now);
         session.setExpiresAt(now.plus(properties.getSaas().resolvedSessionDays(), ChronoUnit.DAYS));
         store.saveSession(session);
         return toView(token, account, tenant, role);
@@ -1288,6 +1320,64 @@ public class AuthService {
         } catch (RuntimeException exception) {
             log.warn("Could not write audit event: {}", exception.getMessage());
         }
+    }
+
+    private void assertIpAllowed(TenantStore store, String clientIp, Instant now) {
+        String address = StringUtils.trimToNull(clientIp);
+        int max = properties.getAuth().resolvedLoginIpMaxAttempts();
+        int windowSeconds = properties.getAuth().resolvedLoginIpWindowSeconds();
+        if (address == null || max <= 0 || windowSeconds <= 0) {
+            return;
+        }
+        String subject = "ip:" + (address.length() > 300 ? address.substring(0, 300) : address);
+        LoginGuard.Decision decision = LoginGuard.observeIp(
+                store.findLoginGuard(subject).orElse(null), max, windowSeconds, now);
+        if (decision.next() != null) {
+            store.saveLoginGuard(subject, decision.next());
+        }
+        if (!decision.allowed()) {
+            log.warn("Sign-in throttled for {}", subject);
+            throw new LoginLimitedException(LoginGuard.TOO_MANY);
+        }
+    }
+
+    private void assertLoginAllowed(TenantStore store, String subject, Instant now) {
+        int max = properties.getAuth().resolvedLoginMaxFailures();
+        int lockoutMinutes = properties.getAuth().resolvedLoginLockoutMinutes();
+        if (max <= 0 || lockoutMinutes <= 0) {
+            return;
+        }
+        if (LoginGuard.isLocked(store.findLoginGuard(subject).orElse(null), now)) {
+            throw new LoginLimitedException(LoginGuard.TOO_MANY);
+        }
+    }
+
+    private boolean recordLoginFailure(TenantStore store, String subject, Instant now) {
+        int max = properties.getAuth().resolvedLoginMaxFailures();
+        int lockoutMinutes = properties.getAuth().resolvedLoginLockoutMinutes();
+        if (max <= 0 || lockoutMinutes <= 0) {
+            return false;
+        }
+        LoginGuard.Decision decision = LoginGuard.observeFailure(
+                store.findLoginGuard(subject).orElse(null), max, lockoutMinutes, now);
+        if (decision.next() != null) {
+            store.saveLoginGuard(subject, decision.next());
+        }
+        return !decision.allowed();
+    }
+
+    private String loginSubject(LoginRequest request) {
+        String raw = request == null ? null : request.email();
+        String label = StringUtils.defaultIfBlank(raw, "unknown").trim().toLowerCase(Locale.ROOT);
+        try {
+            label = normalizeEmail(raw);
+        } catch (IllegalArgumentException ignored) {
+            // Directory sign-in can be a username. The password is never stored.
+        }
+        if (label.length() > 300) {
+            label = label.substring(0, 300);
+        }
+        return "login:" + label;
     }
 
     private void auditLoginFailed(LoginRequest request) {

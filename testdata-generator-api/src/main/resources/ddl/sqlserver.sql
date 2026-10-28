@@ -141,6 +141,24 @@ IF NOT EXISTS (
 )
     CREATE INDEX ix_td_session_account ON dbo.td_session (account_id);
 
+IF COL_LENGTH('dbo.td_session', 'last_seen_at') IS NULL
+    ALTER TABLE dbo.td_session ADD last_seen_at DATETIME2(3) NULL;
+
+UPDATE dbo.td_session
+   SET last_seen_at = SYSUTCDATETIME()
+ WHERE last_seen_at IS NULL;
+
+IF OBJECT_ID(N'dbo.td_login_guard', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.td_login_guard (
+        subject            VARCHAR(320) NOT NULL,
+        attempt_count      INT          NOT NULL,
+        window_started_at  DATETIME2(3) NOT NULL,
+        locked_until       DATETIME2(3) NULL,
+        CONSTRAINT pk_td_login_guard PRIMARY KEY (subject)
+    );
+END;
+
 /* ---------- td_spec ---------- */
 IF OBJECT_ID(N'dbo.td_spec', N'U') IS NULL
 BEGIN

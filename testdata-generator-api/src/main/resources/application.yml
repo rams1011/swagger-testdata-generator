@@ -88,6 +88,12 @@ testdata:
     # Local accounts only. Directory passwords are not stored or aged here.
     password-max-age-days: ${TESTDATA_PASSWORD_MAX_AGE_DAYS:90}
     password-history: ${TESTDATA_PASSWORD_HISTORY:5}
+    # Shared by local and directory sign-in. 0 turns that control off.
+    login-max-failures: ${TESTDATA_LOGIN_MAX_FAILURES:5}
+    login-lockout-minutes: ${TESTDATA_LOGIN_LOCKOUT_MINUTES:15}
+    login-ip-max-attempts: ${TESTDATA_LOGIN_IP_MAX_ATTEMPTS:20}
+    login-ip-window-seconds: ${TESTDATA_LOGIN_IP_WINDOW_SECONDS:60}
+    session-idle-minutes: ${TESTDATA_SESSION_IDLE_MINUTES:30}
     ldap:
       # Required when provider=ldap. Prefer ldaps://. No sample host — startup fails if this is empty.
       url: ${TESTDATA_LDAP_URL:}
@@ -119,9 +125,9 @@ testdata:
     # Operator/session settings — not the hosting mode. Use testdata.edition for that.
     session-days: 14
     cors-origins: ${TESTDATA_SAAS_CORS_ORIGINS:http://localhost:*,http://127.0.0.1:*}
-    # Datacenter with provider=local requires both from outside the jar. Empty fails startup.
-    admin-email: studio-admin@test.com
-    admin-password: Testing@123
+    # Datacenter with provider=local requires both. Empty fails startup. Do not commit a password here.
+    admin-email: ${TESTDATA_SAAS_ADMIN_EMAIL:}
+    admin-password: ${TESTDATA_SAAS_ADMIN_PASSWORD:}
     org-name: ${TESTDATA_SAAS_ORG_NAME:Studio}
     workspace-name: ${TESTDATA_SAAS_WORKSPACE_NAME:Default}
 

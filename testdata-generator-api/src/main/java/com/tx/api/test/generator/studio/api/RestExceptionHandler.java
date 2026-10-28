@@ -2,6 +2,7 @@ package com.tx.api.test.generator.studio.api;
 
 import com.tx.api.test.generator.studio.dto.ApiError;
 import com.tx.api.test.generator.studio.tenant.ForbiddenException;
+import com.tx.api.test.generator.studio.tenant.LoginLimitedException;
 import com.tx.api.test.generator.studio.tenant.UnauthenticatedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +23,12 @@ public class RestExceptionHandler {
     public ResponseEntity<ApiError> badRequest(IllegalArgumentException exception) {
         log.warn("Bad request: {}", exception.getMessage());
         return ResponseEntity.badRequest().body(new ApiError(exception.getMessage()));
+    }
+
+    @ExceptionHandler(LoginLimitedException.class)
+    public ResponseEntity<ApiError> tooManySignIns(LoginLimitedException exception) {
+        log.warn("Sign-in limited: {}", exception.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(new ApiError(exception.getMessage()));
     }
 
     @ExceptionHandler(UnauthenticatedException.class)

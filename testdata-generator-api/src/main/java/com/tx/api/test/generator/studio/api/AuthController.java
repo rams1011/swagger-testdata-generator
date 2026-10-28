@@ -55,9 +55,14 @@ public class AuthController {
     }
 
     @PostMapping("/auth/login")
-    public AuthSessionView login(@RequestBody LoginRequest request) {
+    public AuthSessionView login(HttpServletRequest httpRequest, @RequestBody LoginRequest request) {
         requireAuth();
-        return authService.login(request);
+        String clientIp = httpRequest == null ? null : StringUtils.trimToNull(httpRequest.getRemoteAddr());
+        return authService.login(request, clientIp);
+    }
+
+    public AuthSessionView login(LoginRequest request) {
+        return login(null, request);
     }
 
     @GetMapping("/auth/session")

@@ -68,7 +68,7 @@ public class DatacenterConfigurationValidator {
         if (email == null || StringUtils.isBlank(password)) {
             throw new IllegalStateException(
                     "testdata.edition=datacenter with testdata.auth.provider=local requires "
-                            + "testdata.saas.admin-email and testdata.saas.admin-password from external config.");
+                            + "TESTDATA_SAAS_ADMIN_EMAIL and TESTDATA_SAAS_ADMIN_PASSWORD.");
         }
         if (SAMPLE_ADMIN_EMAIL.equals(email) || SAMPLE_ADMIN_PASSWORD.equals(password)) {
             throw new IllegalStateException(
