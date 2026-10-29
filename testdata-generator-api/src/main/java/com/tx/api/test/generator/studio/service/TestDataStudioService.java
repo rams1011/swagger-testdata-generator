@@ -2,7 +2,6 @@ package com.tx.api.test.generator.studio.service;
 
 import com.google.gson.Gson;
 import com.tx.api.test.generator.model.TestDataRow;
-import com.tx.api.test.generator.studio.config.HostingProfileValidator;
 import com.tx.api.test.generator.studio.config.StudioDatasourceSettings;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.catalog.OperationPage;
@@ -59,7 +58,6 @@ import com.tx.api.test.generator.writer.TestDataExcelWriter;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -92,10 +90,8 @@ public class TestDataStudioService {
     private final RunHistoryService runHistoryService;
     private final EntitlementService entitlements;
     private final StudioAuditService auditService;
-    private final HostingProfileValidator hostingProfile;
     private final StudioDatasourceSettings datasourceSettings;
     private final TestDataExcelWriter excelWriter = new TestDataExcelWriter();
-    private final String serverPort;
 
     public TestDataStudioService(SpecCatalogService specCatalogService, StudioProperties properties,
                                  StudioStorage studioStorage, TestRunService testRunService,
@@ -103,9 +99,7 @@ public class TestDataStudioService {
                                  @org.springframework.beans.factory.annotation.Autowired(required = false)
                                  EntitlementService entitlements,
                                  StudioAuditService auditService,
-                                 HostingProfileValidator hostingProfile,
-                                 StudioDatasourceSettings datasourceSettings,
-                                 @Value("${server.port:8083}") String serverPort) {
+                                 StudioDatasourceSettings datasourceSettings) {
         this.specCatalogService = specCatalogService;
         this.properties = properties;
         this.studioStorage = studioStorage;
@@ -113,9 +107,7 @@ public class TestDataStudioService {
         this.runHistoryService = runHistoryService;
         this.entitlements = entitlements;
         this.auditService = auditService;
-        this.hostingProfile = hostingProfile;
         this.datasourceSettings = datasourceSettings;
-        this.serverPort = serverPort;
     }
 
     public List<TestPlanView> listPlans(String specId) {
@@ -732,28 +724,12 @@ public class TestDataStudioService {
 
     public Map<String, String> runtimeConfig() {
         Map<String, String> config = new LinkedHashMap<>();
-        config.put("storageType", storageType());
-        config.put("hostingProfile", hostingProfile.hostingProfile().wireValue());
-        config.put("edition", properties.editionName());
         config.put("loginRequired", String.valueOf(properties.isAuthEnabled()));
         config.put("plansEnabled", String.valueOf(properties.isBillingEnabled()));
-        config.put("auth", String.valueOf(properties.isAuthEnabled()));
-        config.put("billing", String.valueOf(properties.isBillingEnabled()));
-        config.put("saas", String.valueOf(properties.isAuthEnabled()));
         config.put("authProvider", properties.resolvedAuthProvider());
         config.put("passwordMinLength", String.valueOf(
                 com.tx.api.test.generator.studio.tenant.PasswordPolicy.MIN_LENGTH));
         config.put("passwordRule", com.tx.api.test.generator.studio.tenant.PasswordPolicy.RULE);
-        if (properties.isLdapAuth()) {
-            String domain = properties.getAuth().getLdap().normalizedDomain();
-            config.put("loginHint", "you@" + domain);
-        }
-        config.put("runHistoryMaxPerSpec", String.valueOf(properties.getRunHistory().resolvedMaxPerSpec()));
-        if (!properties.isAuthEnabled() && datasourceSettings.isH2() && properties.getH2().isConsole()) {
-            config.put("h2JdbcUrl", datasourceSettings.jdbcUrl());
-            config.put("h2Username", properties.getH2().getUsername());
-            config.put("h2Console", "http://localhost:" + serverPort + "/h2-console");
-        }
         return config;
     }
 

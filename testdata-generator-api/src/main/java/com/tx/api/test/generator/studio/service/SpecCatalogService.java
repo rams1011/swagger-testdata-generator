@@ -50,11 +50,12 @@ public class SpecCatalogService {
     private final StudioStorage studioStorage;
     private final EntitlementService entitlements;
     private final StudioAuditService auditService;
+    private final OutboundUrlPolicy outboundUrlPolicy;
     private final ConcurrentHashMap<String, LoadedSpec> specs = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Instant> specCacheRevision = new ConcurrentHashMap<>();
 
     public SpecCatalogService(StudioStorage studioStorage) {
-        this(studioStorage, null, null);
+        this(studioStorage, null, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
@@ -62,10 +63,13 @@ public class SpecCatalogService {
                              @org.springframework.beans.factory.annotation.Autowired(required = false)
                              EntitlementService entitlements,
                              @org.springframework.beans.factory.annotation.Autowired(required = false)
-                             StudioAuditService auditService) {
+                             StudioAuditService auditService,
+                             @org.springframework.beans.factory.annotation.Autowired(required = false)
+                             OutboundUrlPolicy outboundUrlPolicy) {
         this.studioStorage = studioStorage;
         this.entitlements = entitlements;
         this.auditService = auditService;
+        this.outboundUrlPolicy = outboundUrlPolicy;
     }
 
     @PostConstruct
@@ -90,7 +94,7 @@ public class SpecCatalogService {
         }
         requireSpecSlot();
         String content = resolveContent(request);
-        OpenAPI openApi = parseSpec(request, content);
+        OpenAPI openApi = parseSpec(content);
         List<OperationPage> operations = TestdataGenerator.inspect(openApi, request.baseUrl());
         if (operations.isEmpty()) {
             throw new IllegalArgumentException("No operations were found in the Swagger/OpenAPI spec");
@@ -222,7 +226,7 @@ public class SpecCatalogService {
 
         String location = firstNonBlank(request == null ? null : request.location(), existing.getSourceLocation());
         String content = resolveReloadContent(request, existing, location);
-        OpenAPI openApi = parseSpec(new LoadSpecRequest(location, content, null, null, null, null, null, null, null), content);
+        OpenAPI openApi = parseSpec(content);
         assertSpecRevision(existing, request == null ? null : request.expectedUpdatedAt(),
                 request == null ? null : request.forceOverwrite());
         String baseUrl = firstNonBlank(request == null ? null : request.baseUrl(), existing.getBaseUrl());
@@ -369,9 +373,10 @@ public class SpecCatalogService {
         if (StringUtils.isNotBlank(stored.getSourceContent())) {
             openApi = TestdataGenerator.loadSpecFromContent(stored.getSourceContent());
         } else if (StringUtils.isNotBlank(stored.getSourceLocation())) {
-            openApi = TestdataGenerator.loadSpec(stored.getSourceLocation());
+            openApi = TestdataGenerator.loadSpecFromContent(readAllowedLocation(stored.getSourceLocation()));
         } else {
-            throw new IllegalStateException("Stored spec is missing OpenAPI source: " + stored.getSpecId());
+            log.warn("Stored spec {} is missing OpenAPI source", stored.getSpecId());
+            throw new IllegalStateException("Stored spec is missing OpenAPI source");
         }
         List<OperationPage> operations = TestdataGenerator.inspect(openApi, stored.getBaseUrl());
         return new LoadedSpec(
@@ -395,20 +400,17 @@ public class SpecCatalogService {
         stored.setVersion(loaded.getVersion());
         stored.setDescription(loaded.getDescription());
         stored.setBaseUrl(loaded.getBaseUrl());
-        stored.setSourceLocation(request == null ? null : request.location());
+        stored.setSourceLocation(SpecLocationGuard.publicLocation(request == null ? null : request.location()));
         stored.setSourceContent(content);
         stored.setOperationCount(loaded.getOperations().size());
         return stored;
     }
 
-    private OpenAPI parseSpec(LoadSpecRequest request, String content) {
+    private OpenAPI parseSpec(String content) {
         if (StringUtils.isNotBlank(content)) {
             return TestdataGenerator.loadSpecFromContent(content);
         }
-        if (request != null && StringUtils.isNotBlank(request.location())) {
-            return TestdataGenerator.loadSpec(request.location());
-        }
-        throw new IllegalArgumentException("Provide a Swagger URL, file path, or spec content");
+        throw new IllegalArgumentException("Provide a Swagger URL or spec content");
     }
 
     private String resolveContent(LoadSpecRequest request) {
@@ -416,9 +418,19 @@ public class SpecCatalogService {
             return request.content();
         }
         if (request != null && StringUtils.isNotBlank(request.location())) {
-            return TestdataGenerator.readSpecText(request.location());
+            return readAllowedLocation(request.location());
         }
         return null;
+    }
+
+    private String readAllowedLocation(String location) {
+        SpecLocationGuard.check(location, outboundUrlPolicy);
+        try {
+            return TestdataGenerator.readSpecText(location.trim());
+        } catch (RuntimeException exception) {
+            log.warn("Spec download failed", exception);
+            throw new IllegalArgumentException("The spec could not be downloaded.");
+        }
     }
 
     private SpecSummary toSummary(LoadedSpec spec, String sourceLocation) {
@@ -441,7 +453,7 @@ public class SpecCatalogService {
                 spec.getBaseUrl(),
                 spec.getOperations().size(),
                 tags,
-                sourceLocation,
+                SpecLocationGuard.publicLocation(sourceLocation),
                 serversOf(spec),
                 isManualSpec(spec),
                 specUpdatedAt(spec.getSpecId())
@@ -463,7 +475,7 @@ public class SpecCatalogService {
                 spec.getBaseUrl(),
                 spec.getOperationCount(),
                 List.of(),
-                spec.getSourceLocation(),
+                SpecLocationGuard.publicLocation(spec.getSourceLocation()),
                 List.of(),
                 ManualSpecDocument.isManualContent(spec.getSourceContent()),
                 spec.getUpdatedAt()
@@ -508,7 +520,7 @@ public class SpecCatalogService {
             return request.content();
         }
         if (StringUtils.isNotBlank(location)) {
-            return TestdataGenerator.readSpecText(location);
+            return readAllowedLocation(location);
         }
         throw new IllegalArgumentException(
                 "This spec has no URL or file path to re-fetch. Upload a file or paste the updated OpenAPI content.");

@@ -123,6 +123,33 @@ class AuthServiceOrgTest {
     }
 
     @Test
+    void workspaceAdminSeesEveryOrganizationWorkspace() {
+        StudioProperties properties = new StudioProperties();
+        properties.setEdition("saas");
+
+        Tenant workspaceA = tenant("ws-a", "org-1");
+        Tenant workspaceB = tenant("ws-b", "org-1");
+        Organization organization = organization("org-1");
+
+        TenantStore store = mock(TenantStore.class);
+        when(store.findTenant("ws-a")).thenReturn(Optional.of(workspaceA));
+        when(store.findOrganization("org-1")).thenReturn(Optional.of(organization));
+        when(store.findOrgRole("org-1", "admin-1")).thenReturn(Optional.of("MEMBER"));
+        when(store.listTenantsForOrg("org-1")).thenReturn(List.of(workspaceA, workspaceB));
+        when(store.findMembership("ws-a", "admin-1")).thenReturn(Optional.of(new Membership("ws-a", "admin-1", "ADMIN")));
+        when(store.findMembership("ws-b", "admin-1")).thenReturn(Optional.empty());
+
+        AuthService authService = authService(properties, store);
+        TenantContext.setSaasEnabled(true);
+        TenantContext.set(new TenantContext.Scope("ws-a", "admin-1", "admin@example.com", "ADMIN"));
+
+        var views = authService.listOrgWorkspaces();
+        assertEquals(2, views.size());
+        assertEquals("ws-a", views.get(0).id());
+        assertEquals("ws-b", views.get(1).id());
+    }
+
+    @Test
     void workspaceAdminCannotListTheOrganizationRoster() {
         StudioProperties properties = new StudioProperties();
         properties.setEdition("saas");

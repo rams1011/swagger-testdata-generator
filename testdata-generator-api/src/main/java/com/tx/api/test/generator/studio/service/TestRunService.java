@@ -123,7 +123,7 @@ public class TestRunService {
                             ? HttpRequest.BodyPublishers.ofByteArray(binaryBody)
                             : bodyPublisher(method, textBody));
         } catch (IllegalArgumentException exception) {
-            return failed(bound, url, headers, 0, false, List.of(), "Invalid request URL: " + exception.getMessage());
+            return failed(bound, url, headers, 0, false, List.of(), "The request URL is not valid.");
         }
         headers.forEach(builder::header);
 
@@ -153,8 +153,8 @@ public class TestRunService {
             Thread.currentThread().interrupt();
             return failed(bound, url, headers, elapsed(started), true, List.of(), "Run interrupted");
         } catch (Exception exception) {
-            return failed(bound, url, headers, elapsed(started), false, List.of(),
-                    StringUtils.defaultIfBlank(exception.getMessage(), exception.getClass().getSimpleName()));
+            log.warn("Run request failed", exception);
+            return failed(bound, url, headers, elapsed(started), false, List.of(), "The request could not be sent.");
         }
     }
 
@@ -457,7 +457,8 @@ public class TestRunService {
             Thread.currentThread().interrupt();
             throw new IllegalArgumentException("OAuth token request interrupted");
         } catch (Exception exception) {
-            throw new IllegalArgumentException("OAuth token request failed: " + exception.getMessage());
+            log.warn("OAuth token request failed", exception);
+            throw new IllegalArgumentException("OAuth token request failed");
         }
     }
 
@@ -605,7 +606,7 @@ public class TestRunService {
             String name = downloadFileName(testCase, contentType, disposition);
             Path file = dir.resolve(name);
             Files.write(file, bytes);
-            return file.toAbsolutePath().toString();
+            return file.getFileName().toString();
         } catch (Exception exception) {
             return null;
         }

@@ -36,7 +36,7 @@ public final class CollectionDocuments {
         try {
             return JsonParser.parseString(json);
         } catch (JsonSyntaxException exception) {
-            throw new CollectionFormatException("Collection JSON is not valid: " + exception.getMessage());
+            throw new CollectionFormatException("Collection JSON is not valid.");
         }
     }
 
@@ -51,7 +51,7 @@ public final class CollectionDocuments {
             }
             return value;
         } catch (JsonSyntaxException exception) {
-            throw new CollectionFormatException("Collection JSON is not valid: " + exception.getMessage());
+            throw new CollectionFormatException("Collection JSON is not valid.");
         }
     }
 }

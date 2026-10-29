@@ -26,6 +26,6 @@ public record AuthSessionView(
     }
 
     public static AuthSessionView anonymous(String edition, boolean billing) {
-        return new AuthSessionView(true, false, null, null, null, List.of(), false, null, null, edition, billing, false, false);
+        return new AuthSessionView(false, false, null, null, null, List.of(), false, null, null, null, false, false, false);
     }
 }

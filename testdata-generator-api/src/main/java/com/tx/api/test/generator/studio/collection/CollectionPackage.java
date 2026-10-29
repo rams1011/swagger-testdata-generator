@@ -91,7 +91,7 @@ public final class CollectionPackage {
                 }
                 String name = entry.getName().replace('\\', '/');
                 if (name.contains("..")) {
-                    throw new CollectionFormatException("Collection zip path is not allowed: " + name);
+                    throw new CollectionFormatException("Collection zip path is not allowed.");
                 }
                 byte[] content = zip.readAllBytes();
                 int filesAt = name.lastIndexOf("/files/");
@@ -104,7 +104,7 @@ public final class CollectionPackage {
                 }
             }
         } catch (IOException exception) {
-            throw new CollectionFormatException("Collection zip is not valid: " + exception.getMessage());
+            throw new CollectionFormatException("Collection zip is not valid.");
         }
         if (json == null || json.isBlank()) {
             throw new CollectionFormatException("Collection zip is missing a .collection.json file");
