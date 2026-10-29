@@ -553,12 +553,14 @@ public class AuthService {
         String accountId = actorAccountId();
         String orgRole = store.findOrgRole(organization.getId(), accountId).orElse(null);
         boolean orgManager = isManager(orgRole);
+        // Workspace access needs every organization workspace, not only the one selected on Home.
+        boolean listEveryWorkspace = orgManager || isManager(actorRole());
         List<Tenant> workspaces = store.listTenantsForOrg(organization.getId());
         boolean memberOfAny = workspaces.stream()
                 .anyMatch(workspace -> store.findMembership(workspace.getId(), accountId).isPresent());
         return workspaces.stream()
                 .filter(workspace -> {
-                    if (orgManager) {
+                    if (listEveryWorkspace) {
                         return true;
                     }
                     boolean member = store.findMembership(workspace.getId(), accountId).isPresent();

@@ -11,6 +11,6 @@ public class StudioApiAdvice {
     @ExceptionHandler(ConflictException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
     public ConflictBody conflict(ConflictException exception) {
-        return new ConflictBody(exception.getMessage(), exception.current());
+        return new ConflictBody(RestExceptionHandler.clientMessage(exception.getMessage()), exception.current());
     }
 }

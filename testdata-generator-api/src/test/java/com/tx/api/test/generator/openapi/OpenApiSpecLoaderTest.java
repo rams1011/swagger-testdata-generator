@@ -9,7 +9,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class OpenApiSpecLoaderTest {
 
@@ -59,5 +62,22 @@ class OpenApiSpecLoaderTest {
         OpenAPI loaded = OpenApiSpecLoader.load(spec.toString());
         assertNotNull(loaded);
         assertEquals("3.1.0", loaded.getOpenapi());
+    }
+
+    @Test
+    void missingFileDoesNotNameThePath(@TempDir Path tempDir) {
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> OpenApiSpecLoader.load(tempDir.resolve("missing-spec.json").toString()));
+        assertFalse(exception.getMessage().contains("missing-spec"));
+        assertTrue(exception.getMessage().contains("could not be read"));
+    }
+
+    @Test
+    void remoteReferenceIsRejectedWithoutTheTarget() {
+        String spec = OPENAPI_31.replace("#/components/schemas/Pet", "https://example.com/pet.schema.json");
+        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                () -> OpenApiSpecLoader.loadFromContent(spec));
+        assertTrue(exception.getMessage().contains("single document"));
+        assertFalse(exception.getMessage().contains("example.com"));
     }
 }

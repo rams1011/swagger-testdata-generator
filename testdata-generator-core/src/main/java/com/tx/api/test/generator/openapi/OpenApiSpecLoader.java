@@ -18,14 +18,20 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public final class OpenApiSpecLoader {
 
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(20))
-            .followRedirects(HttpClient.Redirect.NORMAL)
+            .followRedirects(HttpClient.Redirect.NEVER)
             .build();
+
+    private static final Pattern JSON_REF = Pattern.compile("\"\\$ref\"\\s*:\\s*\"([^\"]*)\"");
+    private static final Pattern YAML_REF = Pattern.compile("(?m)^[ \\t]*\\$ref\\s*:\\s*(\\S+)");
+    private static final Pattern LOCATION_TEXT = Pattern.compile("(?i)(file:|https?://)\\S+|[A-Za-z]:[/\\\\][^\\s;]+");
 
     private OpenApiSpecLoader() {
     }
@@ -34,6 +40,7 @@ public final class OpenApiSpecLoader {
         if (StringUtils.isBlank(specContent)) {
             throw new IllegalArgumentException("Swagger/OpenAPI content must not be blank");
         }
+        rejectExternalReferences(specContent);
         ParseOptions parseOptions = parseOptions();
         SwaggerParseResult parseResult = new OpenAPIV3Parser().readContents(specContent, null, parseOptions);
         if (parseResult.getOpenAPI() != null) {
@@ -51,15 +58,32 @@ public final class OpenApiSpecLoader {
         }
 
         String trimmedLocation = location.trim();
-        SwaggerParseResult parseResult = new OpenAPIV3Parser()
-                .readLocation(toParserLocation(trimmedLocation), null, parseOptions());
+        if (isRemoteLocation(trimmedLocation)) {
+            return loadFromContent(readRemoteContent(trimmedLocation));
+        }
+        try {
+            if (!Files.exists(Path.of(trimmedLocation))) {
+                throw new IllegalArgumentException("The spec file could not be read.");
+            }
+        } catch (IllegalArgumentException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("The spec file could not be read.", exception);
+        }
+        SwaggerParseResult parseResult;
+        try {
+            parseResult = new OpenAPIV3Parser()
+                    .readLocation(toParserLocation(trimmedLocation), null, parseOptions());
+        } catch (RuntimeException exception) {
+            throw new IllegalArgumentException("The spec file could not be read.", exception);
+        }
         if (parseResult.getOpenAPI() != null) {
             return parseResult.getOpenAPI();
         }
 
         String specContent = readSpecContent(trimmedLocation);
         if (isSwagger2Document(specContent)) {
-            return convertSwagger2(specContent, trimmedLocation);
+            return convertSwagger2(specContent, "the spec");
         }
         throw parseFailure(parseResult);
     }
@@ -111,9 +135,33 @@ public final class OpenApiSpecLoader {
 
     private static IllegalArgumentException parseFailure(SwaggerParseResult parseResult) {
         String messages = parseResult.getMessages() == null
-                ? "Unknown parse error"
+                ? ""
                 : parseResult.getMessages().stream().collect(Collectors.joining("; "));
-        return new IllegalArgumentException("Failed to parse Swagger/OpenAPI spec: " + messages);
+        String cleaned = LOCATION_TEXT.matcher(messages).replaceAll("").replaceAll("\\s+", " ").trim();
+        if (cleaned.isBlank()) {
+            return new IllegalArgumentException("The spec could not be read.");
+        }
+        return new IllegalArgumentException("Failed to parse Swagger/OpenAPI spec: " + cleaned);
+    }
+
+    static void rejectExternalReferences(String content) {
+        if (externalRef(JSON_REF.matcher(content)) || externalRef(YAML_REF.matcher(content))) {
+            throw new IllegalArgumentException(
+                    "The spec must be a single document. Remote or file references are not allowed.");
+        }
+    }
+
+    private static boolean externalRef(Matcher matcher) {
+        while (matcher.find()) {
+            String ref = matcher.group(1).trim();
+            if ((ref.startsWith("\"") && ref.endsWith("\"")) || (ref.startsWith("'") && ref.endsWith("'"))) {
+                ref = ref.substring(1, ref.length() - 1).trim();
+            }
+            if (!ref.isEmpty() && !ref.startsWith("#")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static boolean isSwagger2Document(String specContent) {
@@ -128,7 +176,7 @@ public final class OpenApiSpecLoader {
         try {
             return Files.readString(Path.of(location), StandardCharsets.UTF_8);
         } catch (IOException exception) {
-            throw new IllegalArgumentException("Failed to read Swagger/OpenAPI file: " + location, exception);
+            throw new IllegalArgumentException("The spec file could not be read.", exception);
         }
     }
 
@@ -140,18 +188,20 @@ public final class OpenApiSpecLoader {
                     .GET()
                     .build();
             HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() >= 400) {
-                throw new IllegalArgumentException("Failed to download Swagger/OpenAPI spec. HTTP "
-                        + response.statusCode() + " for " + location);
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalArgumentException("The spec could not be downloaded.");
             }
             return response.body();
-        } catch (IOException | InterruptedException exception) {
+        } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new IllegalArgumentException("Failed to download Swagger/OpenAPI spec: " + location, exception);
+            throw new IllegalArgumentException("The spec could not be downloaded.", exception);
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("The spec could not be downloaded.", exception);
         }
     }
 
     private static boolean isRemoteLocation(String location) {
-        return location.startsWith("http://") || location.startsWith("https://");
+        return location.regionMatches(true, 0, "http://", 0, "http://".length())
+                || location.regionMatches(true, 0, "https://", 0, "https://".length());
     }
 }
