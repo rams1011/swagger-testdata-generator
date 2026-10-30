@@ -13,7 +13,9 @@ import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
 import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
 import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
+import com.tx.api.test.generator.studio.dto.SpecListPage;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
+import com.tx.api.test.generator.studio.storage.SpecListFilter;
 import com.tx.api.test.generator.studio.model.LoadedSpec;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
@@ -299,6 +301,24 @@ public class SpecCatalogService {
                         StringUtils.defaultString(left.name(), left.title()),
                         StringUtils.defaultString(right.name(), right.title())))
                 .toList();
+    }
+
+    public SpecListPage listPage(SpecListFilter filter) {
+        SpecListFilter query = filter == null ? SpecListFilter.of(null, null, "updated", 0, 20, null) : filter;
+        List<StoredSpec> storedRows = studioStorage.listSpecs(query);
+        long total = studioStorage.countSpecs(query);
+        List<SpecSummary> items = storedRows.stream()
+                .map(stored -> {
+                    LoadedSpec loaded = specs.get(stored.getSpecId());
+                    return loaded == null
+                            ? toSummary(stored)
+                            : toSummary(loaded, stored.getSourceLocation());
+                })
+                .toList();
+        int offset = query.offset();
+        int limit = query.limit() > 0 ? query.limit() : items.size();
+        boolean hasMore = limit > 0 && ((long) offset + items.size()) < total;
+        return new SpecListPage(items, total, offset, limit, hasMore);
     }
 
     public SpecSummary getSummary(String specId) {

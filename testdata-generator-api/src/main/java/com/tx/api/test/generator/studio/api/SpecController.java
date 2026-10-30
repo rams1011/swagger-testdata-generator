@@ -9,7 +9,9 @@ import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
 import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
 import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
+import com.tx.api.test.generator.studio.dto.SpecListPage;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
+import com.tx.api.test.generator.studio.storage.SpecListFilter;
 import com.tx.api.test.generator.studio.service.SpecCatalogService;
 import com.tx.api.test.generator.studio.service.TestDataStudioService;
 import org.springframework.http.HttpStatus;
@@ -87,8 +89,17 @@ public class SpecController {
     }
 
     @GetMapping
-    public List<SpecSummary> list() {
-        return specCatalogService.list();
+    public Object list(@RequestParam(value = "q", required = false) String q,
+                       @RequestParam(value = "label", required = false) String label,
+                       @RequestParam(value = "sort", required = false) String sort,
+                       @RequestParam(value = "limit", required = false) Integer limit,
+                       @RequestParam(value = "offset", required = false) Integer offset,
+                       @RequestParam(value = "ids", required = false) String ids) {
+        SpecListFilter filter = SpecListFilter.of(q, label, sort, offset, limit, ids);
+        if (!filter.paged()) {
+            return specCatalogService.list();
+        }
+        return specCatalogService.listPage(filter);
     }
 
     @GetMapping("/{specId}")

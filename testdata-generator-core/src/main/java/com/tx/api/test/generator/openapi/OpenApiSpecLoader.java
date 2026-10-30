@@ -165,8 +165,32 @@ public final class OpenApiSpecLoader {
     }
 
     private static boolean isSwagger2Document(String specContent) {
-        return specContent.contains("\"swagger\"")
-                && (specContent.contains("\"2.0\"") || specContent.contains("'2.0'"));
+        if (StringUtils.isBlank(specContent)) {
+            return false;
+        }
+        if (specContent.contains("\"swagger\"")
+                && (specContent.contains("\"2.0\"") || specContent.contains("'2.0'"))) {
+            return true;
+        }
+        // YAML (e.g. swagger: "2.0" at root) — not detected by JSON key heuristics above.
+        for (String line : specContent.split("\\R", 32)) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
+                continue;
+            }
+            if (trimmed.regionMatches(true, 0, "openapi:", 0, "openapi:".length())
+                    || trimmed.regionMatches(true, 0, "openapi ", 0, "openapi ".length())) {
+                return false;
+            }
+            if (trimmed.regionMatches(true, 0, "swagger:", 0, "swagger:".length())) {
+                String value = trimmed.substring("swagger:".length()).trim();
+                return value.equals("2.0") || value.equals("\"2.0\"") || value.equals("'2.0'");
+            }
+            if (!trimmed.startsWith("---") && !trimmed.regionMatches(true, 0, "info:", 0, "info:".length())) {
+                break;
+            }
+        }
+        return false;
     }
 
     private static String readSpecContent(String location) {
