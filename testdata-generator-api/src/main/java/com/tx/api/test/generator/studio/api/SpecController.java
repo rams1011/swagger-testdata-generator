@@ -94,8 +94,9 @@ public class SpecController {
                        @RequestParam(value = "sort", required = false) String sort,
                        @RequestParam(value = "limit", required = false) Integer limit,
                        @RequestParam(value = "offset", required = false) Integer offset,
-                       @RequestParam(value = "ids", required = false) String ids) {
-        SpecListFilter filter = SpecListFilter.of(q, label, sort, offset, limit, ids);
+                       @RequestParam(value = "ids", required = false) String ids,
+                       @RequestParam(value = "manual", required = false) Boolean manual) {
+        SpecListFilter filter = SpecListFilter.of(q, label, sort, offset, limit, ids, manual);
         if (!filter.paged()) {
             return specCatalogService.list();
         }

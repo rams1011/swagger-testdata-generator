@@ -53,12 +53,21 @@ public final class OpenApiTestDataMapper {
         String baseUrl = resolveBaseUrl(openApi);
         int testCaseNo = 1;
 
-        if (openApi.getPaths() == null) {
-            return rows;
-        }
+        testCaseNo = mapPathItems(openApi, baseUrl, openApi.getPaths(), false, testCaseNo, rows);
+        mapPathItems(openApi, baseUrl, openApi.getWebhooks(), true, testCaseNo, rows);
 
-        for (Map.Entry<String, PathItem> pathEntry : openApi.getPaths().entrySet()) {
-            String rawPath = pathEntry.getKey();
+        return rows;
+    }
+
+    private int mapPathItems(OpenAPI openApi, String baseUrl, Map<String, PathItem> pathItems, boolean webhookEntries,
+                             int testCaseNo, List<TestDataRow> rows) {
+        if (pathItems == null || pathItems.isEmpty()) {
+            return testCaseNo;
+        }
+        for (Map.Entry<String, PathItem> pathEntry : pathItems.entrySet()) {
+            String rawPath = webhookEntries
+                    ? OpenApiOperationInspector.webhookVirtualPath(pathEntry.getKey())
+                    : pathEntry.getKey();
             PathItem pathItem = pathEntry.getValue();
             if (pathItem == null) {
                 continue;
@@ -74,8 +83,7 @@ public final class OpenApiTestDataMapper {
                 rows.add(buildRow(testCaseNo++, baseUrl, rawPath, pathItem, httpMethod, operation));
             }
         }
-
-        return rows;
+        return testCaseNo;
     }
 
     private TestDataRow buildRow(int testCaseNo, String baseUrl, String rawPath, PathItem pathItem,

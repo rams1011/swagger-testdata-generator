@@ -12,10 +12,12 @@ public record SpecListFilter(
         String sort,
         int offset,
         int limit,
-        List<String> ids
+        List<String> ids,
+        Boolean manual
 ) {
 
-    public static SpecListFilter of(String q, String label, String sort, Integer offset, Integer limit, String idsCsv) {
+    public static SpecListFilter of(String q, String label, String sort, Integer offset, Integer limit, String idsCsv,
+                                    Boolean manual) {
         List<String> ids = StringUtils.isBlank(idsCsv)
                 ? List.of()
                 : Arrays.stream(idsCsv.split(","))
@@ -35,11 +37,16 @@ public record SpecListFilter(
                 safeSort,
                 safeOffset,
                 safeLimit,
-                ids
+                ids,
+                manual
         );
     }
 
     public boolean paged() {
-        return limit > 0 || StringUtils.isNotBlank(q) || StringUtils.isNotBlank(label) || !ids.isEmpty();
+        return limit > 0
+                || StringUtils.isNotBlank(q)
+                || StringUtils.isNotBlank(label)
+                || !ids.isEmpty()
+                || manual != null;
     }
 }

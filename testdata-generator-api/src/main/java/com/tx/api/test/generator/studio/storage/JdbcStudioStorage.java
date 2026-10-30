@@ -12,6 +12,7 @@ import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
@@ -26,10 +27,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class JdbcStudioStorage implements StudioStorage {
 
     private final JdbcTemplate jdbcTemplate;
+    private final ConcurrentHashMap<String, Object> environmentSaveLocks = new ConcurrentHashMap<>();
 
     public JdbcStudioStorage(JdbcTemplate jdbcTemplate) {
         this.jdbcTemplate = jdbcTemplate;
@@ -173,6 +176,15 @@ public class JdbcStudioStorage implements StudioStorage {
             args.add(pattern);
             args.add(pattern);
             args.add(pattern);
+        }
+        if (filter.manual() != null) {
+            if (Boolean.TRUE.equals(filter.manual())) {
+                sql.append(" AND source_content LIKE ?");
+                args.add("%x-testdata-manual%");
+            } else {
+                sql.append(" AND (source_content IS NULL OR source_content NOT LIKE ?)");
+                args.add("%x-testdata-manual%");
+            }
         }
     }
 
@@ -371,8 +383,24 @@ public class JdbcStudioStorage implements StudioStorage {
     @Override
     public void saveEnvironment(StoredEnvironment environment) {
         requireOwnedSpec(environment.getSpecId());
+        synchronized (environmentSaveLock(environment.getSpecId())) {
+            saveEnvironmentUnderLock(environment);
+        }
+    }
+
+    private Object environmentSaveLock(String specId) {
+        return environmentSaveLocks.computeIfAbsent(tenantId() + ":" + specId, ignored -> new Object());
+    }
+
+    private void saveEnvironmentUnderLock(StoredEnvironment environment) {
         Instant now = Instant.now();
         Optional<StoredEnvironment> existing = findEnvironment(environment.getId());
+        if (existing.isEmpty() && StringUtils.isNotBlank(environment.getName())) {
+            existing = findEnvironmentByName(environment.getSpecId(), environment.getName());
+            if (existing.isPresent()) {
+                environment.setId(existing.get().getId());
+            }
+        }
         environment.setCreatedAt(existing.map(StoredEnvironment::getCreatedAt).orElse(now));
         environment.setUpdatedAt(now);
         Timestamp updatedAt = Timestamp.from(environment.getUpdatedAt());
@@ -390,12 +418,22 @@ public class JdbcStudioStorage implements StudioStorage {
             }
             return;
         }
-        jdbcTemplate.update("""
-                        INSERT INTO td_environment (environment_id, spec_id, name, document_json, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
-                        """,
-                environment.getId(), environment.getSpecId(), environment.getName(), environment.getDocumentJson(),
-                Timestamp.from(environment.getCreatedAt()), updatedAt);
+        try {
+            jdbcTemplate.update("""
+                            INSERT INTO td_environment (environment_id, spec_id, name, document_json, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            """,
+                    environment.getId(), environment.getSpecId(), environment.getName(), environment.getDocumentJson(),
+                    Timestamp.from(environment.getCreatedAt()), updatedAt);
+        } catch (DuplicateKeyException conflict) {
+            Optional<StoredEnvironment> byName = findEnvironmentByName(environment.getSpecId(), environment.getName());
+            if (byName.isEmpty()) {
+                throw conflict;
+            }
+            environment.setId(byName.get().getId());
+            environment.setCreatedAt(byName.get().getCreatedAt());
+            saveEnvironmentUnderLock(environment);
+        }
     }
 
     @Override

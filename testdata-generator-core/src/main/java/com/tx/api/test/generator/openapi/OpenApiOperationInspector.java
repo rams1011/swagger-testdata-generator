@@ -53,12 +53,19 @@ public final class OpenApiOperationInspector {
             servers = List.of(new SpecServer(baseUrl, "", baseUrl, Map.of()));
         }
 
-        if (openApi.getPaths() == null) {
-            return pages;
-        }
+        collectPathItemPages(openApi, servers, baseUrl, openApi.getPaths(), false, usedKeys, pages);
+        collectPathItemPages(openApi, servers, baseUrl, openApi.getWebhooks(), true, usedKeys, pages);
+        return pages;
+    }
 
-        for (Map.Entry<String, PathItem> pathEntry : openApi.getPaths().entrySet()) {
-            String rawPath = pathEntry.getKey();
+    private void collectPathItemPages(OpenAPI openApi, List<SpecServer> servers, String baseUrl,
+                                      Map<String, PathItem> pathItems, boolean webhookEntries,
+                                      Set<String> usedKeys, List<OperationPage> pages) {
+        if (pathItems == null || pathItems.isEmpty()) {
+            return;
+        }
+        for (Map.Entry<String, PathItem> pathEntry : pathItems.entrySet()) {
+            String rawPath = webhookEntries ? webhookVirtualPath(pathEntry.getKey()) : pathEntry.getKey();
             PathItem pathItem = pathEntry.getValue();
             if (pathItem == null) {
                 continue;
@@ -72,7 +79,13 @@ public final class OpenApiOperationInspector {
                 pages.add(buildPage(openApi, servers, baseUrl, rawPath, pathItem, httpMethod, operation, usedKeys));
             }
         }
-        return pages;
+    }
+
+    static String webhookVirtualPath(String webhookName) {
+        if (StringUtils.isBlank(webhookName)) {
+            return "/webhooks/unknown";
+        }
+        return "/webhooks/" + webhookName.trim();
     }
 
     public static String specTitle(OpenAPI openApi) {
