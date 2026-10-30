@@ -304,7 +304,9 @@ public class SpecCatalogService {
     }
 
     public SpecListPage listPage(SpecListFilter filter) {
-        SpecListFilter query = filter == null ? SpecListFilter.of(null, null, "updated", 0, 20, null) : filter;
+        SpecListFilter query = filter == null
+                ? SpecListFilter.of(null, null, "updated", 0, 20, null, null)
+                : filter;
         List<StoredSpec> storedRows = studioStorage.listSpecs(query);
         long total = studioStorage.countSpecs(query);
         List<SpecSummary> items = storedRows.stream()
