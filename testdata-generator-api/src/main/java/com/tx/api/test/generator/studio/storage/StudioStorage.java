@@ -24,6 +24,14 @@ public interface StudioStorage {
 
     List<StoredSpec> listSpecs();
 
+    default List<StoredSpec> listSpecs(SpecListFilter filter) {
+        return listSpecs();
+    }
+
+    default long countSpecs(SpecListFilter filter) {
+        return listSpecs(filter).size();
+    }
+
     void deleteSpec(String specId);
 
     default void ensureSpecNameUniqueIndex() {

@@ -11,6 +11,7 @@ import com.tx.api.test.generator.studio.audit.AuditResourceType;
 import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
@@ -21,6 +22,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -91,6 +93,94 @@ public class JdbcStudioStorage implements StudioStorage {
     public List<StoredSpec> listSpecs() {
         return jdbcTemplate.query(
                 "SELECT * FROM td_spec WHERE tenant_id = ? ORDER BY name, title", specMapper(), tenantId());
+    }
+
+    @Override
+    public List<StoredSpec> listSpecs(SpecListFilter filter) {
+        if (filter == null || !filter.paged()) {
+            return listSpecs();
+        }
+        if (!filter.ids().isEmpty()) {
+            return listSpecsByIds(filter.ids());
+        }
+        StringBuilder sql = new StringBuilder("SELECT * FROM td_spec WHERE tenant_id = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(tenantId());
+        appendSpecFilters(sql, args, filter);
+        sql.append(orderByClause(filter.sort()));
+        if (filter.limit() > 0) {
+            sql.append(" LIMIT ? OFFSET ?");
+            args.add(filter.limit());
+            args.add(filter.offset());
+        }
+        return jdbcTemplate.query(sql.toString(), specMapper(), args.toArray());
+    }
+
+    @Override
+    public long countSpecs(SpecListFilter filter) {
+        if (filter == null || !filter.paged()) {
+            return listSpecs().size();
+        }
+        if (!filter.ids().isEmpty()) {
+            return listSpecsByIds(filter.ids()).size();
+        }
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM td_spec WHERE tenant_id = ?");
+        List<Object> args = new ArrayList<>();
+        args.add(tenantId());
+        appendSpecFilters(sql, args, filter);
+        Long count = jdbcTemplate.queryForObject(sql.toString(), Long.class, args.toArray());
+        return count == null ? 0L : count;
+    }
+
+    private List<StoredSpec> listSpecsByIds(List<String> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        String placeholders = String.join(",", ids.stream().map(id -> "?").toList());
+        List<Object> args = new ArrayList<>();
+        args.add(tenantId());
+        args.addAll(ids);
+        List<StoredSpec> rows = jdbcTemplate.query(
+                "SELECT * FROM td_spec WHERE tenant_id = ? AND spec_id IN (" + placeholders + ")",
+                specMapper(),
+                args.toArray());
+        Map<String, StoredSpec> byId = new LinkedHashMap<>();
+        rows.forEach(row -> byId.put(row.getSpecId(), row));
+        List<StoredSpec> ordered = new ArrayList<>();
+        ids.forEach(id -> {
+            StoredSpec spec = byId.get(id);
+            if (spec != null) {
+                ordered.add(spec);
+            }
+        });
+        return ordered;
+    }
+
+    private void appendSpecFilters(StringBuilder sql, List<Object> args, SpecListFilter filter) {
+        if (StringUtils.isNotBlank(filter.label())) {
+            sql.append(" AND LOWER(label) = LOWER(?)");
+            args.add(filter.label().trim());
+        }
+        if (StringUtils.isNotBlank(filter.q())) {
+            sql.append(" AND (LOWER(COALESCE(name, '')) LIKE ?"
+                    + " OR LOWER(COALESCE(title, '')) LIKE ?"
+                    + " OR LOWER(COALESCE(label, '')) LIKE ?"
+                    + " OR LOWER(COALESCE(base_url, '')) LIKE ?"
+                    + " OR LOWER(spec_id) LIKE ?)");
+            String pattern = "%" + filter.q().trim().toLowerCase(Locale.ROOT) + "%";
+            args.add(pattern);
+            args.add(pattern);
+            args.add(pattern);
+            args.add(pattern);
+            args.add(pattern);
+        }
+    }
+
+    private static String orderByClause(String sort) {
+        if ("name".equalsIgnoreCase(sort)) {
+            return " ORDER BY name, title";
+        }
+        return " ORDER BY updated_at DESC, name, title";
     }
 
     @Override
