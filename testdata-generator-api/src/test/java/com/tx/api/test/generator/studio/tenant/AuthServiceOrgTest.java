@@ -25,6 +25,7 @@ class AuthServiceOrgTest {
     @AfterEach
     void clearContext() {
         TenantContext.clear();
+        TenantContext.setSaasEnabled(false);
     }
 
     @Test

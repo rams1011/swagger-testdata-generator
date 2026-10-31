@@ -2,6 +2,7 @@ package com.tx.api.test.generator.studio.tenant;
 
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AddMemberRequest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 
@@ -12,6 +13,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 class AuthServiceLdapTest {
+
+    @AfterEach
+    void clearContext() {
+        TenantContext.clear();
+        TenantContext.setSaasEnabled(false);
+    }
 
     @Test
     void addOrgMemberRejectsNewAccountWhenLdapIsOn() {

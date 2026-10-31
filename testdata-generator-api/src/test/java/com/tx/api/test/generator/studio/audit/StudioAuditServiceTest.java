@@ -50,6 +50,7 @@ class StudioAuditServiceTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        TenantContext.setSaasEnabled(false);
         if (dataSource != null) {
             new JdbcTemplate(dataSource).execute("SHUTDOWN");
         }
