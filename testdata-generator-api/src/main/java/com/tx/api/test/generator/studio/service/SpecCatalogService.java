@@ -303,6 +303,16 @@ public class SpecCatalogService {
                 .toList();
     }
 
+    public List<String> listLabels() {
+        java.util.LinkedHashSet<String> labels = new java.util.LinkedHashSet<>();
+        for (String raw : studioStorage.listDistinctSpecLabels()) {
+            labels.add(normalizeLabel(raw));
+        }
+        return labels.stream()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+    }
+
     public SpecListPage listPage(SpecListFilter filter) {
         SpecListFilter query = filter == null
                 ? SpecListFilter.of(null, null, "updated", 0, 20, null, null)
@@ -413,6 +423,19 @@ public class SpecCatalogService {
         );
     }
 
+    private String resolveStoredSourceLocation(LoadSpecRequest request, String content) {
+        if (request != null && StringUtils.isNotBlank(request.location())) {
+            return request.location().trim();
+        }
+        if (request != null && StringUtils.isNotBlank(request.fileName())) {
+            return request.fileName().trim();
+        }
+        if (StringUtils.isNotBlank(content)) {
+            return content.trim().startsWith("{") ? "inline:json" : "inline:yaml";
+        }
+        return null;
+    }
+
     private StoredSpec toStoredSpec(LoadedSpec loaded, LoadSpecRequest request, String content, String name) {
         StoredSpec stored = new StoredSpec();
         stored.setSpecId(loaded.getSpecId());
@@ -422,7 +445,7 @@ public class SpecCatalogService {
         stored.setVersion(loaded.getVersion());
         stored.setDescription(loaded.getDescription());
         stored.setBaseUrl(loaded.getBaseUrl());
-        stored.setSourceLocation(SpecLocationGuard.publicLocation(request == null ? null : request.location()));
+        stored.setSourceLocation(SpecLocationGuard.publicLocation(resolveStoredSourceLocation(request, content)));
         stored.setSourceContent(content);
         stored.setOperationCount(loaded.getOperations().size());
         return stored;
@@ -541,8 +564,11 @@ public class SpecCatalogService {
         if (request != null && StringUtils.isNotBlank(request.content())) {
             return request.content();
         }
-        if (StringUtils.isNotBlank(location)) {
+        if (StringUtils.isNotBlank(location) && SpecLocationGuard.isRemote(location)) {
             return readAllowedLocation(location);
+        }
+        if (StringUtils.isNotBlank(existing.getSourceContent())) {
+            return existing.getSourceContent();
         }
         throw new IllegalArgumentException(
                 "This spec has no URL or file path to re-fetch. Upload a file or paste the updated OpenAPI content.");

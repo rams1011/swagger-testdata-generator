@@ -99,6 +99,14 @@ public class JdbcStudioStorage implements StudioStorage {
     }
 
     @Override
+    public List<String> listDistinctSpecLabels() {
+        return jdbcTemplate.query(
+                "SELECT DISTINCT label FROM td_spec WHERE tenant_id = ?",
+                (rs, rowNum) -> rs.getString(1),
+                tenantId());
+    }
+
+    @Override
     public List<StoredSpec> listSpecs(SpecListFilter filter) {
         if (filter == null || !filter.paged()) {
             return listSpecs();

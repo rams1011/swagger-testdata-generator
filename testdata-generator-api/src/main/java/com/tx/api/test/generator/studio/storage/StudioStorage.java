@@ -24,6 +24,16 @@ public interface StudioStorage {
 
     List<StoredSpec> listSpecs();
 
+    /** Distinct raw {@code td_spec.label} values for the current tenant (may be null or blank). */
+    default List<String> listDistinctSpecLabels() {
+        java.util.LinkedHashSet<String> seen = new java.util.LinkedHashSet<>();
+        for (StoredSpec spec : listSpecs()) {
+            String label = spec.getLabel();
+            seen.add(label == null ? "" : label);
+        }
+        return new java.util.ArrayList<>(seen);
+    }
+
     default List<StoredSpec> listSpecs(SpecListFilter filter) {
         return listSpecs();
     }
