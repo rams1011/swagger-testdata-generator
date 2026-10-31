@@ -35,6 +35,10 @@ management:
           endpoint: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:http://localhost:4318/v1/traces}
 
 spring:
+  data:
+    redis:
+      repositories:
+        enabled: false
   application:
     name: testdata-studio
   profiles:
@@ -63,6 +67,18 @@ spring:
       path: /h2-console
 
 testdata:
+  cache:
+    redis:
+      # Optional read-through cache (TESTDATA_REDIS_* / deploy-gcp cloudrun.env). Off unless enabled=true.
+      # Cached: specs, plans, envs, cases, run history, audit lists, request-file metadata — not auth, runs, file bytes.
+      enabled: ${TESTDATA_REDIS_CACHE_ENABLED:false}
+      host: ${TESTDATA_REDIS_HOST:localhost}
+      port: ${TESTDATA_REDIS_PORT:6379}
+      password: ${TESTDATA_REDIS_PASSWORD:}
+      ssl: ${TESTDATA_REDIS_SSL:false}
+      # When ssl=true, disables TLS certificate verification (managed Redis with internal CAs).
+      disable-peer-verification: ${TESTDATA_REDIS_DISABLE_PEER_VERIFICATION:true}
+      ttl-seconds: ${TESTDATA_REDIS_CACHE_TTL_SECONDS:300}
   # Hosting mode — set only this:
   #   local      desktop, no login
   #   datacenter login + admin, no plan (default when blank)

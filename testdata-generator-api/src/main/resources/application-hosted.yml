@@ -1,4 +1,6 @@
 # Shared settings for docker, datacenter, and cloud (activated via spring.profiles.group).
+# JDBC: set SPRING_DATASOURCE_URL, SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD
+# (Cloud Run deploy writes these from GitHub Actions secrets — see .github/workflows/deploy-gcp.yml).
 spring:
   config:
     activate:
@@ -6,9 +8,9 @@ spring:
   flyway:
     enabled: true
   datasource:
-    url: jdbc:postgresql://localhost:5432/testdata_studio
-    username: postgres
-    password: Testing@123
+    url: ${SPRING_DATASOURCE_URL}
+    username: ${SPRING_DATASOURCE_USERNAME}
+    password: ${SPRING_DATASOURCE_PASSWORD}
   h2:
     console:
       enabled: false

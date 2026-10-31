@@ -10,7 +10,17 @@ import org.springframework.jdbc.core.JdbcTemplate;
 public class StorageConfiguration {
 
     @Bean
-    StudioStorage studioStorage(JdbcTemplate jdbcTemplate) {
+    JdbcStudioStorage jdbcStudioStorage(JdbcTemplate jdbcTemplate) {
         return new JdbcStudioStorage(jdbcTemplate);
+    }
+
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnProperty(
+            prefix = "testdata.cache.redis",
+            name = "enabled",
+            havingValue = "false",
+            matchIfMissing = true)
+    StudioStorage studioStorage(JdbcStudioStorage jdbcStudioStorage) {
+        return jdbcStudioStorage;
     }
 }

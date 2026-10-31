@@ -30,6 +30,13 @@ jobs:
       TESTDATA_SAAS_CORS_ORIGINS: ${{ vars.TESTDATA_SAAS_CORS_ORIGINS }}
       TESTDATA_SAAS_ADMIN_EMAIL: ${{ secrets.TESTDATA_SAAS_ADMIN_EMAIL }}
       TESTDATA_SAAS_ADMIN_PASSWORD: ${{ secrets.TESTDATA_SAAS_ADMIN_PASSWORD }}
+      TESTDATA_REDIS_CACHE_ENABLED: ${{ vars.TESTDATA_REDIS_CACHE_ENABLED }}
+      TESTDATA_REDIS_HOST: ${{ secrets.TESTDATA_REDIS_HOST }}
+      TESTDATA_REDIS_PORT: ${{ vars.TESTDATA_REDIS_PORT }}
+      TESTDATA_REDIS_PASSWORD: ${{ secrets.TESTDATA_REDIS_PASSWORD }}
+      TESTDATA_REDIS_SSL: ${{ vars.TESTDATA_REDIS_SSL }}
+      TESTDATA_REDIS_DISABLE_PEER_VERIFICATION: ${{ vars.TESTDATA_REDIS_DISABLE_PEER_VERIFICATION }}
+      TESTDATA_REDIS_CACHE_TTL_SECONDS: ${{ vars.TESTDATA_REDIS_CACHE_TTL_SECONDS }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -110,6 +117,27 @@ jobs:
             echo "TESTDATA_SAAS_ADMIN_PASSWORD=${TESTDATA_SAAS_ADMIN_PASSWORD}"
             if [ -n "${TESTDATA_SAAS_CORS_ORIGINS}" ]; then
               echo "TESTDATA_SAAS_CORS_ORIGINS=${TESTDATA_SAAS_CORS_ORIGINS}"
+            fi
+            if [ -n "${TESTDATA_REDIS_CACHE_ENABLED}" ]; then
+              echo "TESTDATA_REDIS_CACHE_ENABLED=${TESTDATA_REDIS_CACHE_ENABLED}"
+            fi
+            if [ -n "${TESTDATA_REDIS_HOST}" ]; then
+              echo "TESTDATA_REDIS_HOST=${TESTDATA_REDIS_HOST}"
+            fi
+            if [ -n "${TESTDATA_REDIS_PORT}" ]; then
+              echo "TESTDATA_REDIS_PORT=${TESTDATA_REDIS_PORT}"
+            fi
+            if [ -n "${TESTDATA_REDIS_PASSWORD}" ]; then
+              echo "TESTDATA_REDIS_PASSWORD=${TESTDATA_REDIS_PASSWORD}"
+            fi
+            if [ -n "${TESTDATA_REDIS_SSL}" ]; then
+              echo "TESTDATA_REDIS_SSL=${TESTDATA_REDIS_SSL}"
+            fi
+            if [ -n "${TESTDATA_REDIS_DISABLE_PEER_VERIFICATION}" ]; then
+              echo "TESTDATA_REDIS_DISABLE_PEER_VERIFICATION=${TESTDATA_REDIS_DISABLE_PEER_VERIFICATION}"
+            fi
+            if [ -n "${TESTDATA_REDIS_CACHE_TTL_SECONDS}" ]; then
+              echo "TESTDATA_REDIS_CACHE_TTL_SECONDS=${TESTDATA_REDIS_CACHE_TTL_SECONDS}"
             fi
           } > "${GITHUB_WORKSPACE}/cloudrun.env"
 

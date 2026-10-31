@@ -20,6 +20,7 @@ public class StudioProperties {
     private String edition = "";
     private String defaultOutputDir = "./studio-output";
     private String defaultExcelFileName = "TestData.xlsx";
+    private Cache cache = new Cache();
 
     public H2 getH2() {
         return h2;
@@ -645,6 +646,92 @@ public class StudioProperties {
             return org.apache.commons.lang3.StringUtils.isNotBlank(groupRole.getOwner())
                     || org.apache.commons.lang3.StringUtils.isNotBlank(groupRole.getAdmin())
                     || org.apache.commons.lang3.StringUtils.isNotBlank(groupRole.getMember());
+        }
+    }
+
+    public Cache getCache() {
+        return cache;
+    }
+
+    public void setCache(Cache cache) {
+        this.cache = cache == null ? new Cache() : cache;
+    }
+
+    public static class Cache {
+        private Redis redis = new Redis();
+
+        public Redis getRedis() {
+            return redis;
+        }
+
+        public void setRedis(Redis redis) {
+            this.redis = redis == null ? new Redis() : redis;
+        }
+    }
+
+    public static class Redis {
+        private boolean enabled;
+        private String host = "localhost";
+        private int port = 6379;
+        private String password = "";
+        private boolean ssl;
+        private boolean disablePeerVerification = true;
+        private long ttlSeconds = 300;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getHost() {
+            return host;
+        }
+
+        public void setHost(String host) {
+            this.host = host;
+        }
+
+        public int getPort() {
+            return port;
+        }
+
+        public void setPort(int port) {
+            this.port = port;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+
+        public boolean isSsl() {
+            return ssl;
+        }
+
+        public void setSsl(boolean ssl) {
+            this.ssl = ssl;
+        }
+
+        public boolean isDisablePeerVerification() {
+            return disablePeerVerification;
+        }
+
+        public void setDisablePeerVerification(boolean disablePeerVerification) {
+            this.disablePeerVerification = disablePeerVerification;
+        }
+
+        public long getTtlSeconds() {
+            return ttlSeconds;
+        }
+
+        public void setTtlSeconds(long ttlSeconds) {
+            this.ttlSeconds = ttlSeconds;
         }
     }
 
