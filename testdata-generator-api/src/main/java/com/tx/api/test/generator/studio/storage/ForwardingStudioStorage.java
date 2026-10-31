@@ -44,6 +44,11 @@ abstract class ForwardingStudioStorage implements StudioStorage {
     }
 
     @Override
+    public List<String> listDistinctSpecLabels() {
+        return delegate.listDistinctSpecLabels();
+    }
+
+    @Override
     public List<StoredSpec> listSpecs(SpecListFilter filter) {
         return delegate.listSpecs(filter);
     }
