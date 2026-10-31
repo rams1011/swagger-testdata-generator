@@ -97,6 +97,12 @@ public class RedisCachingStudioStorage extends ForwardingStudioStorage {
                 super::listSpecs);
     }
 
+    /** Distinct labels must come from the database, not cached spec list pages. */
+    @Override
+    public List<String> listDistinctSpecLabels() {
+        return delegate().listDistinctSpecLabels();
+    }
+
     @Override
     public List<StoredSpec> listSpecs(SpecListFilter filter) {
         String suffix = "spec-list:" + SpecListFilterCacheKeys.forFilter(filter);
