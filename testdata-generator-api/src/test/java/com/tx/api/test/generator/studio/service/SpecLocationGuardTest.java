@@ -34,4 +34,16 @@ class SpecLocationGuardTest {
         assertEquals("https://example.com/openapi.json",
                 SpecLocationGuard.publicLocation(" https://example.com/openapi.json "));
     }
+
+    @Test
+    void safeFileNameCanBeStored() {
+        assertEquals("openapi.yaml", SpecLocationGuard.publicLocation("openapi.yaml"));
+        assertNull(SpecLocationGuard.publicLocation("../secrets.yaml"));
+    }
+
+    @Test
+    void inlineMarkersCanBeStored() {
+        assertEquals("inline:json", SpecLocationGuard.publicLocation("inline:json"));
+        assertEquals("inline:yaml", SpecLocationGuard.publicLocation("inline:yaml"));
+    }
 }

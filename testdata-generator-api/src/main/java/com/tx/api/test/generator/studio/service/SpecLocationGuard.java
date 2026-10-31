@@ -33,9 +33,27 @@ public final class SpecLocationGuard {
 
     /** Value safe to store and return. Server file paths are omitted. */
     public static String publicLocation(String location) {
-        if (!isRemote(location)) {
+        if (location == null || location.isBlank()) {
             return null;
         }
-        return location.trim();
+        String trimmed = location.trim();
+        if (isRemote(trimmed)) {
+            return trimmed;
+        }
+        if (isInlineMarker(trimmed) || isSafeFileName(trimmed)) {
+            return trimmed;
+        }
+        return null;
+    }
+
+    static boolean isInlineMarker(String location) {
+        return "inline:json".equals(location) || "inline:yaml".equals(location);
+    }
+
+    static boolean isSafeFileName(String location) {
+        if (location.contains("/") || location.contains("\\") || location.contains("..")) {
+            return false;
+        }
+        return !location.isBlank();
     }
 }

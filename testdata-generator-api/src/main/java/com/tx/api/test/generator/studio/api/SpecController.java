@@ -88,6 +88,11 @@ public class SpecController {
                 null, null, null, expectedUpdatedAt, forceOverwrite));
     }
 
+    @GetMapping("/labels")
+    public List<String> listLabels() {
+        return specCatalogService.listLabels();
+    }
+
     @GetMapping
     public Object list(@RequestParam(value = "q", required = false) String q,
                        @RequestParam(value = "label", required = false) String label,
