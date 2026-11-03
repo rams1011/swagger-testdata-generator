@@ -50,6 +50,7 @@ import com.tx.api.test.generator.studio.api.ConflictException;
 import com.tx.api.test.generator.studio.audit.StudioAuditService;
 import com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency;
 import com.tx.api.test.generator.studio.dto.AuditEventView;
+import com.tx.api.test.generator.studio.cache.StudioCacheDiagnostics;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 import com.tx.api.test.generator.studio.tenant.EntitlementService;
 import com.tx.api.test.generator.studio.tenant.ForbiddenException;
@@ -91,6 +92,7 @@ public class TestDataStudioService {
     private final EntitlementService entitlements;
     private final StudioAuditService auditService;
     private final StudioDatasourceSettings datasourceSettings;
+    private final StudioCacheDiagnostics cacheDiagnostics;
     private final TestDataExcelWriter excelWriter = new TestDataExcelWriter();
 
     public TestDataStudioService(SpecCatalogService specCatalogService, StudioProperties properties,
@@ -99,7 +101,8 @@ public class TestDataStudioService {
                                  @org.springframework.beans.factory.annotation.Autowired(required = false)
                                  EntitlementService entitlements,
                                  StudioAuditService auditService,
-                                 StudioDatasourceSettings datasourceSettings) {
+                                 StudioDatasourceSettings datasourceSettings,
+                                 StudioCacheDiagnostics cacheDiagnostics) {
         this.specCatalogService = specCatalogService;
         this.properties = properties;
         this.studioStorage = studioStorage;
@@ -108,6 +111,7 @@ public class TestDataStudioService {
         this.entitlements = entitlements;
         this.auditService = auditService;
         this.datasourceSettings = datasourceSettings;
+        this.cacheDiagnostics = cacheDiagnostics;
     }
 
     public List<TestPlanView> listPlans(String specId) {
@@ -730,6 +734,9 @@ public class TestDataStudioService {
         config.put("passwordMinLength", String.valueOf(
                 com.tx.api.test.generator.studio.tenant.PasswordPolicy.MIN_LENGTH));
         config.put("passwordRule", com.tx.api.test.generator.studio.tenant.PasswordPolicy.RULE);
+        config.put("redisCacheEnabled", String.valueOf(properties.getCache().getRedis().isEnabled()));
+        config.put("redisCacheStatus", cacheDiagnostics.status().name().toLowerCase(Locale.ROOT));
+        config.put("redisCacheDetail", cacheDiagnostics.detail());
         return config;
     }
 
