@@ -1,6 +1,8 @@
 package com.tx.api.test.generator.studio.config;
 
+import com.tx.api.test.generator.studio.cache.StudioCacheDiagnostics;
 import com.tx.api.test.generator.studio.cache.StudioRedisCache;
+import com.tx.api.test.generator.studio.cache.StudioRedisFailureMessages;
 import com.tx.api.test.generator.studio.storage.JdbcStudioStorage;
 import com.tx.api.test.generator.studio.storage.RedisCachingStudioStorage;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
@@ -29,7 +31,9 @@ public class RedisStudioCacheConfiguration {
      */
     @Bean
     @Primary
-    StudioStorage studioStorage(JdbcStudioStorage jdbcStudioStorage, StudioProperties properties) {
+    StudioStorage studioStorage(JdbcStudioStorage jdbcStudioStorage,
+                                StudioProperties properties,
+                                StudioCacheDiagnostics diagnostics) {
         StudioProperties.Redis redis = properties.getCache().getRedis();
         LettuceConnectionFactory factory = null;
         try {
@@ -38,9 +42,11 @@ public class RedisStudioCacheConfiguration {
             verifyConnection(factory);
             StringRedisTemplate template = new StringRedisTemplate(factory);
             template.afterPropertiesSet();
-            StudioRedisCache cache = new StudioRedisCache(template, properties);
+            StudioRedisCache cache = new StudioRedisCache(template, properties, diagnostics);
+            diagnostics.markActive(redis.getHost(), redis.getPort(), redis.isSsl());
             log.info(
-                    "Studio Redis cache ENABLED (host={} port={} ssl={}). Reads may be served from Redis; see source=Redis/DB logs.",
+                    "Studio Redis cache ENABLED (host={} port={} ssl={}). "
+                            + "Per-read logs: Studio cache HIT source=Redis / MISS source=DB.",
                     redis.getHost(),
                     redis.getPort(),
                     redis.isSsl());
@@ -50,17 +56,23 @@ public class RedisStudioCacheConfiguration {
                 try {
                     factory.destroy();
                 } catch (Exception suppressed) {
-                    log.debug("Could not destroy Redis connection factory after failed probe: {}", suppressed.toString());
+                    log.debug("Could not destroy Redis connection factory after failed probe: {}",
+                            suppressed.toString());
                 }
             }
+            diagnostics.markUnavailable(redis.getHost(), redis.getPort(), error);
             log.error(
-                    "Studio Redis connection failed (host={} port={}): {}. "
-                            + "Redis cache is DISABLED for this process; all reads will use the database.",
+                    "Studio Redis connection FAILED (host={} port={} ssl={}): {}",
                     redis.getHost(),
                     redis.getPort(),
-                    error.getMessage());
+                    redis.isSsl(),
+                    StudioRedisFailureMessages.summarize(error));
             log.warn(
-                    "Studio started without Redis cache. Fix connectivity or set TESTDATA_REDIS_CACHE_ENABLED=false to silence this path.");
+                    "Studio started WITHOUT Redis cache. All reads use JDBC only. "
+                            + "Fix Redis connectivity or set TESTDATA_REDIS_CACHE_ENABLED=false to disable this probe. "
+                            + "Detail: {}",
+                    diagnostics.detail());
+            log.debug("Redis connection failure stack trace", error);
             return jdbcStudioStorage;
         }
     }
@@ -72,6 +84,7 @@ public class RedisStudioCacheConfiguration {
             if (pong == null) {
                 throw new IllegalStateException("Redis PING returned no response");
             }
+            log.info("Studio Redis PING ok (response={})", pong);
         } finally {
             connection.close();
         }

@@ -149,8 +149,11 @@ testdata:
 
 logging:
   pattern:
-    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{requestId:-}] [%X{traceId:-}/%X{spanId:-}] %logger{40} - %msg%n"
+    console: "%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%X{requestId:-}] [%X{traceId:-}/%X{spanId:-}] [%X{studioReadSource:-}] %logger{40} - %msg%n"
   level:
     com.tx.api.test.generator.studio: INFO
+    com.tx.api.test.generator.studio.cache.StudioRedisCache: INFO
+    com.tx.api.test.generator.studio.config.RedisStudioCacheConfiguration: INFO
+    com.tx.api.test.generator.studio.config.StorageConfiguration: INFO
     # Per-method traces. Leave at WARN. Set this logger to DEBUG only when tracing a single call.
     com.tx.api.test.generator.studio.logging.MethodLoggingAspect: WARN

@@ -9,6 +9,7 @@ import com.tx.api.test.generator.studio.tenant.TenantContext;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.time.Duration;
@@ -25,6 +26,7 @@ public class StudioRedisCache {
     public static final String NS_FILE = "file";
 
     private static final Logger log = LoggerFactory.getLogger(StudioRedisCache.class);
+    private static final String MDC_READ_SOURCE = "studioReadSource";
 
     private static final ObjectMapper CACHE_JSON = new ObjectMapper()
             .registerModule(new JavaTimeModule())
@@ -32,9 +34,12 @@ public class StudioRedisCache {
 
     private final StringRedisTemplate redis;
     private final Duration ttl;
+    private final StudioCacheDiagnostics diagnostics;
 
-    public StudioRedisCache(StringRedisTemplate redis, StudioProperties properties) {
+    public StudioRedisCache(StringRedisTemplate redis, StudioProperties properties,
+                            StudioCacheDiagnostics diagnostics) {
         this.redis = redis;
+        this.diagnostics = diagnostics;
         long ttlSeconds = Math.max(1L, properties.getCache().getRedis().getTtlSeconds());
         this.ttl = Duration.ofSeconds(ttlSeconds);
     }
@@ -52,20 +57,21 @@ public class StudioRedisCache {
         try {
             String cached = redis.opsForValue().get(cacheKey);
             if (cached != null) {
-                log.info("Studio read source=Redis operation={} tenant={} key={}", operation, tenantId, cacheKey);
+                logHit(operation, tenantId, cacheKey);
                 return CACHE_JSON.readValue(cached, type);
             }
         } catch (Exception error) {
-            log.warn("Studio Redis read failed operation={} tenant={} key={}: {}",
-                    operation, tenantId, cacheKey, error.toString());
+            diagnostics.noteRuntimeReadFailure(operation, error);
+            log.warn("Studio cache MISS source=DB operation={} tenant={} key={} redisError={}",
+                    operation, tenantId, cacheKey, StudioRedisFailureMessages.summarize(error));
         }
         T loaded = loadFromDb.get();
-        log.info("Studio read source=DB operation={} tenant={} key={}", operation, tenantId, cacheKey);
+        logMiss(operation, tenantId, cacheKey);
         try {
             redis.opsForValue().set(cacheKey, CACHE_JSON.writeValueAsString(loaded), ttl);
         } catch (Exception error) {
-            log.warn("Studio Redis write failed operation={} tenant={} key={}: {}",
-                    operation, tenantId, cacheKey, error.toString());
+            log.warn("Studio cache populate failed operation={} tenant={} key={} redisError={}",
+                    operation, tenantId, cacheKey, StudioRedisFailureMessages.summarize(error));
         }
         return loaded;
     }
@@ -93,21 +99,47 @@ public class StudioRedisCache {
         invalidate(NS_RUN, specId);
     }
 
+    private void logHit(String operation, String tenantId, String cacheKey) {
+        MDC.put(MDC_READ_SOURCE, "redis");
+        try {
+            log.info("Studio cache HIT source=Redis operation={} tenant={} key={}", operation, tenantId, cacheKey);
+        } finally {
+            MDC.remove(MDC_READ_SOURCE);
+        }
+    }
+
+    private void logMiss(String operation, String tenantId, String cacheKey) {
+        MDC.put(MDC_READ_SOURCE, "db");
+        try {
+            log.info("Studio cache MISS source=DB operation={} tenant={} key={}", operation, tenantId, cacheKey);
+        } finally {
+            MDC.remove(MDC_READ_SOURCE);
+        }
+    }
+
     private void bumpGeneration(String tenantId, String namespace, String scope) {
         String generationKey = generationKey(tenantId, namespace, scope);
-        redis.opsForValue().increment(generationKey);
-        log.info("Studio cache invalidated tenant={} namespace={} scope={} key={}",
-                tenantId, namespace, scope == null ? "*" : scope, generationKey);
+        try {
+            redis.opsForValue().increment(generationKey);
+            log.info("Studio cache invalidated tenant={} namespace={} scope={} key={}",
+                    tenantId, namespace, scope == null ? "*" : scope, generationKey);
+        } catch (Exception error) {
+            log.warn("Studio cache invalidate failed tenant={} namespace={} scope={} key={} redisError={}",
+                    tenantId, namespace, scope == null ? "*" : scope, generationKey,
+                    StudioRedisFailureMessages.summarize(error));
+        }
     }
 
     private long currentGeneration(String tenantId, String namespace, String scope) {
-        String raw = redis.opsForValue().get(generationKey(tenantId, namespace, scope));
-        if (raw == null || raw.isBlank()) {
-            return 0L;
-        }
         try {
+            String raw = redis.opsForValue().get(generationKey(tenantId, namespace, scope));
+            if (raw == null || raw.isBlank()) {
+                return 0L;
+            }
             return Long.parseLong(raw);
-        } catch (NumberFormatException ignored) {
+        } catch (Exception error) {
+            log.warn("Studio cache generation read failed tenant={} namespace={} scope={} redisError={}",
+                    tenantId, namespace, scope == null ? "*" : scope, StudioRedisFailureMessages.summarize(error));
             return 0L;
         }
     }
