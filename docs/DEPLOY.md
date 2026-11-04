@@ -14,7 +14,7 @@ The API is a Spring Boot JAR (`testdata-generator-api`). Choose a **hosting prof
 | `TESTDATA_EDITION` | Yes for prod | `local`, `datacenter`, or `saas` |
 | `TESTDATA_SAAS_ADMIN_EMAIL` | When `saas` / Cloud Run | Bootstrap operator |
 | `TESTDATA_SAAS_ADMIN_PASSWORD` | When `saas` / Cloud Run | Bootstrap operator |
-| `TESTDATA_SAAS_CORS_ORIGINS` | Cloud + browser UI | Comma-separated origins; no `*` |
+| `TESTDATA_SAAS_CORS_ORIGINS` | Cloud + browser UI | Comma-separated Spring origin patterns. Any port is `:[*]`, for example `https://*.run.app,http://localhost:[*],http://127.0.0.1:[*]` |
 
 ## Docker Compose (docker profile)
 
@@ -101,7 +101,7 @@ Workflow: [`.github/workflows/deploy-gcp.yml`](../.github/workflows/deploy-gcp.y
 | `GCP_ARTIFACT_REPO` | Artifact Registry repo name |
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | WIF provider resource |
 | `GCP_SERVICE_ACCOUNT` | Deploy service account |
-| `TESTDATA_SAAS_CORS_ORIGINS` | Studio UI origin(s), e.g. `https://studio.example.com` |
+| `TESTDATA_SAAS_CORS_ORIGINS` | Studio UI origin patterns, e.g. `https://*.run.app,http://localhost:[*],http://127.0.0.1:[*]` |
 
 ### Runtime on Cloud Run
 
