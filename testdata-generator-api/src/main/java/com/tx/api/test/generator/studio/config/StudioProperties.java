@@ -255,7 +255,7 @@ public class StudioProperties {
          */
         private boolean enabled = true;
         private int sessionDays = 14;
-        private String corsOrigins = "http://localhost:*,http://127.0.0.1:*";
+        private String corsOrigins = "http://localhost:[*],http://127.0.0.1:[*]";
         private String adminEmail = "";
         private String adminPassword = "";
         private String orgName = "Studio";
@@ -289,17 +289,65 @@ public class StudioProperties {
             this.corsOrigins = corsOrigins;
         }
 
+        /**
+         * Patterns passed to Spring {@code allowedOriginPatterns}.
+         * {@code http://localhost:*} is rewritten to {@code http://localhost:[*]} so any port matches,
+         * including the default port. {@code localhost} and {@code 127.0.0.1} are both allowed when either is set.
+         */
         public String[] originPatterns() {
-            if (corsOrigins == null || corsOrigins.isBlank()) {
-                return new String[] {
-                        "http://localhost:*",
-                        "http://127.0.0.1:*"
-                };
+            String raw = corsOrigins == null || corsOrigins.isBlank()
+                    ? "http://localhost:[*],http://127.0.0.1:[*]"
+                    : corsOrigins;
+            java.util.LinkedHashSet<String> patterns = new java.util.LinkedHashSet<>();
+            for (String part : raw.split(",")) {
+                String value = normalizeOriginPattern(part.trim());
+                if (value.isEmpty()) {
+                    continue;
+                }
+                patterns.add(value);
+                String loopback = loopbackAlias(value);
+                if (loopback != null) {
+                    patterns.add(loopback);
+                }
             }
-            return java.util.Arrays.stream(corsOrigins.split(","))
-                    .map(String::trim)
-                    .filter(value -> !value.isBlank())
-                    .toArray(String[]::new);
+            return patterns.toArray(String[]::new);
+        }
+
+        /**
+         * Spring's any-port syntax is {@code :[*]}, which also matches a host with no port.
+         * A trailing {@code :*} matches only when the origin includes a port.
+         */
+        static String normalizeOriginPattern(String pattern) {
+            if (pattern.endsWith(":*") && !pattern.endsWith(":[*]")) {
+                return pattern.substring(0, pattern.length() - 2) + ":[*]";
+            }
+            return pattern;
+        }
+
+        /** Pair {@code localhost} with {@code 127.0.0.1} when the host is exactly one of those names. */
+        static String loopbackAlias(String pattern) {
+            int scheme = pattern.indexOf("://");
+            if (scheme < 0) {
+                return null;
+            }
+            int hostStart = scheme + 3;
+            String rest = pattern.substring(hostStart);
+            String host;
+            String suffix;
+            if (rest.startsWith("localhost")) {
+                host = "localhost";
+                suffix = rest.substring("localhost".length());
+            } else if (rest.startsWith("127.0.0.1")) {
+                host = "127.0.0.1";
+                suffix = rest.substring("127.0.0.1".length());
+            } else {
+                return null;
+            }
+            if (!suffix.isEmpty() && !suffix.startsWith(":")) {
+                return null;
+            }
+            String other = "localhost".equals(host) ? "127.0.0.1" : "localhost";
+            return pattern.substring(0, hostStart) + other + suffix;
         }
 
         public String getAdminEmail() {
