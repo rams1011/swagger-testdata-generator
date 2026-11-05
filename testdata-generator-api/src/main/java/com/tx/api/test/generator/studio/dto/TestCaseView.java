@@ -22,6 +22,7 @@ public record TestCaseView(
         int statusCode,
         String responseType,
         String expectedResponse,
+        String responseMatch,
         String enabled,
         String lifecycle,
         String testGroup,

@@ -41,6 +41,9 @@ public final class CaseVariables {
     private static final Pattern PLACEHOLDER = Pattern.compile(
             "\\{\\{((?:(?:global|env|extract):)?[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)}}");
 
+    private static final Pattern QUOTED_PLACEHOLDER = Pattern.compile(
+            "([\"'])\\{\\{((?:extract:)?[A-Za-z_][A-Za-z0-9_]*)}}\\1");
+
     private CaseVariables() {
     }
 
@@ -62,7 +65,7 @@ public final class CaseVariables {
                 ? substituteJsonText(text, resolve, vars)
                 : substituteObject(source.getRequestBody(), resolve, vars));
         bound.setExpectedResponse(substituteJsonText(source.getExpectedResponse(), resolve, vars));
-        bound.setJsonPathAssertions(resolve.apply(source.getJsonPathAssertions()));
+        bound.setJsonPathAssertions(resolve.apply(quotedTyped(source.getJsonPathAssertions(), vars)));
         return bound;
     }
 
@@ -459,6 +462,24 @@ public final class CaseVariables {
         return node;
     }
 
+    /**
+     * In assertion text, a quoted {@code "{{id}}"} for a typed extract becomes its JSON value, so
+     * {@code op:containsObject:{"roleId":"{{roleId}}"}} and {@code [?(@.roleId=="{{roleId}}")]} compare numbers.
+     */
+    private static String quotedTyped(String text, Map<String, String> vars) {
+        if (!hasPlaceholders(text) || !hasTypedValues(vars)) {
+            return text;
+        }
+        Matcher matcher = QUOTED_PLACEHOLDER.matcher(text);
+        StringBuilder out = new StringBuilder();
+        while (matcher.find()) {
+            String json = vars.get(JSON_TYPE_PREFIX + matcher.group(2));
+            matcher.appendReplacement(out, Matcher.quoteReplacement(json == null ? matcher.group() : json));
+        }
+        matcher.appendTail(out);
+        return out.toString();
+    }
+
     /** Typed extract value when {@code text} is exactly one placeholder such as {@code {{id}}}, else null. */
     private static JsonElement typedValue(String text, Map<String, String> vars) {
         if (text == null || vars == null || vars.isEmpty()) {
@@ -587,6 +608,7 @@ public final class CaseVariables {
         copy.setStatusCode(source.getStatusCode());
         copy.setResponseType(source.getResponseType());
         copy.setExpectedResponse(source.getExpectedResponse());
+        copy.setResponseMatch(source.getResponseMatch());
         copy.setEnabled(source.getEnabled());
         copy.setLifecycle(source.getLifecycle());
         copy.setTestGroup(source.getTestGroup());

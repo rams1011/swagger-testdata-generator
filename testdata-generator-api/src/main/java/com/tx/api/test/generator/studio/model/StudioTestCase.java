@@ -25,6 +25,8 @@ public class StudioTestCase {
     private int statusCode;
     private String responseType;
     private String expectedResponse;
+    /** How the expected body is compared: blank/strict, ignoreOrder, lenient (see JsonBodyMatcher). */
+    private String responseMatch;
     private String enabled;
     private String lifecycle;
     private String testGroup;
@@ -199,6 +201,14 @@ public class StudioTestCase {
 
     public void setEnabled(String enabled) {
         this.enabled = enabled;
+    }
+
+    public String getResponseMatch() {
+        return responseMatch;
+    }
+
+    public void setResponseMatch(String responseMatch) {
+        this.responseMatch = responseMatch;
     }
 
     public String getLifecycle() {

@@ -116,7 +116,7 @@ class CollectionImportTest {
                                 create.endpoint(), create.baseUrl(), create.contentType(), create.pathParams(),
                                 create.queryParams(), create.headers(), create.cookies(), Map.of("code", "UPDATED"),
                                 create.responseJsonSchema(), create.statusCode(), create.responseType(),
-                                create.expectedResponse(), create.enabled(), create.lifecycle(), create.testGroup(),
+                                create.expectedResponse(), "ignore_order", create.enabled(), create.lifecycle(), create.testGroup(),
                                 create.jsonPathAssertions(), "roleId=$.id", create.maxResponseTimeMs(), create.files(),
                                 create.environments()),
                         edited.cases().get(1)
@@ -132,6 +132,7 @@ class CollectionImportTest {
         assertEquals("UPDATED", ((Map<?, ?>) storage.findTestCase("case-create-role").orElseThrow()
                 .getRequestBody()).get("code"));
         assertEquals("roleId=$.id", storage.findTestCase("case-create-role").orElseThrow().getExtracts());
+        assertEquals("ignoreOrder", storage.findTestCase("case-create-role").orElseThrow().getResponseMatch());
         assertEquals(2, storage.listPlans("spec-local").size());
     }
 

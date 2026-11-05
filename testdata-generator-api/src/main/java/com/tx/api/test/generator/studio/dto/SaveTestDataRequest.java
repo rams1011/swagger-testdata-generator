@@ -16,6 +16,7 @@ public record SaveTestDataRequest(
         Integer statusCode,
         String responseType,
         String expectedResponse,
+        String responseMatch,
         String enabled,
         String lifecycle,
         String testGroup,

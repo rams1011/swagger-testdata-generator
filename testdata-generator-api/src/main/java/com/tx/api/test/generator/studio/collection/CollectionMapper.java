@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.collection;
 
 import com.tx.api.test.generator.studio.model.CaseLifecycle;
+import com.tx.api.test.generator.studio.service.JsonBodyMatcher;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
@@ -198,6 +199,7 @@ public final class CollectionMapper {
                 testCase.getStatusCode(),
                 testCase.getResponseType(),
                 testCase.getExpectedResponse(),
+                JsonBodyMatcher.normalize(testCase.getResponseMatch()),
                 testCase.getEnabled(),
                 CaseLifecycle.isDraft(testCase) ? CaseLifecycle.DRAFT : null,
                 testCase.getTestGroup(),
@@ -270,6 +272,7 @@ public final class CollectionMapper {
         testCase.setStatusCode(item.statusCode());
         testCase.setResponseType(item.responseType());
         testCase.setExpectedResponse(item.expectedResponse());
+        testCase.setResponseMatch(JsonBodyMatcher.normalize(item.responseMatch()));
         testCase.setEnabled(StringUtils.defaultIfBlank(item.enabled(), "Y"));
         testCase.setLifecycle(CaseLifecycle.normalizeOr(item.lifecycle(), CaseLifecycle.READY));
         testCase.setTestGroup(item.testGroup());
