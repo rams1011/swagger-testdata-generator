@@ -89,6 +89,33 @@ class ExpectedBodyMatchTest {
         assertNull(check.path());
     }
 
+    @Test
+    void ignoreFieldsAreRemovedFromBothBodiesBeforeTheCompare() {
+        StudioTestCase testCase = testCase("{\"total\":99,\"items\":[{\"roleId\":1,\"code\":\"TestCode\",\"name\":\"Test\"},"
+                + "{\"roleId\":2,\"code\":\"Admin\",\"name\":\"Admin\"}]}", "strict");
+        testCase.setIgnoreFields("$.total\n$.items[*].roleId");
+        RunTestResult result = service.execute(testCase, null);
+        assertTrue(result.passed(), String.valueOf(result.assertions()));
+        assertEquals("ignoring 2 fields", expectedBody(result).path());
+
+        testCase.setIgnoreFields("$.items name");
+        AssertionCheck invalid = expectedBody(service.execute(testCase, null));
+        assertFalse(invalid.passed());
+        assertTrue(invalid.path().contains("Ignore field $.items name is not a valid JSONPath"), invalid.path());
+    }
+
+    @Test
+    void resultCarriesTheRequestBodyAsSent() {
+        Map<String, String> scope = new LinkedHashMap<>(Map.of("code", "TestCode"));
+        StudioTestCase testCase = testCase(null, null);
+        testCase.setMethod("POST");
+        testCase.setContentType("application/json");
+        testCase.setRequestBody(new LinkedHashMap<>(Map.of("code", "{{code}}")));
+        RunTestResult result = service.execute(testCase, null, scope);
+        assertEquals("{\"code\":\"TestCode\"}", result.requestBody());
+        assertNull(run(ROLES, null).requestBody());
+    }
+
     private RunTestResult run(String expected, String mode) {
         return service.execute(testCase(expected, mode), null);
     }

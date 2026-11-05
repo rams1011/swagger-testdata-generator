@@ -19,7 +19,8 @@ public final class EnvironmentImporter {
         EnvironmentMapper.rejectRawSecrets(parsed);
         StudioEnvironment environment = new StudioEnvironment(parsed.format(), parsed.version(), parsed.name(),
                 parsed.values(), parsed.auth(), parsed.cases(),
-                StudioVariables.normalize(parsed.variables(), "Environment"));
+                StudioVariables.normalize(parsed.variables(), "Environment"),
+                StudioEnvironmentNetwork.normalize(parsed.network()));
         if (StringUtils.isBlank(specId)) {
             throw new CollectionFormatException("specId is required to import an environment");
         }

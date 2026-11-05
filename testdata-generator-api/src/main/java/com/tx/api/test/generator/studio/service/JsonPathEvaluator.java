@@ -88,7 +88,15 @@ final class JsonPathEvaluator {
         } catch (InvalidPathException exception) {
             return new Check("(invalid JSONPath: " + StringUtils.defaultString(exception.getMessage()) + ")", false);
         }
-        JsonElement value = read == null ? null : read.value();
+        return checkRead(read == null ? null : read.value(), read == null || read.definite(), want);
+    }
+
+    /**
+     * Applies {@code want} to a value read by a path ({@code null} when nothing matched). {@code definite} is false
+     * when the path could match several values, so {@code value} is the list of matches.
+     */
+    static Check checkRead(JsonElement value, boolean definite, String expected) {
+        String want = StringUtils.defaultString(expected);
         if ("op:notexists".equals(operatorName(want))) {
             boolean absent = value == null || value.isJsonNull();
             return new Check(absent ? "(missing)" : formatValue(value), absent);
@@ -96,7 +104,7 @@ final class JsonPathEvaluator {
         if (value == null) {
             return new Check("(missing)", false);
         }
-        if (read.definite() || !value.isJsonArray() || appliesToList(want)) {
+        if (definite || !value.isJsonArray() || appliesToList(want)) {
             return new Check(formatValue(value), matches(want, value));
         }
         boolean passed = (!want.startsWith("op:") && equalsValue(want, value)) || everyMatch(want, value);
@@ -391,10 +399,8 @@ final class JsonPathEvaluator {
     }
 
     private static boolean inRange(String spec, JsonElement actual) {
-        if (actual == null || !actual.isJsonPrimitive() || !actual.getAsJsonPrimitive().isNumber()) {
-            return false;
-        }
-        return numberInRange(spec, toBigDecimal(actual.getAsJsonPrimitive().getAsNumber()));
+        BigDecimal value = numericValue(actual);
+        return value != null && numberInRange(spec, value);
     }
 
     private static boolean numberInRange(String spec, BigDecimal value) {
@@ -634,6 +640,39 @@ final class JsonPathEvaluator {
         } catch (InvalidPathException ignored) {
             return null;
         }
+    }
+
+    /**
+     * A copy of {@code root} without the values at {@code paths} (for "ignore fields" in body compare). A path that
+     * matches nothing is fine; an invalid path throws {@link IllegalArgumentException}.
+     */
+    static JsonElement withoutPaths(JsonElement root, List<String> paths) {
+        if (root == null || paths == null || paths.isEmpty()) {
+            return root;
+        }
+        JsonElement copy = root.deepCopy();
+        for (String raw : paths) {
+            String path = normalizePath(raw);
+            if ("$".equals(path)) {
+                continue;
+            }
+            JsonPath compiled;
+            try {
+                compiled = JsonPath.compile(path);
+            } catch (InvalidPathException exception) {
+                throw new IllegalArgumentException("Ignore field " + raw + " is not a valid JSONPath: "
+                        + StringUtils.defaultString(exception.getMessage()));
+            }
+            try {
+                compiled.delete(copy, JAYWAY);
+            } catch (PathNotFoundException ignored) {
+                // Nothing to ignore at this path in this body.
+            } catch (InvalidPathException exception) {
+                throw new IllegalArgumentException("Ignore field " + raw + " is not a valid JSONPath: "
+                        + StringUtils.defaultString(exception.getMessage()));
+            }
+        }
+        return copy;
     }
 
     private record Read(JsonElement value, boolean definite) {

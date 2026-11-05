@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.collection;
 
 import com.tx.api.test.generator.studio.model.CaseLifecycle;
+import com.tx.api.test.generator.studio.service.CaseAuth;
 import com.tx.api.test.generator.studio.service.JsonBodyMatcher;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
@@ -200,6 +201,8 @@ public final class CollectionMapper {
                 testCase.getResponseType(),
                 testCase.getExpectedResponse(),
                 JsonBodyMatcher.normalize(testCase.getResponseMatch()),
+                JsonBodyMatcher.normalizeIgnoreFields(testCase.getIgnoreFields()),
+                CaseAuth.normalize(testCase.getAuth()),
                 testCase.getEnabled(),
                 CaseLifecycle.isDraft(testCase) ? CaseLifecycle.DRAFT : null,
                 testCase.getTestGroup(),
@@ -273,6 +276,12 @@ public final class CollectionMapper {
         testCase.setResponseType(item.responseType());
         testCase.setExpectedResponse(item.expectedResponse());
         testCase.setResponseMatch(JsonBodyMatcher.normalize(item.responseMatch()));
+        testCase.setIgnoreFields(JsonBodyMatcher.normalizeIgnoreFields(item.ignoreFields()));
+        try {
+            testCase.setAuth(CaseAuth.normalize(item.auth()));
+        } catch (IllegalArgumentException exception) {
+            throw new CollectionFormatException("Case '" + item.testName() + "': " + exception.getMessage());
+        }
         testCase.setEnabled(StringUtils.defaultIfBlank(item.enabled(), "Y"));
         testCase.setLifecycle(CaseLifecycle.normalizeOr(item.lifecycle(), CaseLifecycle.READY));
         testCase.setTestGroup(item.testGroup());

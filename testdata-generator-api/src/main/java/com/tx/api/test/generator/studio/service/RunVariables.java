@@ -112,7 +112,7 @@ public final class RunVariables {
                 result.actualStatus(), result.statusMatched(), result.elapsedMs(), result.maxResponseTimeMs(),
                 result.timedOut(), mask(result.responseBody()), mask(result.responseHeaders()),
                 mask(result.requestHeaders()), assertions, mask(result.error()), result.downloadPath(),
-                mask(result.extracted()));
+                mask(result.extracted()), mask(result.requestBody()));
     }
 
     public List<RunTestResult> mask(List<RunTestResult> results) {

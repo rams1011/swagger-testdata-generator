@@ -67,12 +67,18 @@ Key tests: `RunVariablesTest`, `EnvironmentImportTest` (variables round-trip), `
 - Expected body: `TestRunService.expectedBodyCheck` uses `JsonBodyMatcher` with the case's `responseMatch` (`strict` default / `ignoreOrder` / `lenient`; stored normalized, null = strict; column `response_match`, Flyway **V12**). The check's `path` carries the mode label and the first difference.
 - JSONPath operators: `JsonPathEvaluator` (`op:containsObject:<json>` / `op:notContainsObject:<json>` compare list items leniently via `JsonBodyMatcher`).
 - Typed extracts: a quoted whole-value `"{{x}}"` keeps the extract's JSON type in bodies, expected response and assertion text (`CaseVariables.JSON_TYPE_PREFIX`, `quotedTyped`).
+- Ignore fields: case field `ignoreFields` (JSONPaths, one per line; column `ignore_fields`, Flyway **V13**), removed from both bodies by `JsonPathEvaluator.withoutPaths` before `JsonBodyMatcher`.
+- XPath: `xpath:<expr>=<check>` rows in `jsonPathAssertions` go to `XPathEvaluator` (secure DOM, no namespaces; nodes → value/list, then `JsonPathEvaluator.checkRead`).
 - User guide: `D:\code\testdata-studio-ui\docs\ASSERTIONS.md`; `AssertionsGuideExamplesTest` verifies its examples. api-automation mirrors `JsonBodyMatcher` and the operators.
 
 ## Runs and entitlements
 
 - Single case / try: `TestDataStudioService.run(RunTestRequest)`.
-- Plan: `runPlan` with shared variable map across ordered chain (`CaseVariables.orderForChain`).
+- Plan: `runPlan` with shared variable map across ordered chain (`CaseVariables.orderForChain`). `RunPlanRequest.delayMs` (≤60000) and `retries` (≤5) go to `PlanRun.Options`; a retried case gets an `attempts` check.
+- Connection settings: `StudioEnvironment.network` (`collection/StudioEnvironmentNetwork`: followRedirects, verifySsl, caCertificate PEM, proxyUrl, requestTimeoutMs; normalized, null = defaults) on create/update (`SaveEnvironmentRequest.network`, null keeps) and in the environment file. `TestRunService.execute(..., network)`: clients from `NetworkClients` (trust-all or default+extra CA trust manager, proxy; cached), redirects followed by `followRedirects` with an `OutboundUrlPolicy` check per hop (proxy URL checked too), timeout = env timeout or case max + 5 s, capped by `testdata.run.max-request-timeout-ms` (300000, env `TESTDATA_RUN_MAX_REQUEST_TIMEOUT_MS`); response display cut at `testdata.run.max-response-chars` (1,000,000).
+- OAuth: `OAuthTokenCache` (in memory, SHA-256 key incl. secrets and `RunAuth.scope`, `expires_in` − 30 s, default 5 min); a 401 invalidates.
+- Case auth: `StudioTestCase.auth` (`RunAuth`; null = run auth, `NONE` = none), column `case_auth` (Flyway **V14**), exported as collection `auth`. `CaseAuth.normalize` requires `{{variable}}` in secret fields; `CaseVariables.bind` resolves it and `placeholderNames` includes it.
+- `RunTestResult.requestBody` holds the body as sent (masked by `RunVariables.mask`) for the UI's Copy as cURL.
 - Prerequisites: `CaseVariables.prerequisites(..., definedNames)` skips names already in run scope.
 - Tenant: `TenantContext.tenantId()` for storage scoping.
 

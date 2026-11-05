@@ -130,6 +130,47 @@ class AssertionsGuideExamplesTest {
                 JsonBodyMatcher.Mode.STRICT));
     }
 
+    @Test
+    void ignoreFieldsExamples() {
+        JsonElement expected = JsonParser.parseString("""
+                { "page": 1, "items": [ { "code": "TestCode", "name": "Test", "active": true, "permissions": ["READ", "WRITE"],
+                  "createdAt": "2026-11-04T10:00:00Z" }, { "code": "Admin", "name": "Admin", "active": true,
+                  "permissions": ["READ", "WRITE", "DELETE"] }, { "code": "Guest", "name": "Guest", "active": false,
+                  "permissions": [] } ] }
+                """);
+        List<String> ignored = List.of("$.total", "$.items[*].roleId");
+        assertEquals(null, JsonBodyMatcher.difference(JsonPathEvaluator.withoutPaths(expected, ignored),
+                JsonPathEvaluator.withoutPaths(root, ignored), JsonBodyMatcher.Mode.STRICT));
+        JsonElement withoutGuest = JsonPathEvaluator.withoutPaths(root, List.of("$.items[?(@.code=='Guest')]"));
+        assertEquals(2, withoutGuest.getAsJsonObject().getAsJsonArray("items").size());
+        JsonElement noDates = JsonPathEvaluator.withoutPaths(root, List.of("$..createdAt", "$.createdAt"));
+        assertEquals(false, noDates.toString().contains("createdAt"));
+    }
+
+    @Test
+    void xpathExamples() {
+        String xml = XPathEvaluatorTest.ROLES;
+        List<String> wrong = new ArrayList<>();
+        String[][] rows = {
+                {"xpath://role[code='TestCode']/name", "Test"},
+                {"xpath://role[code='TestCode']/@id", "48"},
+                {"xpath:/roles/@total", "op:gte:3"},
+                {"xpath:count(//role)", "3"},
+                {"xpath:count(//role[active='true'])", "op:range:1..2"},
+                {"xpath://role/code", "op:contains:Admin"},
+                {"xpath://role/code", "op:length:3"},
+                {"xpath://role/@id", "op:gt:0"},
+                {"xpath://role[code='Deleted']", "op:notExists"},
+                {"xpath:count(//*[local-name()='role'])", "3"},
+                {"xpath://role[@id='48']/name", "Test"}};
+        for (String[] row : rows) {
+            if (!XPathEvaluator.check(xml, row[0], row[1]).passed()) {
+                wrong.add(row[0] + " " + row[1] + " actual=" + XPathEvaluator.check(xml, row[0], row[1]).actual());
+            }
+        }
+        assertEquals(List.of(), wrong);
+    }
+
     private String lenient(String expected) {
         return JsonBodyMatcher.difference(JsonParser.parseString(expected), root, JsonBodyMatcher.Mode.LENIENT);
     }

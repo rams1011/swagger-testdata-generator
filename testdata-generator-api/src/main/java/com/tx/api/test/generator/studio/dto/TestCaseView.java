@@ -23,6 +23,8 @@ public record TestCaseView(
         String responseType,
         String expectedResponse,
         String responseMatch,
+        String ignoreFields,
+        RunAuth auth,
         String enabled,
         String lifecycle,
         String testGroup,

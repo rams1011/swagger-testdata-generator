@@ -346,6 +346,8 @@ ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS updated_by_account_id VARCHAR(
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS updated_by_label VARCHAR(320);
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS lifecycle VARCHAR(16) NOT NULL DEFAULT 'READY';
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS response_match VARCHAR(16);
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS ignore_fields TEXT;
+ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS case_auth TEXT;
 ALTER TABLE td_request_file DROP COLUMN IF EXISTS environment_name;
 
 CREATE TABLE IF NOT EXISTS td_organization (

@@ -33,7 +33,8 @@ public final class EnvironmentExporter {
         StudioEnvironment bare = EnvironmentMapper.withoutOverlays(
                 CollectionDocuments.parseEnvironment(stored.getDocumentJson()));
         StudioEnvironment environment = new StudioEnvironment(bare.format(), bare.version(), bare.name(),
-                bare.values(), bare.auth(), bare.cases(), StudioVariables.forExport(bare.variableList()));
+                bare.values(), bare.auth(), bare.cases(), StudioVariables.forExport(bare.variableList()),
+                bare.network());
         String document = CollectionDocuments.toJson(environment);
         List<StudioVariable> exportedGlobals = StudioVariables.forExport(globals);
         if (!exportedGlobals.isEmpty()) {

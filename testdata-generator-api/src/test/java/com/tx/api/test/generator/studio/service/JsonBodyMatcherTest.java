@@ -78,6 +78,17 @@ class JsonBodyMatcherTest {
         assertEquals("contains object {\"a\":1}", JsonPathEvaluator.describe("op:containsObject:{\"a\":1}"));
     }
 
+    @Test
+    void ignorePathsParseAndRemoveValues() {
+        assertEquals(java.util.List.of("$.a", "$..id"), JsonBodyMatcher.ignorePaths(" $.a \r\n\n$..id\n$.a"));
+        assertEquals("$.a\n$..id", JsonBodyMatcher.normalizeIgnoreFields("$.a\n$..id"));
+        assertNull(JsonBodyMatcher.normalizeIgnoreFields(" NA "));
+        JsonElement trimmed = JsonPathEvaluator.withoutPaths(JsonParser.parseString(
+                "{\"id\":1,\"meta\":{\"id\":2,\"at\":\"x\"},\"items\":[{\"id\":3,\"n\":1}]}"),
+                java.util.List.of("$..id", "$.meta.at", "$.missing", "createdAt", "$"));
+        assertEquals(JsonParser.parseString("{\"meta\":{},\"items\":[{\"n\":1}]}"), trimmed);
+    }
+
     private static String diff(String expected, String actual, JsonBodyMatcher.Mode mode) {
         return JsonBodyMatcher.difference(JsonParser.parseString(expected), JsonParser.parseString(actual), mode);
     }

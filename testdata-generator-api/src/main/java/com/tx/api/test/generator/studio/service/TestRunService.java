@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.service;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
+import com.tx.api.test.generator.studio.collection.StudioEnvironmentNetwork;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AssertionCheck;
 import com.tx.api.test.generator.studio.dto.RunAuth;
@@ -39,18 +40,18 @@ public class TestRunService {
 
     private static final Logger log = LoggerFactory.getLogger(TestRunService.class);
     private static final String NA = "NA";
-    private static final int MAX_BODY_CHARS = 100_000;
+    private static final int DEFAULT_MAX_BODY_CHARS = 1_000_000;
     private static final long MIN_TIMEOUT_MS = 10_000L;
-    private static final long MAX_TIMEOUT_MS = 60_000L;
+    private static final long DEFAULT_MAX_TIMEOUT_MS = 300_000L;
+    static final int MAX_REDIRECTS = 10;
     private static final Gson JSON = new Gson();
 
     private static final Pattern FILENAME = Pattern.compile("filename\\*?=(?:UTF-8''|\"?)([^\";]+)", Pattern.CASE_INSENSITIVE);
 
-    private final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10))
-            // A public response must not redirect this process onto an internal address.
-            .followRedirects(HttpClient.Redirect.NEVER)
-            .build();
+    // Redirects are never followed by the client: a public response must not redirect this process onto an internal
+    // address, so redirects (when the environment allows them) are followed here, checking every hop.
+    private final NetworkClients networkClients = new NetworkClients();
+    private final OAuthTokenCache oauthTokens = new OAuthTokenCache();
     private final StudioStorage studioStorage;
     private final StudioProperties properties;
     private final OutboundUrlPolicy outboundUrlPolicy;
@@ -66,6 +67,15 @@ public class TestRunService {
     }
 
     public RunTestResult execute(StudioTestCase testCase, RunAuth auth, Map<String, String> variables) {
+        return execute(testCase, auth, variables, null);
+    }
+
+    /**
+     * {@code auth} is the run's authentication (from Run authentication); a case with its own auth uses that instead.
+     * {@code network} holds the environment's connection settings (null for defaults).
+     */
+    public RunTestResult execute(StudioTestCase testCase, RunAuth auth, Map<String, String> variables,
+                                 StudioEnvironmentNetwork network) {
         if (testCase == null) {
             throw new IllegalArgumentException("Test case is required");
         }
@@ -79,7 +89,8 @@ public class TestRunService {
         Map<String, String> headers = copyMap(bound.getHeaders());
         Map<String, String> query = copyMap(bound.getQueryParams());
         Map<String, String> cookies = copyMap(bound.getCookieParams());
-        applyAuth(headers, query, cookies, auth);
+        RunAuth effectiveAuth = bound.getAuth() != null ? bound.getAuth() : auth;
+        RunAuth oauthUsed = applyAuth(headers, query, cookies, effectiveAuth);
         String cookieHeader = HttpPayloadSupport.cookieHeader(cookies);
         if (StringUtils.isNotBlank(cookieHeader)) {
             HttpPayloadSupport.putHeader(headers, "Cookie", cookieHeader);
@@ -112,8 +123,18 @@ public class TestRunService {
             applyContentType(headers, bound.getContentType(), method, textBody);
         }
 
+        String sentBody = binaryBody != null ? "[multipart body, " + binaryBody.length + " bytes]" : textBody;
         long maxMs = bound.getMaxResponseTimeMs() <= 0 ? 3000L : bound.getMaxResponseTimeMs();
-        long timeoutMs = Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, maxMs + 5_000L));
+        long timeoutMs = timeoutMs(maxMs, network);
+        HttpClient httpClient;
+        try {
+            if (network != null && StringUtils.isNotBlank(network.proxyUrl())) {
+                outboundUrlPolicy.check(StudioEnvironmentNetwork.proxyUri(network.proxyUrl()).toString());
+            }
+            httpClient = networkClients.client(network);
+        } catch (IllegalArgumentException exception) {
+            return failed(bound, url, headers, 0, false, List.of(), exception.getMessage());
+        }
 
         HttpRequest.Builder builder;
         try {
@@ -128,8 +149,15 @@ public class TestRunService {
         headers.forEach(builder::header);
 
         long started = System.nanoTime();
+        List<String> hops = new ArrayList<>();
         try {
             HttpResponse<byte[]> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+            if (network != null && network.followsRedirects()) {
+                response = followRedirects(httpClient, response, method, headers, binaryBody, textBody, timeoutMs, hops);
+            }
+            if (response.statusCode() == 401 && oauthUsed != null && oauthTokens.invalidate(oauthUsed)) {
+                log.info("API answered 401; dropped the cached OAuth token so the next request fetches a new one");
+            }
             long elapsedMs = elapsed(started);
             Map<String, List<String>> rawHeaders = response.headers().map();
             byte[] bytes = response.body() == null ? new byte[0] : response.body();
@@ -143,19 +171,96 @@ public class TestRunService {
             } else {
                 bodyText = new String(bytes, charsetOf(contentType));
             }
-            return evaluate(bound, url, redact(headers), response.statusCode(), rawHeaders,
-                    bodyText, downloadPath, bytes, elapsedMs, maxMs, null, store);
+            RunTestResult result = evaluate(bound, url, redact(headers), response.statusCode(), rawHeaders,
+                    bodyText, downloadPath, bytes, elapsedMs, maxMs, null, store).withRequestBody(sentBody);
+            return hops.isEmpty() ? result : withRedirects(result, hops);
         } catch (HttpTimeoutException exception) {
             long elapsedMs = elapsed(started);
             return evaluate(bound, url, redact(headers), 0, Map.of(), null, null, null, elapsedMs, maxMs,
-                    "Request timed out after " + timeoutMs + "ms", store);
+                    "Request timed out after " + timeoutMs + "ms", store).withRequestBody(sentBody);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return failed(bound, url, headers, elapsed(started), true, List.of(), "Run interrupted");
+        } catch (IllegalArgumentException exception) {
+            return failed(bound, url, headers, elapsed(started), false, List.of(), exception.getMessage());
+        } catch (javax.net.ssl.SSLException exception) {
+            log.info("TLS failed for {}: {}", urlForLog(url), exception.getMessage());
+            return failed(bound, url, headers, elapsed(started), false, List.of(), "TLS handshake failed: "
+                    + StringUtils.defaultIfBlank(exception.getMessage(), "certificate not trusted")
+                    + ". Add the server's CA certificate to the environment, or turn off Verify SSL for a test server.");
         } catch (Exception exception) {
             log.warn("Run request failed", exception);
             return failed(bound, url, headers, elapsed(started), false, List.of(), "The request could not be sent.");
         }
+    }
+
+    /** The environment's request timeout, else the case's max response time + 5 s; capped by the server setting. */
+    long timeoutMs(long maxResponseTimeMs, StudioEnvironmentNetwork network) {
+        long cap = Math.max(MIN_TIMEOUT_MS, properties == null ? DEFAULT_MAX_TIMEOUT_MS
+                : properties.getRun().getMaxRequestTimeoutMs());
+        if (network != null && network.requestTimeoutMs() != null) {
+            return Math.min(cap, Math.max(StudioEnvironmentNetwork.MIN_TIMEOUT_MS, network.requestTimeoutMs()));
+        }
+        return Math.min(cap, Math.max(MIN_TIMEOUT_MS, maxResponseTimeMs + 5_000L));
+    }
+
+    /**
+     * Follows 301/302/303/307/308 up to {@link #MAX_REDIRECTS} hops. Each target passes the outbound URL policy.
+     * 303 (and 301/302 after a POST) switch to GET without a body, like browsers and curl; 307/308 keep the method
+     * and body. Authorization and Cookie headers are dropped when the redirect leaves the original host.
+     */
+    private HttpResponse<byte[]> followRedirects(HttpClient httpClient, HttpResponse<byte[]> first, String method,
+                                                 Map<String, String> headers, byte[] binaryBody, String textBody,
+                                                 long timeoutMs, List<String> hops) throws Exception {
+        HttpResponse<byte[]> response = first;
+        String currentMethod = method;
+        byte[] currentBinary = binaryBody;
+        String currentText = textBody;
+        Map<String, String> currentHeaders = new LinkedHashMap<>(headers);
+        String originalHost = StringUtils.defaultString(first.uri().getHost()).toLowerCase(Locale.ROOT);
+        while (isRedirect(response.statusCode())) {
+            String location = response.headers().firstValue("Location").orElse(null);
+            if (StringUtils.isBlank(location)) {
+                return response;
+            }
+            if (hops.size() >= MAX_REDIRECTS) {
+                throw new IllegalArgumentException("Stopped after " + MAX_REDIRECTS + " redirects");
+            }
+            URI next = response.uri().resolve(location.trim());
+            outboundUrlPolicy.check(next.toString());
+            int status = response.statusCode();
+            if (status == 303 || ((status == 301 || status == 302) && !"GET".equals(currentMethod)
+                    && !"HEAD".equals(currentMethod))) {
+                currentMethod = "HEAD".equals(currentMethod) ? "HEAD" : "GET";
+                currentBinary = null;
+                currentText = null;
+                currentHeaders.keySet().removeIf(name -> name.equalsIgnoreCase("Content-Type"));
+            }
+            if (!originalHost.equals(StringUtils.defaultString(next.getHost()).toLowerCase(Locale.ROOT))) {
+                currentHeaders.keySet().removeIf(name -> name.equalsIgnoreCase("Authorization")
+                        || name.equalsIgnoreCase("Cookie"));
+            }
+            hops.add(status + " → " + urlForLog(next.toString()));
+            HttpRequest.Builder builder = HttpRequest.newBuilder(next)
+                    .timeout(Duration.ofMillis(timeoutMs))
+                    .method(currentMethod, currentBinary != null
+                            ? HttpRequest.BodyPublishers.ofByteArray(currentBinary)
+                            : bodyPublisher(currentMethod, currentText));
+            currentHeaders.forEach(builder::header);
+            response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+        }
+        return response;
+    }
+
+    private static boolean isRedirect(int status) {
+        return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+    }
+
+    private static RunTestResult withRedirects(RunTestResult result, List<String> hops) {
+        List<AssertionCheck> checks = new ArrayList<>(result.assertions() == null ? List.of() : result.assertions());
+        checks.add(new AssertionCheck("redirects", null, "follow (up to " + MAX_REDIRECTS + ")",
+                String.join(", ", hops), true));
+        return result.withAssertions(List.copyOf(checks));
     }
 
     public RunTestResult skipped(StudioTestCase testCase) {
@@ -290,10 +395,14 @@ public class TestRunService {
                 continue;
             }
             String want = StringUtils.defaultString(entry.getValue());
-            JsonPathEvaluator.Check check = JsonPathEvaluator.check(root, entry.getKey(), want);
+            boolean xpath = XPathEvaluator.isXPath(entry.getKey());
+            JsonPathEvaluator.Check check = xpath
+                    ? XPathEvaluator.check(body, entry.getKey(), want)
+                    : JsonPathEvaluator.check(root, entry.getKey(), want);
             String actual = check.actual();
             boolean match = check.passed();
-            checks.add(new AssertionCheck("jsonPath", entry.getKey(), JsonPathEvaluator.describe(want), actual, match));
+            checks.add(new AssertionCheck(xpath ? "xpath" : "jsonPath", entry.getKey(), JsonPathEvaluator.describe(want),
+                    actual, match));
         }
         return checks;
     }
@@ -338,8 +447,14 @@ public class TestRunService {
         boolean match;
         JsonElement expectedJson = parseJsonDocument(expected);
         JsonElement actualJson = expectedJson == null ? null : parseJsonDocument(actual);
+        List<String> ignored = JsonBodyMatcher.ignorePaths(testCase.getIgnoreFields());
         if (expectedJson != null && actualJson != null) {
-            difference = JsonBodyMatcher.difference(expectedJson, actualJson, mode);
+            try {
+                difference = JsonBodyMatcher.difference(JsonPathEvaluator.withoutPaths(expectedJson, ignored),
+                        JsonPathEvaluator.withoutPaths(actualJson, ignored), mode);
+            } catch (IllegalArgumentException invalidIgnorePath) {
+                difference = invalidIgnorePath.getMessage();
+            }
             match = difference == null;
         } else {
             match = XmlPayloadSupport.xmlEquals(expected, actual, testCase.getResponseJsonSchema())
@@ -347,6 +462,10 @@ public class TestRunService {
         }
         // path carries the compare mode and, on a JSON mismatch, where the bodies first differ.
         String detail = mode == JsonBodyMatcher.Mode.STRICT ? null : mode.label();
+        if (expectedJson != null && !ignored.isEmpty()) {
+            String note = ignored.size() == 1 ? "ignoring " + ignored.get(0) : "ignoring " + ignored.size() + " fields";
+            detail = detail == null ? note : detail + ", " + note;
+        }
         if (difference != null) {
             detail = detail == null ? difference : detail + " · " + difference;
         }
@@ -363,13 +482,15 @@ public class TestRunService {
         }
     }
 
-    private void applyAuth(Map<String, String> headers, Map<String, String> query, Map<String, String> cookies, RunAuth auth) {
+    /** Applies {@code auth}; returns it when the bearer token came from the OAuth token cache, else null. */
+    private RunAuth applyAuth(Map<String, String> headers, Map<String, String> query, Map<String, String> cookies,
+                              RunAuth auth) {
         if (auth == null) {
-            return;
+            return null;
         }
         String type = auth.normalizedType();
         if (RunAuth.NONE.equals(type)) {
-            return;
+            return null;
         }
         if (RunAuth.BASIC.equals(type)) {
             if (StringUtils.isBlank(auth.username())) {
@@ -379,15 +500,16 @@ public class TestRunService {
                     (auth.username() + ":" + StringUtils.defaultString(auth.password()))
                             .getBytes(StandardCharsets.UTF_8));
             HttpPayloadSupport.putHeader(headers, "Authorization", "Basic " + token);
-            return;
+            return null;
         }
         if (RunAuth.BEARER.equals(type) || (RunAuth.OAUTH2.equals(type) && StringUtils.isNotBlank(auth.token()))) {
             applyBearer(headers, auth.token());
-            return;
+            return null;
         }
         if (RunAuth.OAUTH2.equals(type)) {
-            applyBearer(headers, fetchOAuthToken(auth));
-            return;
+            validateOAuth(auth);
+            applyBearer(headers, oauthTokens.token(auth, this::fetchOAuthToken));
+            return auth;
         }
         if (RunAuth.API_KEY.equals(type)) {
             if (StringUtils.isBlank(auth.apiKey())) {
@@ -402,6 +524,7 @@ public class TestRunService {
                 HttpPayloadSupport.putHeader(headers, StringUtils.defaultIfBlank(auth.apiKeyName(), "X-API-Key").trim(), auth.apiKey());
             }
         }
+        return null;
     }
 
     private void applyBearer(Map<String, String> headers, String rawToken) {
@@ -415,7 +538,15 @@ public class TestRunService {
         HttpPayloadSupport.putHeader(headers, "Authorization", token);
     }
 
-    private String fetchOAuthToken(RunAuth auth) {
+    /** Checks an OAuth setup before the token cache is consulted, so a bad setup fails even with a cached token. */
+    private void validateOAuth(RunAuth auth) {
+        if (StringUtils.isBlank(auth.tokenUrl())) {
+            throw new IllegalArgumentException("tokenUrl is required for OAuth2, or paste a bearer token");
+        }
+        outboundUrlPolicy.check(auth.tokenUrl().trim());
+    }
+
+    private OAuthTokenCache.Fetched fetchOAuthToken(RunAuth auth) {
         if (StringUtils.isBlank(auth.tokenUrl())) {
             throw new IllegalArgumentException("tokenUrl is required for OAuth2, or paste a bearer token");
         }
@@ -438,13 +569,17 @@ public class TestRunService {
             form.append("&username=").append(java.net.URLEncoder.encode(auth.username(), StandardCharsets.UTF_8));
             form.append("&password=").append(java.net.URLEncoder.encode(auth.password(), StandardCharsets.UTF_8));
         }
+        if (StringUtils.isNotBlank(auth.scope())) {
+            form.append("&scope=").append(java.net.URLEncoder.encode(auth.scope().trim(), StandardCharsets.UTF_8));
+        }
         try {
             HttpRequest request = HttpRequest.newBuilder(URI.create(auth.tokenUrl().trim()))
                     .timeout(Duration.ofSeconds(15))
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .POST(HttpRequest.BodyPublishers.ofString(form.toString(), StandardCharsets.UTF_8))
                     .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = networkClients.client(null)
+                    .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalArgumentException("OAuth token request failed HTTP " + response.statusCode());
             }
@@ -452,7 +587,16 @@ public class TestRunService {
             if (!parsed.isJsonObject() || !parsed.getAsJsonObject().has("access_token")) {
                 throw new IllegalArgumentException("OAuth token response did not include access_token");
             }
-            return parsed.getAsJsonObject().get("access_token").getAsString();
+            var token = parsed.getAsJsonObject();
+            Long expiresIn = null;
+            if (token.has("expires_in") && token.get("expires_in").isJsonPrimitive()) {
+                try {
+                    expiresIn = Long.parseLong(token.get("expires_in").getAsString().trim());
+                } catch (NumberFormatException ignored) {
+                    // Treated as unknown lifetime.
+                }
+            }
+            return new OAuthTokenCache.Fetched(token.get("access_token").getAsString(), expiresIn);
         } catch (IllegalArgumentException exception) {
             throw exception;
         } catch (InterruptedException exception) {
@@ -700,11 +844,12 @@ public class TestRunService {
         }
     }
 
-    private static String truncate(String body) {
-        if (body == null || body.length() <= MAX_BODY_CHARS) {
+    private String truncate(String body) {
+        int max = properties == null ? DEFAULT_MAX_BODY_CHARS : Math.max(1_000, properties.getRun().getMaxResponseChars());
+        if (body == null || body.length() <= max) {
             return body;
         }
-        return body.substring(0, MAX_BODY_CHARS) + "…";
+        return body.substring(0, max) + "…";
     }
 
     private static long elapsed(long startedNanos) {
