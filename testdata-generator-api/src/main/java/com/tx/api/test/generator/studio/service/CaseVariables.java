@@ -1,10 +1,16 @@
 package com.tx.api.test.generator.studio.service;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonPrimitive;
 import com.tx.api.test.generator.studio.dto.AssertionCheck;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import org.apache.commons.lang3.StringUtils;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -22,6 +28,16 @@ public final class CaseVariables {
     public static final String ENV_PREFIX = "env:";
     public static final String EXTRACT_PREFIX = "extract:";
 
+    /**
+     * Run-scope key holding an extract's JSON value (number, boolean, null, object, array) as JSON text. A quoted
+     * whole-value placeholder such as {@code "id": "{{id}}"} in a JSON body or expected response is replaced with
+     * that typed value, so an extracted {@code 48} stays {@code 48} rather than becoming {@code "48"}.
+     * The NUL character keeps these keys apart from any {@code {{name}}}.
+     */
+    static final String JSON_TYPE_PREFIX = "\u0000json:";
+
+    private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
+
     private static final Pattern PLACEHOLDER = Pattern.compile(
             "\\{\\{((?:(?:global|env|extract):)?[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)}}");
 
@@ -30,10 +46,11 @@ public final class CaseVariables {
 
     static StudioTestCase bind(StudioTestCase source, Map<String, String> variables) {
         Map<String, String> vars = variables == null ? Map.of() : variables;
-        return bindWith(source, text -> substitute(text, vars));
+        return bindWith(source, text -> substitute(text, vars), vars);
     }
 
-    private static StudioTestCase bindWith(StudioTestCase source, UnaryOperator<String> resolve) {
+    private static StudioTestCase bindWith(StudioTestCase source, UnaryOperator<String> resolve,
+                                           Map<String, String> vars) {
         StudioTestCase bound = copy(source);
         bound.setBaseUrl(resolve.apply(source.getBaseUrl()));
         bound.setPathParams(substituteMap(source.getPathParams(), resolve));
@@ -41,14 +58,22 @@ public final class CaseVariables {
         bound.setHeaders(substituteMap(source.getHeaders(), resolve));
         bound.setCookieParams(substituteMap(source.getCookieParams(), resolve));
         bound.setEndpoint(endpoint(source.getRawPath(), bound.getPathParams(), source.getEndpoint(), resolve));
-        bound.setRequestBody(substituteObject(source.getRequestBody(), resolve));
-        bound.setExpectedResponse(resolve.apply(source.getExpectedResponse()));
+        bound.setRequestBody(source.getRequestBody() instanceof String text
+                ? substituteJsonText(text, resolve, vars)
+                : substituteObject(source.getRequestBody(), resolve, vars));
+        bound.setExpectedResponse(substituteJsonText(source.getExpectedResponse(), resolve, vars));
         bound.setJsonPathAssertions(resolve.apply(source.getJsonPathAssertions()));
         return bound;
     }
 
     static List<AssertionCheck> extractInto(Map<String, String> variables, String extracts, String body,
                                            Map<String, List<String>> rawHeaders) {
+        return extractInto(variables, null, extracts, body, rawHeaders);
+    }
+
+    /** As {@link #extractInto(Map, String, String, Map)}; {@code jsonValues} receives non-string JSON values. */
+    static List<AssertionCheck> extractInto(Map<String, String> variables, Map<String, String> jsonValues,
+                                           String extracts, String body, Map<String, List<String>> rawHeaders) {
         List<AssertionCheck> checks = new ArrayList<>();
         Map<String, String> rules = JsonPathEvaluator.parseExtracts(extracts);
         if (rules.isEmpty()) {
@@ -60,9 +85,14 @@ public final class CaseVariables {
             String source = StringUtils.defaultString(rule.getValue());
             String actual;
             boolean passed;
+            JsonElement typed = null;
             try {
-                actual = read(source, root, rawHeaders);
+                JsonElement value = read(source, root, rawHeaders);
+                actual = value == null ? null : JsonPathEvaluator.formatValue(value);
                 passed = actual != null;
+                if (passed && !(value.isJsonPrimitive() && value.getAsJsonPrimitive().isString())) {
+                    typed = value;
+                }
                 if (!passed) {
                     actual = "(missing)";
                 }
@@ -72,6 +102,13 @@ public final class CaseVariables {
             }
             if (passed) {
                 variables.put(name, actual);
+                if (jsonValues != null) {
+                    if (typed == null) {
+                        jsonValues.remove(name);
+                    } else {
+                        jsonValues.put(name, JSON.toJson(typed));
+                    }
+                }
             }
             checks.add(new AssertionCheck("extract", name + "=" + source, name, actual, passed));
         }
@@ -116,12 +153,27 @@ public final class CaseVariables {
 
     /** Writes extracted values into the run scope under both {@code x} and {@code extract:x}. */
     static void putExtracted(Map<String, String> variables, Map<String, String> extracted) {
+        putExtracted(variables, extracted, Map.of());
+    }
+
+    /** Also records each extract's JSON value (from {@code jsonValues}); string extracts clear an older one. */
+    static void putExtracted(Map<String, String> variables, Map<String, String> extracted,
+                             Map<String, String> jsonValues) {
         if (variables == null || extracted == null) {
             return;
         }
+        Map<String, String> types = jsonValues == null ? Map.of() : jsonValues;
         extracted.forEach((name, value) -> {
             variables.put(name, value);
             variables.put(EXTRACT_PREFIX + name, value);
+            String json = types.get(name);
+            for (String key : List.of(JSON_TYPE_PREFIX + name, JSON_TYPE_PREFIX + EXTRACT_PREFIX + name)) {
+                if (json == null) {
+                    variables.remove(key);
+                } else {
+                    variables.put(key, json);
+                }
+            }
         });
     }
 
@@ -316,35 +368,141 @@ public final class CaseVariables {
         return copy;
     }
 
-    private static Object substituteObject(Object body, UnaryOperator<String> resolve) {
+    private static Object substituteObject(Object body, UnaryOperator<String> resolve, Map<String, String> vars) {
         if (body == null) {
             return null;
         }
         if (body instanceof String text) {
-            return resolve.apply(text);
+            JsonElement typed = typedValue(text, vars);
+            return typed != null ? toJava(typed) : resolve.apply(text);
         }
         if (body instanceof Map<?, ?> map) {
             Map<String, Object> copy = new LinkedHashMap<>();
-            map.forEach((key, value) -> copy.put(String.valueOf(key), substituteObject(value, resolve)));
+            map.forEach((key, value) -> copy.put(String.valueOf(key), substituteObject(value, resolve, vars)));
             return copy;
         }
         if (body instanceof List<?> list) {
             List<Object> copy = new ArrayList<>(list.size());
             for (Object item : list) {
-                copy.add(substituteObject(item, resolve));
+                copy.add(substituteObject(item, resolve, vars));
             }
             return copy;
         }
         return body;
     }
 
-    private static String read(String source, JsonElement root, Map<String, List<String>> rawHeaders) {
+    /**
+     * JSON text (raw body, expected response): when it holds a quoted whole-value placeholder for a typed extract,
+     * substitutes on the parsed tree so the value keeps its JSON type; otherwise plain text substitution.
+     */
+    private static String substituteJsonText(String text, UnaryOperator<String> resolve, Map<String, String> vars) {
+        if (!hasPlaceholders(text) || !hasTypedValues(vars)) {
+            return resolve.apply(text);
+        }
+        JsonElement root = JsonPathEvaluator.parseJson(text);
+        if (root == null || !(root.isJsonObject() || root.isJsonArray()) || !containsTyped(root, vars)) {
+            return resolve.apply(text);
+        }
+        return JSON.toJson(substituteTree(root, resolve, vars));
+    }
+
+    private static boolean hasTypedValues(Map<String, String> vars) {
+        for (String key : vars.keySet()) {
+            if (key.startsWith(JSON_TYPE_PREFIX)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean containsTyped(JsonElement node, Map<String, String> vars) {
+        if (node.isJsonObject()) {
+            for (Map.Entry<String, JsonElement> entry : node.getAsJsonObject().entrySet()) {
+                if (containsTyped(entry.getValue(), vars)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (node.isJsonArray()) {
+            for (JsonElement item : node.getAsJsonArray()) {
+                if (containsTyped(item, vars)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return node.isJsonPrimitive() && node.getAsJsonPrimitive().isString()
+                && typedValue(node.getAsString(), vars) != null;
+    }
+
+    private static JsonElement substituteTree(JsonElement node, UnaryOperator<String> resolve,
+                                              Map<String, String> vars) {
+        if (node.isJsonObject()) {
+            JsonObject copy = new JsonObject();
+            for (Map.Entry<String, JsonElement> entry : node.getAsJsonObject().entrySet()) {
+                copy.add(resolve.apply(entry.getKey()), substituteTree(entry.getValue(), resolve, vars));
+            }
+            return copy;
+        }
+        if (node.isJsonArray()) {
+            JsonArray copy = new JsonArray();
+            for (JsonElement item : node.getAsJsonArray()) {
+                copy.add(substituteTree(item, resolve, vars));
+            }
+            return copy;
+        }
+        if (node.isJsonPrimitive() && node.getAsJsonPrimitive().isString()) {
+            JsonElement typed = typedValue(node.getAsString(), vars);
+            return typed != null ? typed : new JsonPrimitive(resolve.apply(node.getAsString()));
+        }
+        return node;
+    }
+
+    /** Typed extract value when {@code text} is exactly one placeholder such as {@code {{id}}}, else null. */
+    private static JsonElement typedValue(String text, Map<String, String> vars) {
+        if (text == null || vars == null || vars.isEmpty()) {
+            return null;
+        }
+        Matcher matcher = PLACEHOLDER.matcher(text.trim());
+        if (!matcher.matches()) {
+            return null;
+        }
+        String json = vars.get(JSON_TYPE_PREFIX + matcher.group(1));
+        return json == null ? null : JsonPathEvaluator.parseJson(json);
+    }
+
+    private static Object toJava(JsonElement value) {
+        if (value == null || value.isJsonNull()) {
+            return null;
+        }
+        if (value.isJsonObject()) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            value.getAsJsonObject().entrySet().forEach(entry -> map.put(entry.getKey(), toJava(entry.getValue())));
+            return map;
+        }
+        if (value.isJsonArray()) {
+            List<Object> list = new ArrayList<>();
+            value.getAsJsonArray().forEach(item -> list.add(toJava(item)));
+            return list;
+        }
+        JsonPrimitive primitive = value.getAsJsonPrimitive();
+        if (primitive.isBoolean()) {
+            return primitive.getAsBoolean();
+        }
+        if (primitive.isNumber()) {
+            return new BigDecimal(primitive.getAsString());
+        }
+        return primitive.getAsString();
+    }
+
+    private static JsonElement read(String source, JsonElement root, Map<String, List<String>> rawHeaders) {
         String spec = source.trim();
         if (spec.regionMatches(true, 0, "header:", 0, 7)) {
-            return firstHeader(rawHeaders, spec.substring(7).trim());
+            return text(firstHeader(rawHeaders, spec.substring(7).trim()));
         }
         if (spec.regionMatches(true, 0, "cookie:", 0, 7)) {
-            return cookieValue(rawHeaders, spec.substring(7).trim());
+            return text(cookieValue(rawHeaders, spec.substring(7).trim()));
         }
         if (spec.regionMatches(true, 0, "body:", 0, 5)) {
             spec = spec.substring(5).trim();
@@ -355,7 +513,11 @@ public final class CaseVariables {
         if (root == null) {
             return null;
         }
-        return JsonPathEvaluator.readText(root, spec);
+        return JsonPathEvaluator.readValue(root, spec);
+    }
+
+    private static JsonElement text(String value) {
+        return value == null ? null : new JsonPrimitive(value);
     }
 
     private static String firstHeader(Map<String, List<String>> headers, String name) {
