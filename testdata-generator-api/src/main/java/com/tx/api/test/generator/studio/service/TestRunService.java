@@ -189,9 +189,53 @@ public class TestRunService {
                     + StringUtils.defaultIfBlank(exception.getMessage(), "certificate not trusted")
                     + ". Add the server's CA certificate to the environment, or turn off Verify SSL for a test server.");
         } catch (Exception exception) {
-            log.warn("Run request failed", exception);
-            return failed(bound, url, headers, elapsed(started), false, List.of(), "The request could not be sent.");
+            log.warn("Run request failed: {}", exception.toString());
+            return failed(bound, url, headers, elapsed(started), false, List.of(), sendFailure(exception, url, network));
         }
+    }
+
+    /** Why a request could not be sent, in words a tester can act on (host, port and proxy only; no query). */
+    static String sendFailure(Throwable exception, String url, StudioEnvironmentNetwork network) {
+        String target = "the server";
+        try {
+            URI uri = URI.create(url);
+            int port = uri.getPort() > 0 ? uri.getPort() : "https".equalsIgnoreCase(uri.getScheme()) ? 443 : 80;
+            target = uri.getHost() + ":" + port;
+        } catch (RuntimeException ignored) {
+            // keep the generic wording
+        }
+        boolean proxied = network != null && StringUtils.isNotBlank(network.proxyUrl());
+        List<Throwable> causes = new ArrayList<>();
+        for (Throwable cause = exception; cause != null && causes.size() < 10;
+             cause = cause.getCause() == cause ? null : cause.getCause()) {
+            causes.add(cause);
+        }
+        // The innermost specific cause wins: a ConnectException often wraps an unresolved host.
+        if (causes.stream().anyMatch(cause -> cause instanceof java.nio.channels.UnresolvedAddressException
+                || cause instanceof java.net.UnknownHostException)) {
+            return "Host not found: " + target.replaceAll(":\\d+$", "") + ". Check the base URL and the selected "
+                    + "environment" + (proxied ? ", or the proxy" : "") + ".";
+        }
+        String tunnel = causes.stream().map(cause -> StringUtils.defaultString(cause.getMessage()))
+                .filter(message -> message.startsWith("Tunnel failed")).findFirst().orElse(null);
+        if (tunnel != null) {
+            return "The proxy refused the connection to " + target + " (" + tunnel.replace("Tunnel failed, got: ", "HTTP ")
+                    + "). Check the environment's proxy setting or the server's proxy rules.";
+        }
+        if (causes.stream().anyMatch(cause -> cause instanceof java.net.http.HttpConnectTimeoutException)) {
+            return "Could not connect to " + target + " within 10 seconds. The host may be down, blocked by a "
+                    + "firewall, or reachable only through a proxy or VPN.";
+        }
+        if (causes.stream().anyMatch(cause -> cause instanceof java.net.ConnectException)) {
+            return "Connection refused by " + target + (proxied ? " (or the proxy)" : "")
+                    + ". Nothing is listening there: check the port and that the service is running.";
+        }
+        if (causes.stream().anyMatch(cause -> cause instanceof java.io.EOFException
+                || StringUtils.defaultString(cause.getMessage()).toLowerCase(Locale.ROOT).contains("connection reset"))) {
+            return "The connection to " + target + " was closed before a response arrived. The server may "
+                    + "have crashed, or expects HTTPS instead of HTTP (or the other way round).";
+        }
+        return "The request to " + target + " could not be sent.";
     }
 
     /** The environment's request timeout, else the case's max response time + 5 s; capped by the server setting. */
