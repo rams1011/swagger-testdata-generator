@@ -27,8 +27,10 @@ Default Java 21; `-Djava.version=17` for Java 17 bytecode. Lombok only in `testd
 
 | Module | Role |
 |--------|------|
-| `testdata-generator-core` | OpenAPI parse, Excel generation, CLI JAR |
+| `testdata-generator-core` | OpenAPI parse, schema-based case generation, offline CLI JAR that writes collection + environment JSON (`service/CollectionGenerator`) |
 | `testdata-generator-api` | Studio REST, `com.tx.api.test.generator.studio.*` |
+
+**Export format:** collection JSON (`testdata.studio.collection` v1) is the only case export; there is no Excel export. api-automation reads collection JSON (default) or the Studio database over JDBC.
 
 Studio package layout:
 
@@ -52,7 +54,8 @@ Product design doc (cross-repo): `D:\code\testdata-studio-ui\docs\DATA_STUDIO_DE
 - Model: `collection/StudioVariable` (key, value, secret). Normalize via `StudioVariables.normalize(list, scope)`.
 - **Secrets:** stored with `value = null`; import rejects raw secret values; export uses `${STUDIO_VAR_<KEY_UPPER>}` via `StudioVariables.forExport`.
 - **Run scope:** `RunVariables.of(envValues, globals, envVars, request.secrets)` — precedence: env `values` (incl. baseUrl) → globals → env vars → request secrets (non-blank, declared secret keys only) → extracts mutate the per-run map.
-- **Substitution:** `CaseVariables.substitute` resolves `{{name}}`; names starting with `$` use `DynamicVariables` (fresh per occurrence). `CaseVariables.bindKnown` for Excel export (stored non-secret values only).
+- **Substitution:** `CaseVariables.substitute` resolves `{{name}}`; names starting with `$` use `DynamicVariables` (fresh per occurrence).
+- **Scope qualifiers:** `{{global:x}}`, `{{env:x}}`, `{{extract:x}}` read one layer. `RunVariables.of` also stores `global:`/`env:` keys (env values such as baseUrl count as `env:`); `CaseVariables.putExtracted` writes `x` and `extract:x`; chain order and prerequisites use `CaseVariables.producedNames`. Environment export (`EnvironmentExporter.export(spec, stored, globals)`) adds an optional top-level `globals` array for CI; import ignores it.
 - **Masking:** `RunVariables.mask(RunTestResult)` before history/response — secrets never echoed in URL, headers, body, assertions, error, extracted map.
 - **Endpoints:** `GET/PUT /api/variables/globals` (`VariablesController`); runs accept optional `secrets` on `RunTestRequest` / `RunPlanRequest`; saved run endpoint forwards secrets from body.
 - **Validate plan:** seed available names from env + global keys (and declared secret names for warnings).

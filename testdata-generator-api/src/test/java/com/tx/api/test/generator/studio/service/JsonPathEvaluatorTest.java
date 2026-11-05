@@ -155,4 +155,17 @@ class JsonPathEvaluatorTest {
         assertEquals("[1,2]", JsonPathEvaluator.readText(root, "$.items[*].id"));
         assertEquals(null, JsonPathEvaluator.readText(root, "$.missing"));
     }
+
+    @Test
+    void extractRulesKeepBarsInsideFilters() {
+        Map<String, String> rules = JsonPathEvaluator.parseExtracts(
+                "bookId=$.items[?(@.name=='Book' || @.id==2)].id|loc=header:Location|code=$.a\\|b");
+
+        assertEquals("$.items[?(@.name=='Book' || @.id==2)].id", rules.get("bookId"));
+        assertEquals("header:Location", rules.get("loc"));
+        assertEquals("$.a|b", rules.get("code"));
+        assertEquals(3, rules.size());
+        assertTrue(JsonPathEvaluator.parseExtracts("NA").isEmpty());
+        assertEquals("2", JsonPathEvaluator.readText(JsonParser.parseString(ORDERS), rules.get("bookId")));
+    }
 }

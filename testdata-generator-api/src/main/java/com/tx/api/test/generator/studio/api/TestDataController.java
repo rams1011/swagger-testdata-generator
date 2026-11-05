@@ -5,7 +5,6 @@ import com.tx.api.test.generator.studio.dto.CollectionImportResult;
 import com.tx.api.test.generator.studio.dto.CopyEnvironmentOverlayRequest;
 import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
-import com.tx.api.test.generator.studio.dto.ExcelExport;
 import com.tx.api.test.generator.studio.dto.ExportEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.ExportRequest;
 import com.tx.api.test.generator.studio.dto.RunAuth;
@@ -118,18 +117,6 @@ public class TestDataController {
     @PostMapping("/{id}/duplicate")
     public TestCaseView duplicate(@PathVariable String id, @RequestBody CopyEnvironmentOverlayRequest request) {
         return testDataStudioService.duplicate(id, request);
-    }
-
-    @PostMapping("/export")
-    public ResponseEntity<byte[]> export(@RequestBody ExportRequest request) {
-        ExcelExport exported = testDataStudioService.export(request);
-        HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.parseMediaType(exported.mediaType()));
-        headers.setContentLength(exported.content().length);
-        headers.setContentDisposition(ContentDisposition.attachment()
-                .filename(exported.fileName(), StandardCharsets.UTF_8)
-                .build());
-        return new ResponseEntity<>(exported.content(), headers, HttpStatus.OK);
     }
 
     @PostMapping("/export-collection")

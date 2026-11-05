@@ -1,0 +1,52 @@
+{
+  "openapi": "3.0.3",
+  "info": { "title": "Orders Service", "version": "1.2.0", "description": "Sample orders API" },
+  "servers": [ { "url": "https://orders.example.com/api" } ],
+  "components": {
+    "securitySchemes": { "bearerAuth": { "type": "http", "scheme": "bearer" } },
+    "schemas": {
+      "Order": {
+        "type": "object",
+        "required": ["id", "status"],
+        "properties": {
+          "id": { "type": "integer", "example": 42 },
+          "status": { "type": "string", "enum": ["NEW", "PAID"] },
+          "note": { "type": "string" }
+        }
+      },
+      "NewOrder": {
+        "type": "object",
+        "required": ["sku", "qty"],
+        "properties": {
+          "sku": { "type": "string", "example": "PEN-1" },
+          "qty": { "type": "integer", "minimum": 1, "example": 2 },
+          "status": { "type": "string", "enum": ["NEW", "PAID"] }
+        }
+      }
+    }
+  },
+  "security": [ { "bearerAuth": [] } ],
+  "paths": {
+    "/orders": {
+      "post": {
+        "operationId": "createOrder",
+        "summary": "Create order",
+        "tags": ["orders"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NewOrder" } } } },
+        "responses": { "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } }, "400": { "description": "Bad" } }
+      }
+    },
+    "/orders/{id}": {
+      "get": {
+        "operationId": "getOrder",
+        "summary": "Get order",
+        "tags": ["orders"],
+        "parameters": [ { "name": "id", "in": "path", "required": true, "schema": { "type": "integer", "example": 42 } } ],
+        "responses": { "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Order" } } } }, "404": { "description": "Missing" } }
+      }
+    },
+    "/health": {
+      "get": { "operationId": "health", "summary": "Health", "security": [], "responses": { "200": { "description": "OK" } } }
+    }
+  }
+}

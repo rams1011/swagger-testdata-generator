@@ -12,7 +12,7 @@ Do not produce a separate JAR per Java version. On one machine, run the API and 
 
 | Module | What it is |
 |--------|------------|
-| `testdata-generator-core` | Library + CLI JAR. Parse OpenAPI, inspect operations, generate Excel/payloads/schemas. |
+| `testdata-generator-core` | Library + CLI JAR. Parse OpenAPI, inspect operations, generate Studio collection JSON + environment JSON offline. |
 | `testdata-generator-api` | Spring Boot REST API. Depends on the core library. |
 | [`testdata-studio-ui`](D:/code/testdata-studio-ui) | Separate React app. Dynamic pages/forms from the extracted schemas. |
 
@@ -43,12 +43,13 @@ Artifacts:
 
 ## CLI
 
+Generates a Studio collection (`testdata.studio.collection` v1) and a matching environment file (`testdata.studio.environment` v1) from an OpenAPI spec — no Studio API needed. api-automation runs the pair directly; Studio can import the collection (**Export → Import collection**) to keep editing it.
+
 ```bash
 java -jar testdata-generator-core/target/testdata-generator-core-1.0.0-SNAPSHOT-cli.jar ^
-  --swagger https://petstore.swagger.io/v2/swagger.json ^
-  --output D:\code\api-automation\src\test\data\TestData.xlsx ^
-  --payload-dir D:\code\api-automation\src\test\data\payloads ^
-  --schema-dir D:\code\api-automation\src\test\data\schemas
+  --swagger https://petstore3.swagger.io/api/v3/openapi.json ^
+  --output D:\code\api-automation\collections\petstore\Default.collection.json ^
+  --environment int --base-url https://int.example.com/api
 ```
 
 ### Options
@@ -56,17 +57,19 @@ java -jar testdata-generator-core/target/testdata-generator-core-1.0.0-SNAPSHOT-
 | Option | Description |
 |--------|-------------|
 | `-s, --swagger` | Swagger/OpenAPI URL or local file (required) |
-| `-o, --output` | Output Excel path (default: `./TestData.xlsx`) |
-| `-b, --base-url` | Override base URL column |
-| `-g, --test-group` | Default test group when operation has no tags |
-| `-e, --enabled` | Enabled column value (default: `Y`) |
-| `-t, --max-response-time` | Max response time in ms (default: `3000`) |
-| `-p, --payload-dir` | Directory for generated request JSON files |
-| `--schema-dir` | Directory for generated response JSON Schema files |
-| `--payload-prefix` | `file:` path prefix for payloads (default: `src/test/data/payloads`) |
-| `--schema-prefix` | `file:` path prefix for schemas (default: `src/test/data/schemas`) |
-| `--include` | Regex filter to include matching operations |
-| `--exclude` | Regex filter to exclude matching operations |
+| `-o, --output` | Collection JSON path (default: `./<spec>.<plan>.collection.json`) |
+| `--environment-output` | Environment JSON path (default: `<spec>.<environment>.environment.json` next to the collection) |
+| `-b, --base-url` | Override the base URL (spec `servers[0].url` otherwise) |
+| `--plan` | Plan name in the collection (default: `Default`) |
+| `--environment` | Environment name (default: `Default`); cases are not environment-scoped |
+| `--auth-type` | `none`, `bearer`, `basic`, `api_key`, `oauth2` — written as `${AUTOMATION_*}` placeholders (default: from the spec's security schemes) |
+| `--negative-cases` | Also generate negative cases (missing required fields, invalid enum/type, constraint violations, 404, 401) |
+| `-g, --test-group` | Test group when an operation has no tags |
+| `-e, --enabled` | Enabled value (default: `Y`) |
+| `-t, --max-response-time` | `maxResponseTimeMs` (default: `3000`) |
+| `--include` / `--exclude` | Regex on path, operationId, or summary |
+
+Each operation gets a happy-path case: sample path/query/header values, a request body built from the schema, the first success status, the response JSON Schema, and sample JSONPath assertions (review them before relying on exact values). Case ids are stable (`<operationId>-<n>`), so re-generating and re-importing updates the same cases.
 
 The same generator is a Maven dependency for the API:
 
@@ -211,7 +214,6 @@ Organization / workspace model and rollout: **[docs/ADR-001-organization-workspa
 | `GET` | `/api/testdata?specId=&planId=&operationKey=&environmentId=` | List saved cases for a plan (environment filters the list) |
 | `POST` | `/api/testdata/{id}/duplicate` | Copy a case into another environment as a new id (`fromEnvironmentId`, `toEnvironmentId`) |
 | `DELETE` | `/api/testdata/{id}` | Delete a case (`?environmentId=` removes it from that environment only) |
-| `POST` | `/api/testdata/export` | Download Excel for one plan in the selected environment (`specId`, `planId`, `environmentId`) |
 | `POST` | `/api/testdata/run` | Run the current (unsaved) case; body is `{ testCase, auth }` |
 | `POST` | `/api/testdata/{id}/run` | Run a saved case with optional `{ auth }` |
 | `POST` | `/api/testdata/run-plan` | Run enabled cases in a plan for one environment (`specId`, `planId`, `auth`, `environmentId`, optional `continueOnFailure` — default stops at the first failure) |
@@ -230,7 +232,7 @@ The API persists specs, plans, cases, environments, run history, and uploads in 
 - **`local` hosting profile** — embedded H2 file DB (`application-local.yml` + `testdata.h2.*`)
 - **`docker` / `datacenter` / `cloud`** — `SPRING_DATASOURCE_*` (see `application-hosted.yml`)
 
-`POST /api/testdata/export` still downloads an api-automation **Excel workbook** (export format only — not the system of record).
+Studio exports a plan as **collection JSON** (`POST /api/testdata/export-collection`) — the one format api-automation reads (besides reading this database directly over JDBC).
 
 ### H2 (local hosting profile)
 
@@ -298,13 +300,7 @@ Cloud Run secrets, CORS, and AlloyDB notes: **[docs/DEPLOY.md](docs/DEPLOY.md)**
 
 Oldest `td_run` rows for a spec are deleted after each write when the count exceeds `testdata.run-history.max-per-spec` (default `100`; `0` keeps history unbounded).
 
-One OpenAPI spec can have many test plans. Saved cases and Excel export are scoped to a single plan. Existing cases without `plan_id` are attached to **Default** the first time plans are loaded.
-
-`POST /api/testdata/export` maps saved cases for one plan from the JDBC store into a downloaded api-automation workbook:
-
-- Browser download (default file name is the plan name, e.g. `Default.xlsx`)
-- Single sheet `TestData` with api-automation headers (`TestName`, `BaseUrl`, `HttpMethod`, …)
-- Request bodies are inlined in `RequestBody`
+One OpenAPI spec can have many test plans. Saved cases and collection export are scoped to a single plan. Existing cases without `plan_id` are attached to **Default** the first time plans are loaded.
 
 ## React UI
 
@@ -316,11 +312,11 @@ npm run dev
 
 Open [http://localhost:5173](http://localhost:5173). Vite proxies `/api` to the API at [http://localhost:8083](http://localhost:8083).
 
-Use the **Test plan** control in the sidebar to switch plans, add a plan, or delete a plan (the last plan is kept). Saved cases, the operation form, and **Download Excel** all apply to the selected plan only.
+Use the **Test plan** control in the sidebar to switch plans, add a plan, or delete a plan (the last plan is kept). Saved cases, the operation form, and **Export → Download collection** all apply to the selected plan only.
 
 **Reload spec** (home list or sidebar) replaces the OpenAPI document for that spec id. Plans and saved cases are not deleted. New and changed operations appear immediately. Cases whose `operationKey` disappeared stay in the plan as orphans (counted in the reload result) until you delete them. The stored base URL is kept unless you pass a new one. Change the spec **Base URL** in the workspace bar without reloading the document; saved cases that still used the previous spec URL are updated. **Load spec** still creates a *new* spec id and leaves existing data untouched. Each spec has a unique **name** (required when loading); the OpenAPI `info.title` is stored separately and can stay the same across specs.
 
-**Run** on an operation page executes the current form (save is not required). **Run plan** on the saved-cases page runs every enabled case. Set **Run authentication** to credentials (HTTP Basic), a bearer token, or an API key; the values stay in browser `sessionStorage` for that spec and are not written to Excel or the studio database. Choose **None** when a case already sends `Authorization` (for example generated 401 tests).
+**Run** on an operation page executes the current form (save is not required). **Run plan** on the saved-cases page runs every enabled case. Set **Run authentication** to credentials (HTTP Basic), a bearer token, or an API key; the values stay in browser `sessionStorage` for that spec and are not written to exports or the studio database. Choose **None** when a case already sends `Authorization` (for example generated 401 tests).
 
 **Environments** own their cases. Save, update, delete, generate, export, and run-plan apply to the selected environment. **Duplicate into** creates a new case (and files) in another environment. Uploads belong to the case, not a separate env column. Collection export is scoped to the selected environment and stores membership **names**. Restart testdata-generator-api so H2 picks up the latest schema.
 
@@ -328,33 +324,13 @@ Use the **Test plan** control in the sidebar to switch plans, add a plan, or del
 
 ## Output format
 
-The generated Excel file matches the columns expected by `ExcelUtil` in api-automation:
-
-| Column | Description |
-|--------|-------------|
-| Test Case No | Sequential row number |
-| Service Name | Operation summary / operationId |
-| Service Base Url | From OpenAPI `servers[0].url` or `--base-url` |
-| Request Type | GET, POST, PUT, PATCH, DELETE |
-| Endpoint | Path with sample path params substituted |
-| Content-Type | `JSON` or `NA` |
-| QueryParamKey / QueryParamValue | Pipe-separated query parameters |
-| Header Name / Header Value | Pipe-separated non-auth headers |
-| Request Body | `file:src/test/data/payloads/{operation}.json` when a JSON body exists |
-| Status Code | First 2xx response code from the spec |
-| Response Type | `JSON` for GET, otherwise `NONE` |
-| Expected Response | `NA` (fill in after running against real API) |
-| Enabled | `Y` by default |
-| TestGroup | First OpenAPI tag or `generated` |
-| JsonPathAssertions | Sample top-level assertions for GET responses |
-| JsonSchemaPath | `file:src/test/data/schemas/{operation}.schema.json` when response schema exists |
-| MaxResponseTimeMs | Default `3000` |
+The CLI and Studio's **Export → Download collection** write the same `testdata.studio.collection` v1 document: `spec`, `plan`, and `cases[]` (id, operationKey, testName, method, path, endpoint, `baseUrl` = `{{baseUrl}}`, params, headers, cookies, body, responseJsonSchema, statusCode, responseType, expectedResponse, enabled, testGroup, jsonPathAssertions, extracts, maxResponseTimeMs). Uploads make Studio's export a zip with `files/<caseId>/`. The environment file carries `values.baseUrl`, placeholder `auth`, environment `variables`, and (from Studio) workspace `globals`.
 
 ## Workflow with api-automation
 
-1. Generate or export `TestData.xlsx`, payloads, and schemas from your Swagger spec.
-2. Review sample values, expected responses, and enabled flags.
-3. Run api-automation tests:
+1. Generate a collection with the CLI, or export one from Studio (**Export → Download collection** + **Download environment**).
+2. Review sample values, expected responses, and enabled flags (or import the collection into Studio and edit there).
+3. Point api-automation at the files (`automation.datasource.type=collection`, `automation.datasource.collection-file=...`, `automation.environment-file=...`) and run:
 
 ```bash
 cd D:\code\api-automation

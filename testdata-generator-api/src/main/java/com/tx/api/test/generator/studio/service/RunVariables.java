@@ -19,6 +19,8 @@ import java.util.Set;
 /**
  * Variables a run starts with, layered lowest to highest: environment values, global variables, environment
  * variables. Secret variables take their value from the caller for this run only; results never echo it.
+ * Each layer is also reachable directly as {@code global:name} or {@code env:name} (environment values such as
+ * baseUrl count as {@code env:}), so a case can read a lower layer that a higher one overrides.
  */
 public final class RunVariables {
 
@@ -39,16 +41,21 @@ public final class RunVariables {
     public static RunVariables of(Map<String, String> environmentValues, List<StudioVariable> globals,
                                   List<StudioVariable> environmentVariables, Map<String, String> secrets) {
         Map<String, String> values = new LinkedHashMap<>();
+        Map<String, String> environmentScoped = new LinkedHashMap<>();
         if (environmentValues != null) {
             environmentValues.forEach((key, value) -> {
                 if (StringUtils.isNotBlank(key) && value != null) {
                     values.put(key, value);
+                    environmentScoped.put(key, value);
                 }
             });
         }
         Set<String> secretValues = new LinkedHashSet<>();
-        layer(values, secretValues, globals, secrets);
-        layer(values, secretValues, environmentVariables, secrets);
+        Map<String, String> globalScoped = new LinkedHashMap<>();
+        layer(values, globalScoped, secretValues, globals, secrets);
+        layer(values, environmentScoped, secretValues, environmentVariables, secrets);
+        globalScoped.forEach((key, value) -> values.put(CaseVariables.GLOBAL_PREFIX + key, value));
+        environmentScoped.forEach((key, value) -> values.put(CaseVariables.ENV_PREFIX + key, value));
         List<String> masked = new ArrayList<>();
         for (String secret : secretValues) {
             masked.add(secret);
@@ -61,16 +68,20 @@ public final class RunVariables {
         return new RunVariables(Map.copyOf(values), List.copyOf(masked));
     }
 
-    private static void layer(Map<String, String> values, Set<String> secretValues,
+    private static void layer(Map<String, String> values, Map<String, String> scoped, Set<String> secretValues,
                               List<StudioVariable> variables, Map<String, String> secrets) {
-        values.putAll(StudioVariables.storedValues(variables));
+        Map<String, String> stored = StudioVariables.storedValues(variables);
+        values.putAll(stored);
+        scoped.putAll(stored);
         for (String key : StudioVariables.secretKeys(variables)) {
             String secret = secrets == null ? null : secrets.get(key);
             if (StringUtils.isEmpty(secret)) {
                 values.remove(key);
+                scoped.remove(key);
                 continue;
             }
             values.put(key, secret);
+            scoped.put(key, secret);
             secretValues.add(secret);
         }
     }

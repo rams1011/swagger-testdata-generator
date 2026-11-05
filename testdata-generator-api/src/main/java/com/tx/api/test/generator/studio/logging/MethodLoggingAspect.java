@@ -3,7 +3,6 @@ package com.tx.api.test.generator.studio.logging;
 import com.tx.api.test.generator.studio.dto.CollectionExport;
 import com.tx.api.test.generator.studio.dto.CollectionImportResult;
 import com.tx.api.test.generator.studio.dto.EnvironmentExport;
-import com.tx.api.test.generator.studio.dto.ExcelExport;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
@@ -86,12 +85,6 @@ public class MethodLoggingAspect {
         }
         if (value instanceof MultipartFile file) {
             return "MultipartFile[name=" + file.getOriginalFilename() + ", size=" + file.getSize() + "]";
-        }
-        if (value instanceof ExcelExport exported) {
-            return "ExcelExport[fileName=" + exported.fileName()
-                    + ", bytes=" + exported.content().length
-                    + ", rows=" + exported.rowCount()
-                    + ", files=" + exported.fileCount() + "]";
         }
         if (value instanceof CollectionExport exported) {
             return "CollectionExport[fileName=" + exported.fileName()

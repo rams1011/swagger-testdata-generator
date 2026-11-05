@@ -212,6 +212,63 @@ final class JsonPathEvaluator {
         return parts;
     }
 
+    /**
+     * Extract rules {@code name=source|name2=source2}. The source is itself a JSONPath, so a {@code |} inside
+     * brackets, parentheses or quotes (a filter such as {@code $.items[?(@.a==1 || @.b==2)].id}) does not split.
+     */
+    static Map<String, String> parseExtracts(String serialized) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (String pair : splitExtracts(serialized)) {
+            int separator = pair.indexOf('=');
+            if (separator < 0) {
+                String name = pair.trim();
+                if (!name.isEmpty()) {
+                    result.put(name, "");
+                }
+                continue;
+            }
+            String name = pair.substring(0, separator).trim();
+            if (!name.isEmpty()) {
+                result.put(name, pair.substring(separator + 1).trim());
+            }
+        }
+        return result;
+    }
+
+    /** Extract rule pairs, split on {@code |} only outside brackets, parentheses and quotes; {@code \|} is a literal bar. */
+    static List<String> splitExtracts(String serialized) {
+        List<String> parts = new ArrayList<>();
+        if (StringUtils.isBlank(serialized) || "NA".equalsIgnoreCase(serialized.trim())) {
+            return parts;
+        }
+        StringBuilder current = new StringBuilder();
+        PathScanner scanner = new PathScanner();
+        for (int i = 0; i < serialized.length(); i++) {
+            char ch = serialized.charAt(i);
+            if (ch == '\\' && i + 1 < serialized.length() && serialized.charAt(i + 1) == '|') {
+                current.append('|');
+                i++;
+                continue;
+            }
+            if (ch == '|' && scanner.topLevel()) {
+                addPart(parts, current);
+                scanner = new PathScanner();
+                continue;
+            }
+            scanner.accept(ch);
+            current.append(ch);
+        }
+        addPart(parts, current);
+        return parts;
+    }
+
+    private static void addPart(List<String> parts, StringBuilder current) {
+        if (!current.toString().trim().isEmpty()) {
+            parts.add(current.toString());
+        }
+        current.setLength(0);
+    }
+
     /** Index of the {@code =} that ends the path, ignoring any inside brackets, parentheses or quotes. */
     static int pathSeparator(String pair) {
         PathScanner scanner = new PathScanner();

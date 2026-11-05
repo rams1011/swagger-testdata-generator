@@ -1,14 +1,15 @@
 package com.tx.api.test.generator;
 
 import com.tx.api.test.generator.config.GeneratorOptions;
-import com.tx.api.test.generator.service.SwaggerTestDataGenerator;
+import com.tx.api.test.generator.service.CollectionGenerator;
 import picocli.CommandLine;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Option;
 
 @Command(
         name = "swagger-testdata-generator",
-        description = "Generate api-automation TestData.xlsx from Swagger/OpenAPI specifications",
+        description = "Generate a Studio collection JSON (testdata.studio.collection v1) and environment JSON "
+                + "from a Swagger/OpenAPI spec, for api-automation or import into Test Data Studio",
         mixinStandardHelpOptions = true
 )
 public final class SwaggerTestDataGeneratorApp implements Runnable {
@@ -22,67 +23,73 @@ public final class SwaggerTestDataGeneratorApp implements Runnable {
 
     @Option(
             names = {"-o", "--output"},
-            description = "Output Excel file path (default: TestData.xlsx in current directory)"
+            description = "Collection JSON path (default: <spec>.<plan>.collection.json in the current directory)"
     )
     private String outputFile;
 
     @Option(
+            names = {"--environment-output"},
+            description = "Environment JSON path (default: <spec>.<environment>.environment.json next to the collection)"
+    )
+    private String environmentOutputFile;
+
+    @Option(
             names = {"-b", "--base-url"},
-            description = "Override base URL written to the Service Base Url column"
+            description = "Override the base URL written to the spec and environment file"
     )
     private String baseUrlOverride;
 
     @Option(
+            names = {"--plan"},
+            description = "Plan name in the collection (default: Default)"
+    )
+    private String planName = "Default";
+
+    @Option(
+            names = {"--environment"},
+            description = "Environment name in the environment file (default: Default)"
+    )
+    private String environmentName = "Default";
+
+    @Option(
+            names = {"--auth-type"},
+            description = "Environment auth: none, bearer, basic, api_key, oauth2 (default: from the spec's security)"
+    )
+    private String authType;
+
+    @Option(
+            names = {"--negative-cases"},
+            description = "Also generate negative cases (missing required fields, invalid enum/type, 404, 401, ...)"
+    )
+    private boolean includeNegativeCases;
+
+    @Option(
             names = {"-g", "--test-group"},
-            description = "Default TestGroup value when operation has no tags (default: generated)"
+            description = "Test group when an operation has no tags (default: generated)"
     )
     private String defaultTestGroup;
 
     @Option(
             names = {"-e", "--enabled"},
-            description = "Enabled column value for generated rows (default: Y)"
+            description = "Enabled value for generated cases (default: Y)"
     )
     private String enabled = "Y";
 
     @Option(
             names = {"-t", "--max-response-time"},
-            description = "MaxResponseTimeMs column value (default: 3000)"
+            description = "maxResponseTimeMs for generated cases (default: 3000)"
     )
     private long maxResponseTimeMs = 3000L;
 
     @Option(
-            names = {"-p", "--payload-dir"},
-            description = "Directory for generated request JSON payloads (default: payloads next to output file)"
-    )
-    private String payloadDirectory;
-
-    @Option(
-            names = {"--schema-dir"},
-            description = "Directory for generated response JSON schemas (default: schemas next to output file)"
-    )
-    private String schemaDirectory;
-
-    @Option(
-            names = {"--payload-prefix"},
-            description = "Path prefix used in file: references for payloads (default: src/test/data/payloads)"
-    )
-    private String payloadPathPrefix = "src/test/data/payloads";
-
-    @Option(
-            names = {"--schema-prefix"},
-            description = "Path prefix used in file: references for schemas (default: src/test/data/schemas)"
-    )
-    private String schemaPathPrefix = "src/test/data/schemas";
-
-    @Option(
             names = {"--include"},
-            description = "Include only operations whose path or operationId matches this regex (optional)"
+            description = "Include only operations whose path, operationId, or summary matches this regex"
     )
     private String includePattern;
 
     @Option(
             names = {"--exclude"},
-            description = "Exclude operations whose path or operationId matches this regex (optional)"
+            description = "Exclude operations whose path, operationId, or summary matches this regex"
     )
     private String excludePattern;
 
@@ -96,19 +103,22 @@ public final class SwaggerTestDataGeneratorApp implements Runnable {
         GeneratorOptions options = GeneratorOptions.builder()
                 .swaggerLocation(swaggerLocation)
                 .outputFile(outputFile)
+                .environmentOutputFile(environmentOutputFile)
                 .baseUrlOverride(baseUrlOverride)
+                .planName(planName)
+                .environmentName(environmentName)
+                .authType(authType)
+                .includeNegativeCases(includeNegativeCases)
                 .defaultTestGroup(defaultTestGroup)
                 .enabled(enabled)
                 .maxResponseTimeMs(maxResponseTimeMs)
-                .payloadDirectory(payloadDirectory)
-                .schemaDirectory(schemaDirectory)
-                .payloadPathPrefix(payloadPathPrefix)
-                .schemaPathPrefix(schemaPathPrefix)
                 .includePattern(includePattern)
                 .excludePattern(excludePattern)
                 .build();
 
-        SwaggerTestDataGenerator generator = new SwaggerTestDataGenerator();
-        generator.generate(options);
+        CollectionGenerator.Result result = TestdataGenerator.generateCollection(options);
+        System.out.println("Generated " + result.caseCount() + " cases for " + result.operationCount() + " operations");
+        System.out.println("Collection: " + result.collectionFile().toAbsolutePath());
+        System.out.println("Environment: " + result.environmentFile().toAbsolutePath());
     }
 }

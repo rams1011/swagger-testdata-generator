@@ -1,14 +1,12 @@
 package com.tx.api.test.generator.studio.service;
 
 import com.google.gson.Gson;
-import com.tx.api.test.generator.model.TestDataRow;
 import com.tx.api.test.generator.studio.config.StudioDatasourceSettings;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.studio.collection.CollectionDocuments;
 import com.tx.api.test.generator.studio.collection.CollectionExporter;
 import com.tx.api.test.generator.studio.collection.CollectionImporter;
-import com.tx.api.test.generator.studio.collection.ExcelExportPackage;
 import com.tx.api.test.generator.studio.collection.EnvironmentExporter;
 import com.tx.api.test.generator.studio.collection.EnvironmentImporter;
 import com.tx.api.test.generator.studio.collection.EnvironmentMapper;
@@ -26,7 +24,6 @@ import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
 import com.tx.api.test.generator.studio.dto.EnvironmentSummary;
 import com.tx.api.test.generator.studio.dto.SaveEnvironmentRequest;
-import com.tx.api.test.generator.studio.dto.ExcelExport;
 import com.tx.api.test.generator.studio.dto.ExportEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.ExportRequest;
 import com.tx.api.test.generator.studio.dto.RequestFileView;
@@ -58,7 +55,6 @@ import com.tx.api.test.generator.studio.storage.StudioStorage;
 import com.tx.api.test.generator.studio.tenant.EntitlementService;
 import com.tx.api.test.generator.studio.tenant.ForbiddenException;
 import com.tx.api.test.generator.studio.tenant.TenantContext;
-import com.tx.api.test.generator.writer.TestDataExcelWriter;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -96,7 +92,6 @@ public class TestDataStudioService {
     private final StudioAuditService auditService;
     private final StudioDatasourceSettings datasourceSettings;
     private final StudioCacheDiagnostics cacheDiagnostics;
-    private final TestDataExcelWriter excelWriter = new TestDataExcelWriter();
 
     public TestDataStudioService(SpecCatalogService specCatalogService, StudioProperties properties,
                                  StudioStorage studioStorage, TestRunService testRunService,
@@ -467,7 +462,7 @@ public class TestDataStudioService {
                             + "}} before any prior case in chain order extracts it.");
                 }
             }
-            availableExtracts.addAll(CaseVariables.extractedNames(testCase.getExtracts()));
+            availableExtracts.addAll(CaseVariables.producedNames(testCase.getExtracts()));
             executionOrder.add(new ValidatePlanCaseEntry(
                     testCase.getId(), testName, testCase.getMethod(), testCase.getEndpoint()));
             runnableCount++;
@@ -482,40 +477,6 @@ public class TestDataStudioService {
         boolean ready = runnableCount > 0 && warnings.stream().noneMatch(line -> !line.contains("draft case"));
         return new ValidatePlanResult(request.specId(), request.planId(), runnableCount,
                 skippedDisabled, skippedDraft, skippedEnvironment, ready, executionOrder, warnings);
-    }
-
-    public ExcelExport export(ExportRequest request) {
-        if (request == null || StringUtils.isBlank(request.specId())) {
-            throw new IllegalArgumentException("specId is required to export test data");
-        }
-        specCatalogService.requireSpec(request.specId());
-        StudioTestPlan plan = requirePlan(request.specId(), resolvePlanId(request.specId(), request.planId()));
-        List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), plan.getId(), null);
-        String environmentName = requireEnvironmentNameForScopedCases(
-                request.specId(), request.environmentId(), storedCases, "export this plan");
-        List<StudioTestCase> cases = exportableCases(environmentName, storedCases);
-        Map<String, String> storedVariables = runVariables(request.specId(), request.environmentId(), null).newScope();
-
-        List<TestDataRow> rows = new ArrayList<>();
-        Map<String, byte[]> binaries = new LinkedHashMap<>();
-        int testCaseNo = 1;
-        for (StudioTestCase stored : cases) {
-            StudioTestCase testCase = CaseVariables.bindKnown(stored, storedVariables);
-            ExportPayload payload = exportPayload(testCase);
-            rows.add(toExcelRow(testCaseNo++, testCase, payload.requestBody(), NA, payload.uploadFiles(),
-                    payload.contentType()));
-            if (payload.files() != null) {
-                binaries.putAll(payload.files());
-            }
-        }
-        ByteArrayOutputStream output = new ByteArrayOutputStream();
-        excelWriter.write(output, rows);
-        String fileName = exportFileName(request, plan);
-        ExcelExport exported = ExcelExportPackage.toDownload(fileName, output.toByteArray(), binaries, rows.size());
-        log.info("Prepared {} api-automation rows for plan {} as {} ({} files)",
-                rows.size(), plan.getName(), exported.fileName(), exported.fileCount());
-        auditService.recordExported(request.specId(), "Excel", exported.fileName(), exported.rowCount());
-        return exported;
     }
 
     public CollectionExport exportCollection(ExportRequest request) {
@@ -565,7 +526,7 @@ public class TestDataStudioService {
         StoredEnvironment stored = requireEnvironment(request.specId(), request.environmentId());
         var spec = studioStorage.findSpec(request.specId())
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + request.specId()));
-        EnvironmentExport exported = EnvironmentExporter.export(spec, stored);
+        EnvironmentExport exported = EnvironmentExporter.export(spec, stored, loadGlobalVariables());
         log.info("Prepared environment {} for spec {}", exported.fileName(), spec.getName());
         auditService.recordExported(request.specId(), "Environment", exported.fileName(), 1);
         return exported;
@@ -877,119 +838,6 @@ public class TestDataStudioService {
         testCase.setEnvironments(membershipFor(request.specId(), request.environmentId(), request.environments()));
     }
 
-    private String inlineRequestBody(StudioTestCase testCase) {
-        if (testCase.getRequestBody() == null || NA.equalsIgnoreCase(String.valueOf(testCase.getContentType()))) {
-            return NA;
-        }
-        if (HttpPayloadSupport.isFormUrlEncoded(testCase.getContentType())) {
-            String encoded = HttpPayloadSupport.formUrlEncoded(testCase.getRequestBody());
-            return StringUtils.isBlank(encoded) ? NA : encoded;
-        }
-        if (XmlPayloadSupport.isXml(testCase.getContentType())) {
-            String xml = XmlPayloadSupport.toXml(testCase.getRequestBody(), Map.of());
-            return StringUtils.isBlank(xml) ? NA : xml;
-        }
-        return inlineJson(testCase.getRequestBody());
-    }
-
-    private ExportPayload exportPayload(StudioTestCase testCase) {
-        List<RequestFileSupport.FilePart> files = RequestFileSupport.collectFileParts(testCase.getRequestBody());
-        if (files.isEmpty()) {
-            String contentType = blankToNa(testCase.getContentType());
-            if (HttpPayloadSupport.isFormUrlEncoded(testCase.getContentType())) {
-                contentType = "application/x-www-form-urlencoded";
-            } else if (XmlPayloadSupport.isXml(testCase.getContentType()) && !contentType.contains("/")) {
-                contentType = "application/xml";
-            }
-            return new ExportPayload(contentType, inlineRequestBody(testCase), NA, Map.of());
-        }
-        String requestBody = inlineJson(RequestFileSupport.stripFileRefs(testCase.getRequestBody()));
-        List<String> entries = new ArrayList<>();
-        Map<String, byte[]> binaries = new LinkedHashMap<>();
-        for (RequestFileSupport.FilePart part : files) {
-            StudioRequestFile stored = studioStorage.findRequestFile(testCase.getId(), part.fileId())
-                    .orElseThrow(() -> new IllegalStateException(
-                            "Saved file for field '" + part.fieldName() + "' is missing. Re-upload it before export."));
-            String relative = ExcelExportPackage.relativeFilePath(
-                    testCase.getId(), stored.getFileId(), stored.getFileName());
-            binaries.put(relative, stored.getContent() == null ? new byte[0] : stored.getContent());
-            entries.add(ExcelExportPackage.uploadReference(
-                    part.fieldName(), testCase.getId(), stored.getFileId(), stored.getFileName()));
-        }
-        return new ExportPayload("MULTIPART", requestBody, String.join("|", entries), binaries);
-    }
-
-    private String inlineJson(Object body) {
-        if (body == null) {
-            return NA;
-        }
-        if (body instanceof Map<?, ?> map && map.isEmpty()) {
-            return NA;
-        }
-        if (body instanceof String text) {
-            return StringUtils.isBlank(text) || NA.equalsIgnoreCase(text.trim()) ? NA : text;
-        }
-        String json = JSON.toJson(body);
-        return StringUtils.isBlank(json) || "{}".equals(json) ? NA : json;
-    }
-
-    private String exportFileName(ExportRequest request, StudioTestPlan plan) {
-        String name = request == null ? null : request.excelFileName();
-        if (StringUtils.isBlank(name) && plan != null) {
-            name = plan.getName();
-        }
-        name = StringUtils.defaultIfBlank(name, properties.getDefaultExcelFileName());
-        name = name.replace('\\', '/');
-        int slash = name.lastIndexOf('/');
-        if (slash >= 0) {
-            name = name.substring(slash + 1);
-        }
-        name = name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
-        if (name.isBlank()) {
-            name = "TestData.xlsx";
-        }
-        if (!name.toLowerCase(Locale.ROOT).endsWith(".xlsx")) {
-            name = name + ".xlsx";
-        }
-        return name;
-    }
-
-    private TestDataRow toExcelRow(int testCaseNo, StudioTestCase testCase, String payloadReference,
-                                  String schemaReference, String uploadFiles, String contentType) {
-        Map<String, String> headers = new LinkedHashMap<>(copyMap(testCase.getHeaders()));
-        String cookie = HttpPayloadSupport.cookieHeader(testCase.getCookieParams());
-        if (StringUtils.isNotBlank(cookie) && headers.keySet().stream().noneMatch(name -> name.equalsIgnoreCase("Cookie"))) {
-            headers.put("Cookie", cookie);
-        }
-        String downloadPath = "FILE".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getResponseType()))
-                ? "downloads/" + testCase.getId()
-                : NA;
-        return TestDataRow.builder()
-                .testCaseNo(testCaseNo)
-                .serviceName(testCase.getTestName())
-                .serviceBaseUrl(testCase.getBaseUrl())
-                .requestType(testCase.getMethod())
-                .endpoint(testCase.getEndpoint())
-                .contentType(blankToNa(contentType))
-                .queryParamKey(HttpPayloadSupport.joinKeys(testCase.getQueryParams()))
-                .queryParamValue(HttpPayloadSupport.joinValues(testCase.getQueryParams()))
-                .headerName(HttpPayloadSupport.joinKeys(headers))
-                .headerValue(HttpPayloadSupport.joinValues(headers))
-                .requestBody(payloadReference)
-                .statusCode(testCase.getStatusCode())
-                .responseType(blankToNa(testCase.getResponseType()))
-                .expectedResponse(blankToNa(testCase.getExpectedResponse()))
-                .enabled(blankToNa(testCase.getEnabled()))
-                .testGroup(blankToNa(testCase.getTestGroup()))
-                .jsonPathAssertions(blankToNa(testCase.getJsonPathAssertions()))
-                .extracts(blankToNa(testCase.getExtracts()))
-                .jsonSchemaPath(schemaReference)
-                .maxResponseTimeMs(testCase.getMaxResponseTimeMs())
-                .uploadFiles(blankToNa(uploadFiles))
-                .downloadFilePath(blankToNa(downloadPath))
-                .build();
-    }
-
     private TestCaseView toView(StudioTestCase testCase) {
         return toView(testCase, (StudioEnvironment) null);
     }
@@ -1166,10 +1014,17 @@ public class TestDataStudioService {
     }
 
     private Set<String> declaredSecretNames(String specId, String environmentId) {
-        Set<String> names = new LinkedHashSet<>(StudioVariables.secretKeys(loadGlobalVariables()));
+        Set<String> names = new LinkedHashSet<>();
+        for (String key : StudioVariables.secretKeys(loadGlobalVariables())) {
+            names.add(key);
+            names.add(CaseVariables.GLOBAL_PREFIX + key);
+        }
         StudioEnvironment environment = loadEnvironment(specId, environmentId);
         if (environment != null) {
-            names.addAll(StudioVariables.secretKeys(environment.variableList()));
+            for (String key : StudioVariables.secretKeys(environment.variableList())) {
+                names.add(key);
+                names.add(CaseVariables.ENV_PREFIX + key);
+            }
         }
         return names;
     }
@@ -1427,7 +1282,4 @@ public class TestDataStudioService {
         return StringUtils.defaultIfBlank(base, "upload.bin");
     }
 
-    private record ExportPayload(String contentType, String requestBody, String uploadFiles,
-                                 Map<String, byte[]> files) {
-    }
 }

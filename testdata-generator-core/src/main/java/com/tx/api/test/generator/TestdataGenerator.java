@@ -6,7 +6,7 @@ import com.tx.api.test.generator.generate.GeneratedTestCase;
 import com.tx.api.test.generator.generate.SchemaCaseGenerator;
 import com.tx.api.test.generator.openapi.OpenApiOperationInspector;
 import com.tx.api.test.generator.openapi.OpenApiSpecLoader;
-import com.tx.api.test.generator.service.SwaggerTestDataGenerator;
+import com.tx.api.test.generator.service.CollectionGenerator;
 import io.swagger.v3.oas.models.OpenAPI;
 
 import java.util.List;
@@ -56,8 +56,9 @@ public final class TestdataGenerator {
         return new OpenApiOperationInspector(baseUrlOverride).resolveBaseUrl(openApi);
     }
 
-    public static void generateExcel(GeneratorOptions options) {
-        new SwaggerTestDataGenerator().generate(options);
+    /** Writes a Studio collection JSON (and environment JSON) for api-automation; see {@link CollectionGenerator}. */
+    public static CollectionGenerator.Result generateCollection(GeneratorOptions options) {
+        return new CollectionGenerator().generate(options);
     }
 
     public static List<GeneratedTestCase> generateCases(OperationPage operation) {

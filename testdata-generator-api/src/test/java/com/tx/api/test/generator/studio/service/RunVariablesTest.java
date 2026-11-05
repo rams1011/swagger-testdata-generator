@@ -83,24 +83,6 @@ class RunVariablesTest {
     }
 
     @Test
-    void exportFillsKnownValuesAndKeepsOtherPlaceholders() {
-        StudioTestCase testCase = new StudioTestCase();
-        testCase.setBaseUrl("{{baseUrl}}");
-        testCase.setEndpoint("/orders/{{orderId}}");
-        testCase.setHeaders(Map.of("X-Tenant", "{{tenant}}", "X-Key", "{{apiKey}}", "X-Id", "{{$guid}}"));
-        testCase.setEnvironments(List.of("int"));
-
-        StudioTestCase bound = CaseVariables.bindKnown(testCase,
-                Map.of("baseUrl", "https://int.example.com", "tenant", "acme"));
-        assertEquals("https://int.example.com", bound.getBaseUrl());
-        assertEquals("/orders/{{orderId}}", bound.getEndpoint());
-        assertEquals("acme", bound.getHeaders().get("X-Tenant"));
-        assertEquals("{{apiKey}}", bound.getHeaders().get("X-Key"));
-        assertEquals("{{$guid}}", bound.getHeaders().get("X-Id"));
-        assertEquals(List.of("int"), bound.getEnvironments());
-    }
-
-    @Test
     void definedVariablesAreNotTreatedAsChainPrerequisites() {
         StudioTestCase producer = new StudioTestCase();
         producer.setId("p");
@@ -112,5 +94,56 @@ class RunVariablesTest {
         assertEquals(1, CaseVariables.prerequisites(List.of(producer, consumer), consumer).size());
         assertTrue(CaseVariables.prerequisites(List.of(producer, consumer), consumer, Set.of("tenant")).isEmpty());
         assertEquals(Set.of("tenant"), CaseVariables.placeholderNames(consumer));
+    }
+
+    @Test
+    void qualifiedNamesReadOneLayerEvenWhenAHigherOneOverrides() {
+        RunVariables scope = RunVariables.of(
+                Map.of("baseUrl", "https://int.example.com"),
+                List.of(new StudioVariable("tenant", "global", false),
+                        new StudioVariable("apiKey", null, true),
+                        new StudioVariable("only", "g", false)),
+                List.of(new StudioVariable("tenant", "acme", false),
+                        new StudioVariable("password", null, true)),
+                Map.of("apiKey", "k-123"));
+
+        Map<String, String> values = scope.newScope();
+        assertEquals("acme", values.get("tenant"));
+        assertEquals("global", values.get("global:tenant"));
+        assertEquals("acme", values.get("env:tenant"));
+        assertEquals("https://int.example.com", values.get("env:baseUrl"));
+        assertEquals("k-123", values.get("global:apiKey"));
+        assertEquals("g", values.get("global:only"));
+        assertFalse(values.containsKey("env:only"));
+        assertFalse(values.containsKey("env:password"));
+
+        StudioTestCase testCase = new StudioTestCase();
+        testCase.setHeaders(Map.of("X-Tenant", "{{global:tenant}}/{{tenant}}/{{env:tenant}}"));
+        assertEquals("global/acme/acme", CaseVariables.bind(testCase, values).getHeaders().get("X-Tenant"));
+
+        StudioTestCase missing = new StudioTestCase();
+        missing.setHeaders(Map.of("X", "{{env:only}}"));
+        IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
+                () -> CaseVariables.bind(missing, values));
+        assertTrue(error.getMessage().contains("selected environment"));
+    }
+
+    @Test
+    void extractQualifierChainsToTheProducerAndSkipsOverridingValues() {
+        StudioTestCase create = new StudioTestCase();
+        create.setId("create");
+        create.setExtracts("orderId=$.id");
+        StudioTestCase get = new StudioTestCase();
+        get.setId("get");
+        get.setEndpoint("/orders/{{extract:orderId}}");
+
+        assertEquals(List.of("create", "get"),
+                CaseVariables.orderForChain(List.of(get, create)).stream().map(StudioTestCase::getId).toList());
+        assertEquals(List.of(create), CaseVariables.prerequisites(List.of(create, get), get, Set.of("orderId")));
+
+        Map<String, String> scope = new java.util.LinkedHashMap<>(Map.of("orderId", "from-env"));
+        CaseVariables.putExtracted(scope, Map.of("orderId", "42"));
+        assertEquals("/orders/42", CaseVariables.bind(get, scope).getEndpoint());
+        assertTrue(CaseVariables.producedNames("orderId=$.id").containsAll(Set.of("orderId", "extract:orderId")));
     }
 }
