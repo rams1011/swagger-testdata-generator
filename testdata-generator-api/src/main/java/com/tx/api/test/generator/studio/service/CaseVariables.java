@@ -54,7 +54,7 @@ public final class CaseVariables {
     static List<AssertionCheck> extractInto(Map<String, String> variables, String extracts, String body,
                                            Map<String, List<String>> rawHeaders) {
         List<AssertionCheck> checks = new ArrayList<>();
-        Map<String, String> rules = JsonPathEvaluator.parseAssertions(extracts);
+        Map<String, String> rules = JsonPathEvaluator.parseExtracts(extracts);
         if (rules.isEmpty()) {
             return checks;
         }
@@ -105,7 +105,7 @@ public final class CaseVariables {
     }
 
     static Set<String> extractedNames(String extracts) {
-        return new LinkedHashSet<>(JsonPathEvaluator.parseAssertions(extracts).keySet());
+        return new LinkedHashSet<>(JsonPathEvaluator.parseExtracts(extracts).keySet());
     }
 
     public static List<StudioTestCase> orderForChain(List<StudioTestCase> cases) {
