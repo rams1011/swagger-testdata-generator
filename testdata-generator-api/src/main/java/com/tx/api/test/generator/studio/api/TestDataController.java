@@ -76,7 +76,8 @@ public class TestDataController {
     public RunTestResult runSaved(@PathVariable String id, @RequestBody(required = false) RunTestRequest request) {
         RunAuth auth = request == null ? null : request.auth();
         String environmentId = request == null ? null : request.environmentId();
-        return testDataStudioService.run(new RunTestRequest(id, null, auth, environmentId));
+        Map<String, String> secrets = request == null ? null : request.secrets();
+        return testDataStudioService.run(new RunTestRequest(id, null, auth, environmentId, secrets));
     }
 
     @PutMapping("/{id}")

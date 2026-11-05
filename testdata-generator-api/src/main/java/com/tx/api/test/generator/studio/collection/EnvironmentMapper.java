@@ -5,7 +5,9 @@ import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -27,6 +29,11 @@ public final class EnvironmentMapper {
     }
 
     public static StudioEnvironment fromInputs(String name, String baseUrl, String authType) {
+        return fromInputs(name, baseUrl, authType, null);
+    }
+
+    public static StudioEnvironment fromInputs(String name, String baseUrl, String authType,
+                                               List<StudioVariable> variables) {
         String environmentName = StringUtils.defaultIfBlank(name, DEFAULT_ENVIRONMENT_NAME).trim();
         Map<String, String> values = new LinkedHashMap<>();
         if (StringUtils.isNotBlank(baseUrl)) {
@@ -38,7 +45,8 @@ public final class EnvironmentMapper {
                 environmentName,
                 values,
                 placeholderAuth(authType),
-                new LinkedHashMap<>()
+                new LinkedHashMap<>(),
+                StudioVariables.normalize(variables, "Environment")
         );
         CollectionMapper.validate(environment);
         rejectRawSecrets(environment);
@@ -46,8 +54,14 @@ public final class EnvironmentMapper {
     }
 
     public static StudioEnvironment merge(StudioEnvironment existing, String name, String baseUrl, String authType) {
+        return merge(existing, name, baseUrl, authType, null);
+    }
+
+    /** A null {@code variables} list keeps the existing variables. */
+    public static StudioEnvironment merge(StudioEnvironment existing, String name, String baseUrl, String authType,
+                                          List<StudioVariable> variables) {
         if (existing == null) {
-            return fromInputs(name, baseUrl, authType);
+            return fromInputs(name, baseUrl, authType, variables);
         }
         String environmentName = StringUtils.defaultIfBlank(name, existing.name()).trim();
         Map<String, String> values = existing.values() == null
@@ -70,7 +84,10 @@ public final class EnvironmentMapper {
                 environmentName,
                 values,
                 auth,
-                existing.caseOverlays().isEmpty() ? new LinkedHashMap<>() : new LinkedHashMap<>(existing.caseOverlays())
+                existing.caseOverlays().isEmpty() ? new LinkedHashMap<>() : new LinkedHashMap<>(existing.caseOverlays()),
+                variables == null
+                        ? new ArrayList<>(existing.variableList())
+                        : StudioVariables.normalize(variables, "Environment")
         );
         CollectionMapper.validate(environment);
         rejectRawSecrets(environment);
@@ -87,7 +104,8 @@ public final class EnvironmentMapper {
                 environment.name(),
                 environment.values() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(environment.values()),
                 environment.auth(),
-                new LinkedHashMap<>()
+                new LinkedHashMap<>(),
+                new ArrayList<>(environment.variableList())
         );
     }
 
@@ -116,7 +134,7 @@ public final class EnvironmentMapper {
         StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
         String baseUrl = environment.values() == null ? null : environment.values().get("baseUrl");
         return new EnvironmentSummary(stored.getId(), stored.getSpecId(), stored.getName(), baseUrl,
-                authType(environment));
+                authType(environment), new ArrayList<>(environment.variableList()));
     }
 
     public static String baseUrl(StudioEnvironment environment) {

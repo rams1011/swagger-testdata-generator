@@ -290,21 +290,9 @@ public class TestRunService {
                 continue;
             }
             String want = StringUtils.defaultString(entry.getValue());
-            String actual;
-            boolean match;
-            if (root == null) {
-                actual = "(not JSON)";
-                match = false;
-            } else {
-                JsonElement value = JsonPathEvaluator.read(root, entry.getKey());
-                if (value == null) {
-                    actual = "(missing)";
-                    match = false;
-                } else {
-                    actual = JsonPathEvaluator.formatValue(value);
-                    match = JsonPathEvaluator.matches(want, value);
-                }
-            }
+            JsonPathEvaluator.Check check = JsonPathEvaluator.check(root, entry.getKey(), want);
+            String actual = check.actual();
+            boolean match = check.passed();
             checks.add(new AssertionCheck("jsonPath", entry.getKey(), JsonPathEvaluator.describe(want), actual, match));
         }
         return checks;

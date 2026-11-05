@@ -75,7 +75,8 @@ public final class EnvironmentOverlay {
                 environment.name(),
                 environment.values(),
                 environment.auth(),
-                cases
+                cases,
+                environment.variables()
         );
     }
 
@@ -91,7 +92,8 @@ public final class EnvironmentOverlay {
                 environment.name(),
                 environment.values(),
                 environment.auth(),
-                cases
+                cases,
+                environment.variables()
         );
     }
 

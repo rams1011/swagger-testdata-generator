@@ -458,6 +458,30 @@ public class JdbcStudioStorage implements StudioStorage {
     }
 
     @Override
+    public Optional<String> findGlobalVariables() {
+        List<String> documents = jdbcTemplate.query(
+                "SELECT document_json FROM td_global_variables WHERE tenant_id = ?",
+                (rs, rowNum) -> rs.getString(1), tenantId());
+        return documents.stream().findFirst();
+    }
+
+    @Override
+    public void saveGlobalVariables(String documentJson) {
+        String tenantId = tenantId();
+        Timestamp now = Timestamp.from(Instant.now());
+        synchronized (environmentSaveLocks.computeIfAbsent(tenantId + ":globals", ignored -> new Object())) {
+            int rows = jdbcTemplate.update(
+                    "UPDATE td_global_variables SET document_json = ?, updated_at = ? WHERE tenant_id = ?",
+                    documentJson, now, tenantId);
+            if (rows == 0) {
+                jdbcTemplate.update(
+                        "INSERT INTO td_global_variables (tenant_id, document_json, updated_at) VALUES (?, ?, ?)",
+                        tenantId, documentJson, now);
+            }
+        }
+    }
+
+    @Override
     public void saveTestCase(StudioTestCase testCase) {
         requireOwnedSpec(testCase.getSpecId());
         boolean exists = findTestCase(testCase.getId()).isPresent();

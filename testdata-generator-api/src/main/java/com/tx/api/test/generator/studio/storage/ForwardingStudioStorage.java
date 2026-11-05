@@ -114,6 +114,16 @@ abstract class ForwardingStudioStorage implements StudioStorage {
     }
 
     @Override
+    public Optional<String> findGlobalVariables() {
+        return delegate.findGlobalVariables();
+    }
+
+    @Override
+    public void saveGlobalVariables(String documentJson) {
+        delegate.saveGlobalVariables(documentJson);
+    }
+
+    @Override
     public void saveTestCase(StudioTestCase testCase) {
         delegate.saveTestCase(testCase);
     }

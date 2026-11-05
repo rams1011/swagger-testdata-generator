@@ -80,6 +80,85 @@ class PlanRunTest {
     }
 
     @Test
+    void continueOnFailureRunsLaterCasesAndSkipsOnlyDependents() {
+        StudioTestCase login = named("login");
+        StudioTestCase create = named("create");
+        create.setTestName("Create user");
+        create.setExtracts("userId=$.id");
+        StudioTestCase get = named("get");
+        get.setEndpoint("/users/{{userId}}");
+        StudioTestCase health = named("health");
+        StudioTestCase token = named("token");
+        token.setHeaders(Map.of("Authorization", "Bearer {{token}}"));
+        List<String> sent = new ArrayList<>();
+
+        PlanRun.Outcome outcome = PlanRun.execute(List.of(login, create, get, health, token), new PlanRun.Actions() {
+            @Override
+            public boolean runnable(StudioTestCase testCase) {
+                return true;
+            }
+
+            @Override
+            public RunTestResult execute(StudioTestCase testCase) {
+                sent.add(testCase.getId());
+                return result(testCase, !"create".equals(testCase.getId()));
+            }
+
+            @Override
+            public RunTestResult skip(StudioTestCase testCase, String reason) {
+                return skipped(testCase, reason);
+            }
+
+            @Override
+            public boolean defined(String name) {
+                return "token".equals(name);
+            }
+        }, true);
+
+        assertEquals(List.of("login", "create", "health", "token"), sent);
+        assertEquals(3, outcome.passed());
+        assertEquals(1, outcome.failed());
+        assertEquals(1, outcome.skipped());
+        assertTrue(outcome.results().get(2).skipped());
+        assertEquals("Skipped because {{userId}} comes from 'Create user', which failed",
+                outcome.results().get(2).skipReason());
+    }
+
+    @Test
+    void continueOnFailureRunsADependentWhenTheVariableIsAlreadyDefined() {
+        StudioTestCase create = named("create");
+        create.setExtracts("userId=$.id");
+        StudioTestCase get = named("get");
+        get.setEndpoint("/users/{{userId}}");
+        List<String> sent = new ArrayList<>();
+
+        PlanRun.execute(List.of(create, get), new PlanRun.Actions() {
+            @Override
+            public boolean runnable(StudioTestCase testCase) {
+                return true;
+            }
+
+            @Override
+            public RunTestResult execute(StudioTestCase testCase) {
+                sent.add(testCase.getId());
+                return result(testCase, false);
+            }
+
+            @Override
+            public RunTestResult skip(StudioTestCase testCase, String reason) {
+                return skipped(testCase, reason);
+            }
+
+            @Override
+            public boolean defined(String name) {
+                return true;
+            }
+        }, true);
+
+        assertEquals(List.of("create", "get"), sent);
+    }
+
+    @Test
     void blankFailureNameUsesUntitled() {
         assertEquals("Stopped because 'Untitled case' failed", PlanRun.stopReason("  "));
     }

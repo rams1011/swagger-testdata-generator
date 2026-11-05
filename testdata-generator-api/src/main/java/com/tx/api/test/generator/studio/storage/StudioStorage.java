@@ -80,6 +80,15 @@ public interface StudioStorage {
         throw new java.util.NoSuchElementException("Environment not found: " + environmentId);
     }
 
+    /** Workspace-wide variables document for the current tenant, as JSON. */
+    default Optional<String> findGlobalVariables() {
+        return Optional.empty();
+    }
+
+    default void saveGlobalVariables(String documentJson) {
+        throw new IllegalStateException("Global variables need H2 or database storage");
+    }
+
     void saveTestCase(StudioTestCase testCase);
 
     /**

@@ -11,28 +11,43 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.UnaryOperator;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class CaseVariables {
 
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{([A-Za-z_][A-Za-z0-9_]*)}}");
+    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{(\\$?[A-Za-z_][A-Za-z0-9_]*)}}");
 
     private CaseVariables() {
     }
 
     static StudioTestCase bind(StudioTestCase source, Map<String, String> variables) {
         Map<String, String> vars = variables == null ? Map.of() : variables;
+        return bindWith(source, text -> substitute(text, vars));
+    }
+
+    /** For export: fills in the given values and keeps every other placeholder for the runner. */
+    public static StudioTestCase bindKnown(StudioTestCase source, Map<String, String> variables) {
+        if (variables == null || variables.isEmpty()) {
+            return source;
+        }
+        StudioTestCase bound = bindWith(source, text -> substituteKnown(text, variables));
+        bound.setEnvironments(source.getEnvironments());
+        return bound;
+    }
+
+    private static StudioTestCase bindWith(StudioTestCase source, UnaryOperator<String> resolve) {
         StudioTestCase bound = copy(source);
-        bound.setBaseUrl(substitute(source.getBaseUrl(), vars));
-        bound.setPathParams(substituteMap(source.getPathParams(), vars));
-        bound.setQueryParams(substituteMap(source.getQueryParams(), vars));
-        bound.setHeaders(substituteMap(source.getHeaders(), vars));
-        bound.setCookieParams(substituteMap(source.getCookieParams(), vars));
-        bound.setEndpoint(endpoint(source.getRawPath(), bound.getPathParams(), source.getEndpoint(), vars));
-        bound.setRequestBody(substituteObject(source.getRequestBody(), vars));
-        bound.setExpectedResponse(substitute(source.getExpectedResponse(), vars));
-        bound.setJsonPathAssertions(substitute(source.getJsonPathAssertions(), vars));
+        bound.setBaseUrl(resolve.apply(source.getBaseUrl()));
+        bound.setPathParams(substituteMap(source.getPathParams(), resolve));
+        bound.setQueryParams(substituteMap(source.getQueryParams(), resolve));
+        bound.setHeaders(substituteMap(source.getHeaders(), resolve));
+        bound.setCookieParams(substituteMap(source.getCookieParams(), resolve));
+        bound.setEndpoint(endpoint(source.getRawPath(), bound.getPathParams(), source.getEndpoint(), resolve));
+        bound.setRequestBody(substituteObject(source.getRequestBody(), resolve));
+        bound.setExpectedResponse(resolve.apply(source.getExpectedResponse()));
+        bound.setJsonPathAssertions(resolve.apply(source.getJsonPathAssertions()));
         return bound;
     }
 
@@ -109,7 +124,14 @@ public final class CaseVariables {
     }
 
     static List<StudioTestCase> prerequisites(List<StudioTestCase> planCases, StudioTestCase current) {
+        return prerequisites(planCases, current, Set.of());
+    }
+
+    /** Prior cases whose extracts feed {@code current}; names in {@code defined} already have a value. */
+    static List<StudioTestCase> prerequisites(List<StudioTestCase> planCases, StudioTestCase current,
+                                              Set<String> defined) {
         Set<String> needed = placeholderNames(current);
+        needed.removeAll(defined);
         if (needed.isEmpty() || planCases == null || planCases.isEmpty()) {
             return List.of();
         }
@@ -147,7 +169,9 @@ public final class CaseVariables {
                     continue;
                 }
                 selected.add(item);
-                needed.addAll(placeholderNames(item));
+                Set<String> itemNeeds = placeholderNames(item);
+                itemNeeds.removeAll(defined);
+                needed.addAll(itemNeeds);
                 changed = true;
             }
         }
@@ -162,12 +186,28 @@ public final class CaseVariables {
         StringBuilder out = new StringBuilder();
         while (matcher.find()) {
             String name = matcher.group(1);
-            String value = variables.get(name);
+            String value = DynamicVariables.isDynamic(name) ? DynamicVariables.value(name) : variables.get(name);
             if (value == null) {
                 throw new IllegalArgumentException("Unresolved variable {{" + name
-                        + "}}. Run a prior case in this plan that extracts " + name + ".");
+                        + "}}. Define it in the environment or global variables, enter its secret value, "
+                        + "or run a prior case in this plan that extracts " + name + ".");
             }
             matcher.appendReplacement(out, Matcher.quoteReplacement(value));
+        }
+        matcher.appendTail(out);
+        return out.toString();
+    }
+
+    /** Replaces only the named variables, leaving extracts, dynamic values, and secrets as placeholders. */
+    public static String substituteKnown(String text, Map<String, String> variables) {
+        if (StringUtils.isBlank(text) || !hasPlaceholders(text) || variables == null || variables.isEmpty()) {
+            return text;
+        }
+        Matcher matcher = PLACEHOLDER.matcher(text);
+        StringBuilder out = new StringBuilder();
+        while (matcher.find()) {
+            String value = variables.get(matcher.group(1));
+            matcher.appendReplacement(out, Matcher.quoteReplacement(value == null ? matcher.group() : value));
         }
         matcher.appendTail(out);
         return out.toString();
@@ -232,47 +272,48 @@ public final class CaseVariables {
         }
         Matcher matcher = PLACEHOLDER.matcher(text);
         while (matcher.find()) {
-            names.add(matcher.group(1));
+            if (!DynamicVariables.isDynamic(matcher.group(1))) {
+                names.add(matcher.group(1));
+            }
         }
     }
 
     private static String endpoint(String rawPath, Map<String, String> pathParams, String fallback,
-                                   Map<String, String> variables) {
+                                   UnaryOperator<String> resolve) {
         String endpoint = StringUtils.defaultIfBlank(rawPath, fallback);
         if (pathParams != null) {
             for (Map.Entry<String, String> entry : pathParams.entrySet()) {
                 endpoint = endpoint.replace("{" + entry.getKey() + "}", StringUtils.defaultString(entry.getValue()));
             }
         }
-        return substitute(StringUtils.defaultIfBlank(endpoint, fallback), variables);
+        return resolve.apply(StringUtils.defaultIfBlank(endpoint, fallback));
     }
 
-    private static Map<String, String> substituteMap(Map<String, String> source, Map<String, String> variables) {
+    private static Map<String, String> substituteMap(Map<String, String> source, UnaryOperator<String> resolve) {
         Map<String, String> copy = new LinkedHashMap<>();
         if (source == null) {
             return copy;
         }
-        source.forEach((key, value) -> copy.put(key, substitute(value, variables)));
+        source.forEach((key, value) -> copy.put(key, resolve.apply(value)));
         return copy;
     }
 
-    @SuppressWarnings("unchecked")
-    private static Object substituteObject(Object body, Map<String, String> variables) {
+    private static Object substituteObject(Object body, UnaryOperator<String> resolve) {
         if (body == null) {
             return null;
         }
         if (body instanceof String text) {
-            return substitute(text, variables);
+            return resolve.apply(text);
         }
         if (body instanceof Map<?, ?> map) {
             Map<String, Object> copy = new LinkedHashMap<>();
-            map.forEach((key, value) -> copy.put(String.valueOf(key), substituteObject(value, variables)));
+            map.forEach((key, value) -> copy.put(String.valueOf(key), substituteObject(value, resolve)));
             return copy;
         }
         if (body instanceof List<?> list) {
             List<Object> copy = new ArrayList<>(list.size());
             for (Object item : list) {
-                copy.add(substituteObject(item, variables));
+                copy.add(substituteObject(item, resolve));
             }
             return copy;
         }
@@ -296,11 +337,7 @@ public final class CaseVariables {
         if (root == null) {
             return null;
         }
-        JsonElement value = JsonPathEvaluator.read(root, spec);
-        if (value == null) {
-            return null;
-        }
-        return JsonPathEvaluator.formatValue(value);
+        return JsonPathEvaluator.readText(root, spec);
     }
 
     private static String firstHeader(Map<String, List<String>> headers, String name) {
