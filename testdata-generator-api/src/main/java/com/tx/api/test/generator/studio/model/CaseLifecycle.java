@@ -52,7 +52,7 @@ public final class CaseLifecycle {
         return !"N".equalsIgnoreCase(StringUtils.trimToEmpty(testCase.getEnabled()));
     }
 
-    /** Published, enabled cases are eligible for collection and Excel export. */
+    /** Published, enabled cases are eligible for collection export. */
     public static boolean isExportable(StudioTestCase testCase) {
         return testCase != null && !isDraft(testCase) && isEnabled(testCase);
     }

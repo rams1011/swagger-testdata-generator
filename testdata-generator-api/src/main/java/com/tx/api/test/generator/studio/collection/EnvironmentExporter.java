@@ -6,6 +6,7 @@ import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.UUID;
 
 public final class EnvironmentExporter {
@@ -14,6 +15,15 @@ public final class EnvironmentExporter {
     }
 
     public static EnvironmentExport export(StoredSpec spec, StoredEnvironment stored) {
+        return export(spec, stored, List.of());
+    }
+
+    /**
+     * Writes the environment file for CI. Workspace {@code globals} go in an optional top-level array (secrets as
+     * {@code ${STUDIO_VAR_*}}) so the runner can resolve {@code {{name}}} and {@code {{global:name}}}; Studio import
+     * ignores that array and never overwrites workspace globals.
+     */
+    public static EnvironmentExport export(StoredSpec spec, StoredEnvironment stored, List<StudioVariable> globals) {
         if (spec == null) {
             throw new CollectionFormatException("spec is required");
         }
@@ -24,7 +34,14 @@ public final class EnvironmentExporter {
                 CollectionDocuments.parseEnvironment(stored.getDocumentJson()));
         StudioEnvironment environment = new StudioEnvironment(bare.format(), bare.version(), bare.name(),
                 bare.values(), bare.auth(), bare.cases(), StudioVariables.forExport(bare.variableList()));
-        byte[] json = CollectionDocuments.toJson(environment).getBytes(StandardCharsets.UTF_8);
+        String document = CollectionDocuments.toJson(environment);
+        List<StudioVariable> exportedGlobals = StudioVariables.forExport(globals);
+        if (!exportedGlobals.isEmpty()) {
+            com.google.gson.JsonObject tree = com.google.gson.JsonParser.parseString(document).getAsJsonObject();
+            tree.add("globals", com.google.gson.JsonParser.parseString(CollectionDocuments.toJson(exportedGlobals)));
+            document = CollectionDocuments.toJson(tree);
+        }
+        byte[] json = document.getBytes(StandardCharsets.UTF_8);
         return new EnvironmentExport(
                 CollectionFormat.environmentFileName(spec.getName(), environment.name()),
                 json,

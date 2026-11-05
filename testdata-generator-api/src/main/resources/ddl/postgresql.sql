@@ -171,7 +171,7 @@ CREATE TABLE IF NOT EXISTS td_test_plan (
     updated_at   TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-COMMENT ON TABLE td_test_plan IS 'Named test plans for a loaded OpenAPI spec; cases and Excel export are scoped to a plan';
+COMMENT ON TABLE td_test_plan IS 'Named test plans for a loaded OpenAPI spec; cases and collection export are scoped to a plan';
 
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS plan_id VARCHAR(36);
 

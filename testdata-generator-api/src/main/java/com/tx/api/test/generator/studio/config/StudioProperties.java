@@ -19,7 +19,6 @@ public class StudioProperties {
      */
     private String edition = "";
     private String defaultOutputDir = "./studio-output";
-    private String defaultExcelFileName = "TestData.xlsx";
     private Cache cache = new Cache();
 
     public H2 getH2() {
@@ -122,14 +121,6 @@ public class StudioProperties {
 
     public void setDefaultOutputDir(String defaultOutputDir) {
         this.defaultOutputDir = defaultOutputDir;
-    }
-
-    public String getDefaultExcelFileName() {
-        return defaultExcelFileName;
-    }
-
-    public void setDefaultExcelFileName(String defaultExcelFileName) {
-        this.defaultExcelFileName = defaultExcelFileName;
     }
 
     public static class H2 {

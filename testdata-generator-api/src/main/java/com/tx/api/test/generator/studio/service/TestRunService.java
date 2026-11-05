@@ -237,9 +237,7 @@ public class TestRunService {
                 assertions.add(schema);
             }
             assertions.addAll(CaseVariables.extractInto(extracted, testCase.getExtracts(), body, rawHeaders));
-            if (variables != null) {
-                variables.putAll(extracted);
-            }
+            CaseVariables.putExtracted(variables, extracted);
         }
 
         boolean assertionsPassed = assertions.stream().allMatch(AssertionCheck::passed);

@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -171,5 +172,21 @@ class EnvironmentImportTest {
         try (var stream = EnvironmentImportTest.class.getResourceAsStream("/collection/" + name)) {
             return stream.readAllBytes();
         }
+    }
+
+    @Test
+    void exportIncludesWorkspaceGlobalsWithSecretsAsPlaceholders() {
+        StudioEnvironment created = EnvironmentMapper.fromInputs("int", "http://int.example.com", "NONE");
+        StoredEnvironment stored = EnvironmentExporter.upsert(storage, "spec-local", created);
+
+        EnvironmentExport exported = EnvironmentExporter.export(localSpec(), stored, java.util.List.of(
+                new StudioVariable("clientId", "web", false), new StudioVariable("apiKey", null, true)));
+        String json = new String(exported.content(), StandardCharsets.UTF_8);
+        assertTrue(json.contains("\"globals\""));
+        assertTrue(json.contains("\"clientId\""));
+        assertTrue(json.contains("${STUDIO_VAR_APIKEY}"));
+        assertEquals("int", CollectionDocuments.parseEnvironment(json).name());
+        assertFalse(new String(EnvironmentExporter.export(localSpec(), stored).content(), StandardCharsets.UTF_8)
+                .contains("\"globals\""));
     }
 }

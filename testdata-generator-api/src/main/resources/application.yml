@@ -85,7 +85,6 @@ testdata:
   #   saas       login + plan
   edition: ${TESTDATA_EDITION:datacenter}
   default-output-dir: ./studio-output
-  default-excel-file-name: TestData.xlsx
   run-history:
     # Oldest batches are deleted after each write. 0 disables pruning.
     max-per-spec: 100

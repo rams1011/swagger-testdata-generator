@@ -86,8 +86,10 @@ final class PlanRun {
                                               Map<String, String> missingFrom) {
         Map<String, String> extracted = result.extracted() == null ? Map.of() : result.extracted();
         String producer = displayName(result.testName());
-        for (String name : CaseVariables.extractedNames(testCase.getExtracts())) {
-            if (!extracted.containsKey(name)) {
+        for (String name : CaseVariables.producedNames(testCase.getExtracts())) {
+            String plain = name.startsWith(CaseVariables.EXTRACT_PREFIX)
+                    ? name.substring(CaseVariables.EXTRACT_PREFIX.length()) : name;
+            if (!extracted.containsKey(plain)) {
                 missingFrom.putIfAbsent(name, producer);
             }
         }

@@ -17,7 +17,13 @@ import java.util.regex.Pattern;
 
 public final class CaseVariables {
 
-    private static final Pattern PLACEHOLDER = Pattern.compile("\\{\\{(\\$?[A-Za-z_][A-Za-z0-9_]*)}}");
+    /** Optional scope qualifiers: {@code {{global:x}}}, {@code {{env:x}}}, {@code {{extract:x}}} read only that layer. */
+    public static final String GLOBAL_PREFIX = "global:";
+    public static final String ENV_PREFIX = "env:";
+    public static final String EXTRACT_PREFIX = "extract:";
+
+    private static final Pattern PLACEHOLDER = Pattern.compile(
+            "\\{\\{((?:(?:global|env|extract):)?[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)}}");
 
     private CaseVariables() {
     }
@@ -25,16 +31,6 @@ public final class CaseVariables {
     static StudioTestCase bind(StudioTestCase source, Map<String, String> variables) {
         Map<String, String> vars = variables == null ? Map.of() : variables;
         return bindWith(source, text -> substitute(text, vars));
-    }
-
-    /** For export: fills in the given values and keeps every other placeholder for the runner. */
-    public static StudioTestCase bindKnown(StudioTestCase source, Map<String, String> variables) {
-        if (variables == null || variables.isEmpty()) {
-            return source;
-        }
-        StudioTestCase bound = bindWith(source, text -> substituteKnown(text, variables));
-        bound.setEnvironments(source.getEnvironments());
-        return bound;
     }
 
     private static StudioTestCase bindWith(StudioTestCase source, UnaryOperator<String> resolve) {
@@ -108,6 +104,27 @@ public final class CaseVariables {
         return new LinkedHashSet<>(JsonPathEvaluator.parseExtracts(extracts).keySet());
     }
 
+    /** Names a case's extracts satisfy: plain {@code {{x}}} and qualified {@code {{extract:x}}}. */
+    static Set<String> producedNames(String extracts) {
+        Set<String> names = new LinkedHashSet<>();
+        for (String name : extractedNames(extracts)) {
+            names.add(name);
+            names.add(EXTRACT_PREFIX + name);
+        }
+        return names;
+    }
+
+    /** Writes extracted values into the run scope under both {@code x} and {@code extract:x}. */
+    static void putExtracted(Map<String, String> variables, Map<String, String> extracted) {
+        if (variables == null || extracted == null) {
+            return;
+        }
+        extracted.forEach((name, value) -> {
+            variables.put(name, value);
+            variables.put(EXTRACT_PREFIX + name, value);
+        });
+    }
+
     public static List<StudioTestCase> orderForChain(List<StudioTestCase> cases) {
         if (cases == null || cases.isEmpty()) {
             return List.of();
@@ -154,7 +171,7 @@ public final class CaseVariables {
                 if (item.getId() == null && selected.contains(item)) {
                     continue;
                 }
-                Set<String> produced = extractedNames(item.getExtracts());
+                Set<String> produced = producedNames(item.getExtracts());
                 boolean useful = false;
                 for (String name : needed) {
                     if (produced.contains(name)) {
@@ -188,9 +205,7 @@ public final class CaseVariables {
             String name = matcher.group(1);
             String value = DynamicVariables.isDynamic(name) ? DynamicVariables.value(name) : variables.get(name);
             if (value == null) {
-                throw new IllegalArgumentException("Unresolved variable {{" + name
-                        + "}}. Define it in the environment or global variables, enter its secret value, "
-                        + "or run a prior case in this plan that extracts " + name + ".");
+                throw new IllegalArgumentException(unresolvedMessage(name));
             }
             matcher.appendReplacement(out, Matcher.quoteReplacement(value));
         }
@@ -198,33 +213,36 @@ public final class CaseVariables {
         return out.toString();
     }
 
-    /** Replaces only the named variables, leaving extracts, dynamic values, and secrets as placeholders. */
-    public static String substituteKnown(String text, Map<String, String> variables) {
-        if (StringUtils.isBlank(text) || !hasPlaceholders(text) || variables == null || variables.isEmpty()) {
-            return text;
+    private static String unresolvedMessage(String name) {
+        if (name.startsWith(GLOBAL_PREFIX)) {
+            return "Unresolved variable {{" + name + "}}. Define " + name.substring(GLOBAL_PREFIX.length())
+                    + " in Global variables (or enter its secret value).";
         }
-        Matcher matcher = PLACEHOLDER.matcher(text);
-        StringBuilder out = new StringBuilder();
-        while (matcher.find()) {
-            String value = variables.get(matcher.group(1));
-            matcher.appendReplacement(out, Matcher.quoteReplacement(value == null ? matcher.group() : value));
+        if (name.startsWith(ENV_PREFIX)) {
+            return "Unresolved variable {{" + name + "}}. Define " + name.substring(ENV_PREFIX.length())
+                    + " in the selected environment's variables (or enter its secret value).";
         }
-        matcher.appendTail(out);
-        return out.toString();
+        if (name.startsWith(EXTRACT_PREFIX)) {
+            return "Unresolved variable {{" + name + "}}. Run a prior case in this plan that extracts "
+                    + name.substring(EXTRACT_PREFIX.length()) + ".";
+        }
+        return "Unresolved variable {{" + name
+                + "}}. Define it in the environment or global variables, enter its secret value, "
+                + "or run a prior case in this plan that extracts " + name + ".";
     }
 
     private static int nextReadyIndex(List<StudioTestCase> remaining, List<StudioTestCase> ordered) {
         Set<String> available = new LinkedHashSet<>();
         for (StudioTestCase item : ordered) {
-            available.addAll(extractedNames(item.getExtracts()));
+            available.addAll(producedNames(item.getExtracts()));
         }
         Set<String> remainingProduces = new LinkedHashSet<>();
         for (StudioTestCase item : remaining) {
-            remainingProduces.addAll(extractedNames(item.getExtracts()));
+            remainingProduces.addAll(producedNames(item.getExtracts()));
         }
         for (int i = 0; i < remaining.size(); i++) {
             StudioTestCase candidate = remaining.get(i);
-            Set<String> producedHere = extractedNames(candidate.getExtracts());
+            Set<String> producedHere = producedNames(candidate.getExtracts());
             boolean waiting = false;
             for (String name : placeholderNames(candidate)) {
                 if (available.contains(name) || producedHere.contains(name)) {
