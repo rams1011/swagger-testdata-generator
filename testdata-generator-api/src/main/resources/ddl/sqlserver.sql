@@ -444,6 +444,17 @@ IF NOT EXISTS (
 )
     CREATE UNIQUE INDEX ux_td_environment_spec_name ON dbo.td_environment (spec_id, name);
 
+/* ---------- td_global_variables ---------- */
+IF OBJECT_ID(N'dbo.td_global_variables', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.td_global_variables (
+        tenant_id      VARCHAR(36)   NOT NULL,
+        document_json  NVARCHAR(MAX) NOT NULL,
+        updated_at     DATETIME2(3)  NOT NULL CONSTRAINT DF_td_global_variables_updated_at DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT pk_td_global_variables PRIMARY KEY (tenant_id)
+    );
+END;
+
 /* ---------- td_organization ---------- */
 IF OBJECT_ID(N'dbo.td_organization', N'U') IS NULL
 BEGIN

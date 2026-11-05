@@ -306,6 +306,12 @@ CREATE TABLE IF NOT EXISTS td_environment (
 CREATE INDEX IF NOT EXISTS ix_td_environment_spec ON td_environment (spec_id);
 CREATE UNIQUE INDEX IF NOT EXISTS ux_td_environment_spec_name ON td_environment (spec_id, name);
 
+CREATE TABLE IF NOT EXISTS td_global_variables (
+    tenant_id      VARCHAR(36)   PRIMARY KEY,
+    document_json  TEXT          NOT NULL,
+    updated_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS td_organization (
     org_id      VARCHAR(36)   PRIMARY KEY,
     slug        VARCHAR(64)   NOT NULL,

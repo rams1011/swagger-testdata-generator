@@ -332,6 +332,13 @@ CREATE INDEX IF NOT EXISTS ix_td_environment_spec
 CREATE UNIQUE INDEX IF NOT EXISTS ux_td_environment_spec_name
     ON td_environment (spec_id, name);
 
+CREATE TABLE IF NOT EXISTS td_global_variables (
+    tenant_id      VARCHAR(36)   NOT NULL,
+    document_json  TEXT          NOT NULL,
+    updated_at     TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_global_variables PRIMARY KEY (tenant_id)
+);
+
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS environment_names TEXT;
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS created_by_account_id VARCHAR(36);
 ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS created_by_label VARCHAR(320);

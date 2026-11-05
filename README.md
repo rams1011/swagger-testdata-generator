@@ -214,7 +214,7 @@ Organization / workspace model and rollout: **[docs/ADR-001-organization-workspa
 | `POST` | `/api/testdata/export` | Download Excel for one plan in the selected environment (`specId`, `planId`, `environmentId`) |
 | `POST` | `/api/testdata/run` | Run the current (unsaved) case; body is `{ testCase, auth }` |
 | `POST` | `/api/testdata/{id}/run` | Run a saved case with optional `{ auth }` |
-| `POST` | `/api/testdata/run-plan` | Run enabled cases in a plan for one environment (`specId`, `planId`, `auth`, `environmentId`) |
+| `POST` | `/api/testdata/run-plan` | Run enabled cases in a plan for one environment (`specId`, `planId`, `auth`, `environmentId`, optional `continueOnFailure` — default stops at the first failure) |
 | `GET` | `/api/runs?specId=&planId=&environmentId=&caseId=&outcome=&trigger=&limit=` | List persisted run batches (H2/Postgres). Newest first |
 | `GET` | `/api/runs/{runId}` | One run plus request/response snapshots |
 | `GET` | `/api/runs/{runId}/results/{resultId}` | One HTTP snapshot (body still available after the case is edited) |

@@ -19,6 +19,7 @@ import java.io.InputStreamReader;
 import java.io.Reader;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -115,6 +116,45 @@ class EnvironmentImportTest {
 
         assertEquals("local-copy", EnvironmentMapper.copyName("local", name -> false));
         assertEquals("local-copy-2", EnvironmentMapper.copyName("local", "local-copy"::equals));
+    }
+
+    @Test
+    void variablesRoundTripWithoutStoringSecrets() {
+        StudioEnvironment created = EnvironmentMapper.fromInputs("int", "https://int.example.com/api", "NONE",
+                List.of(new StudioVariable("tenant", "acme", false),
+                        new StudioVariable("apiKey", null, true)));
+        StoredEnvironment stored = EnvironmentExporter.upsert(storage, "spec-local", created);
+        EnvironmentSummary summary = EnvironmentMapper.toSummary(stored);
+        assertEquals(List.of(new StudioVariable("tenant", "acme", false), new StudioVariable("apiKey", null, true)),
+                summary.variables());
+
+        StudioEnvironment kept = EnvironmentMapper.merge(created, "int", "https://int.example.com/v2", "NONE", null);
+        assertEquals(2, kept.variableList().size());
+
+        EnvironmentExport exported = EnvironmentExporter.export(localSpec(), stored);
+        String json = new String(exported.content(), StandardCharsets.UTF_8);
+        assertTrue(json.contains("${STUDIO_VAR_APIKEY}"));
+
+        EnvironmentImporter.importInto(storage, "spec-local", json.replace("\"int\"", "\"int2\"")
+                .getBytes(StandardCharsets.UTF_8));
+        EnvironmentSummary imported = EnvironmentMapper.toSummary(
+                storage.findEnvironmentByName("spec-local", "int2").orElseThrow());
+        assertEquals(new StudioVariable("apiKey", null, true), imported.variables().get(1));
+
+        assertThrows(CollectionFormatException.class, () -> EnvironmentMapper.fromInputs("bad", "http://x", "NONE",
+                List.of(new StudioVariable("apiKey", "real-secret", true))));
+        assertThrows(CollectionFormatException.class, () -> EnvironmentMapper.fromInputs("bad", "http://x", "NONE",
+                List.of(new StudioVariable("1bad", "v", false))));
+        assertThrows(CollectionFormatException.class, () -> EnvironmentMapper.fromInputs("bad", "http://x", "NONE",
+                List.of(new StudioVariable("a", "1", false), new StudioVariable("a", "2", false))));
+    }
+
+    @Test
+    void globalVariablesArePerTenantDocument() {
+        assertTrue(storage.findGlobalVariables().isEmpty());
+        storage.saveGlobalVariables("{\"variables\":[{\"key\":\"a\",\"value\":\"1\",\"secret\":false}]}");
+        storage.saveGlobalVariables("{\"variables\":[{\"key\":\"b\",\"value\":\"2\",\"secret\":false}]}");
+        assertTrue(storage.findGlobalVariables().orElseThrow().contains("\"b\""));
     }
 
     private static StoredSpec localSpec() {

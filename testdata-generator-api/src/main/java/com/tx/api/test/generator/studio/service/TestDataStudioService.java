@@ -16,6 +16,9 @@ import com.tx.api.test.generator.studio.collection.EnvironmentOverlay;
 import com.tx.api.test.generator.studio.collection.EnvironmentScope;
 import com.tx.api.test.generator.studio.collection.StudioEnvironment;
 import com.tx.api.test.generator.studio.collection.StudioEnvironmentCaseOverlay;
+import com.tx.api.test.generator.studio.collection.StudioVariable;
+import com.tx.api.test.generator.studio.collection.StudioVariables;
+import com.tx.api.test.generator.studio.dto.GlobalVariables;
 import com.tx.api.test.generator.studio.dto.CollectionExport;
 import com.tx.api.test.generator.studio.dto.CollectionImportResult;
 import com.tx.api.test.generator.studio.dto.CopyEnvironmentOverlayRequest;
@@ -332,23 +335,25 @@ public class TestDataStudioService {
         String trigger = request.testCase() == null
                 ? RunHistoryService.TRIGGER_CASE
                 : RunHistoryService.TRIGGER_TRY;
-        Map<String, String> variables = new LinkedHashMap<>();
-        RunTestResult failedPrior = runPrerequisites(testCase, request.auth(), trigger, variables, environmentId);
+        RunVariables scope = runVariables(testCase.getSpecId(), environmentId, request.secrets());
+        Map<String, String> variables = scope.newScope();
+        RunTestResult failedPrior = runPrerequisites(testCase, request.auth(), trigger, variables, environmentId, scope);
         if (failedPrior != null) {
             RunTestResult skipped = testRunService.skipped(testCase, PlanRun.stopReason(failedPrior.testName()));
             runHistoryService.recordSingle(trigger, environmentId, testCase, skipped);
             log.info("Skipped {} for case {} because {} failed", trigger, testCase.getId(), failedPrior.testName());
             return skipped;
         }
-        RunTestResult result = testRunService.execute(testCase, request.auth(), variables);
+        RunTestResult result = scope.mask(testRunService.execute(testCase, request.auth(), variables));
         runHistoryService.recordSingle(trigger, environmentId, testCase, result);
         log.info("Finished {} for case {} passed={}", trigger, testCase.getId(), result.passed());
         return result;
     }
 
     private RunTestResult runPrerequisites(StudioTestCase testCase, RunAuth auth, String trigger,
-                                           Map<String, String> variables, String environmentId) {
-        if (testCase == null || CaseVariables.placeholderNames(testCase).isEmpty()) {
+                                           Map<String, String> variables, String environmentId,
+                                           RunVariables scope) {
+        if (testCase == null || scope.names().containsAll(CaseVariables.placeholderNames(testCase))) {
             return null;
         }
         if (StringUtils.isBlank(testCase.getSpecId()) || StringUtils.isBlank(testCase.getPlanId())) {
@@ -357,13 +362,13 @@ public class TestDataStudioService {
         String environmentName = environmentName(testCase.getSpecId(), environmentId);
         List<StudioTestCase> priors = CaseVariables.prerequisites(
                 studioStorage.listTestCases(testCase.getSpecId(), testCase.getPlanId(), null),
-                testCase);
+                testCase, scope.names());
         for (StudioTestCase prior : priors) {
             if (!EnvironmentScope.visible(prior.getEnvironments(), environmentName)) {
                 continue;
             }
-            RunTestResult priorResult = testRunService.execute(
-                    withLiveResponseSchema(applyOverlay(prior, environmentId)), auth, variables);
+            RunTestResult priorResult = scope.mask(testRunService.execute(
+                    withLiveResponseSchema(applyOverlay(prior, environmentId)), auth, variables));
             runHistoryService.recordSingle(trigger, environmentId, prior, priorResult);
             if (!priorResult.passed()) {
                 return priorResult;
@@ -384,8 +389,9 @@ public class TestDataStudioService {
         String environmentName = requireEnvironmentNameForScopedCases(
                 request.specId(), request.environmentId(), storedCases, "run this plan");
         List<StudioTestCase> cases = CaseVariables.orderForChain(storedCases);
-        Map<String, String> variables = new LinkedHashMap<>();
         String environmentId = request.environmentId();
+        RunVariables scope = runVariables(request.specId(), environmentId, request.secrets());
+        Map<String, String> variables = scope.newScope();
         PlanRun.Outcome outcome = PlanRun.execute(cases, new PlanRun.Actions() {
             @Override
             public boolean runnable(StudioTestCase testCase) {
@@ -396,8 +402,8 @@ public class TestDataStudioService {
 
             @Override
             public RunTestResult execute(StudioTestCase testCase) {
-                return testRunService.execute(
-                        withLiveResponseSchema(applyOverlay(testCase, environmentId)), request.auth(), variables);
+                return scope.mask(testRunService.execute(
+                        withLiveResponseSchema(applyOverlay(testCase, environmentId)), request.auth(), variables));
             }
 
             @Override
@@ -406,10 +412,16 @@ public class TestDataStudioService {
                         ? testRunService.skipped(testCase)
                         : testRunService.skipped(testCase, reason);
             }
-        });
+
+            @Override
+            public boolean defined(String name) {
+                return variables.containsKey(name);
+            }
+        }, request.continuesOnFailure());
         runHistoryService.recordPlan(request.specId(), request.planId(), environmentId, outcome.results(), cases);
-        log.info("Finished plan {} on spec {} passed={} failed={} skipped={}",
-                request.planId(), request.specId(), outcome.passed(), outcome.failed(), outcome.skipped());
+        log.info("Finished plan {} on spec {} passed={} failed={} skipped={} continueOnFailure={}",
+                request.planId(), request.specId(), outcome.passed(), outcome.failed(), outcome.skipped(),
+                request.continuesOnFailure());
         return new RunPlanResult(request.specId(), request.planId(), outcome.passed(), outcome.failed(),
                 outcome.skipped(), outcome.failed() == 0 && outcome.passed() > 0, outcome.results());
     }
@@ -429,7 +441,9 @@ public class TestDataStudioService {
         int skippedDisabled = 0;
         int skippedDraft = 0;
         int skippedEnvironment = 0;
-        Set<String> availableExtracts = new LinkedHashSet<>();
+        Set<String> availableExtracts = new LinkedHashSet<>(
+                runVariables(request.specId(), request.environmentId(), null).names());
+        availableExtracts.addAll(declaredSecretNames(request.specId(), request.environmentId()));
         for (StudioTestCase testCase : cases) {
             if (CaseLifecycle.isDraft(testCase)) {
                 skippedDraft++;
@@ -480,11 +494,13 @@ public class TestDataStudioService {
         String environmentName = requireEnvironmentNameForScopedCases(
                 request.specId(), request.environmentId(), storedCases, "export this plan");
         List<StudioTestCase> cases = exportableCases(environmentName, storedCases);
+        Map<String, String> storedVariables = runVariables(request.specId(), request.environmentId(), null).newScope();
 
         List<TestDataRow> rows = new ArrayList<>();
         Map<String, byte[]> binaries = new LinkedHashMap<>();
         int testCaseNo = 1;
-        for (StudioTestCase testCase : cases) {
+        for (StudioTestCase stored : cases) {
+            StudioTestCase testCase = CaseVariables.bindKnown(stored, storedVariables);
             ExportPayload payload = exportPayload(testCase);
             rows.add(toExcelRow(testCaseNo++, testCase, payload.requestBody(), NA, payload.uploadFiles(),
                     payload.contentType()));
@@ -600,7 +616,7 @@ public class TestDataStudioService {
             throw new IllegalArgumentException("Base URL is required");
         }
         StoredEnvironment stored = saveEnvironmentDocument(specId,
-                EnvironmentMapper.fromInputs(name, baseUrl, request.authType()));
+                EnvironmentMapper.fromInputs(name, baseUrl, request.authType(), request.variables()));
         log.info("Created environment {} for spec {}", stored.getName(), specId);
         return EnvironmentMapper.toSummary(stored);
     }
@@ -613,7 +629,8 @@ public class TestDataStudioService {
         String previousName = StringUtils.defaultIfBlank(existing == null ? null : existing.name(), stored.getName());
         StudioEnvironment merged = EnvironmentMapper.merge(existing, name,
                 request == null ? null : request.baseUrl(),
-                request == null ? null : request.authType());
+                request == null ? null : request.authType(),
+                request == null ? null : request.variables());
         stored.setName(merged.name());
         stored.setDocumentJson(CollectionDocuments.toJson(merged));
         studioStorage.saveEnvironment(stored);
@@ -737,6 +754,7 @@ public class TestDataStudioService {
         config.put("redisCacheEnabled", String.valueOf(properties.getCache().getRedis().isEnabled()));
         config.put("redisCacheStatus", cacheDiagnostics.status().name().toLowerCase(Locale.ROOT));
         config.put("redisCacheDetail", cacheDiagnostics.detail());
+        config.put("dynamicVariables", String.join(",", DynamicVariables.NAMES));
         return config;
     }
 
@@ -1116,6 +1134,44 @@ public class TestDataStudioService {
             return null;
         }
         return environment.caseOverlays().get(caseId);
+    }
+
+    public GlobalVariables getGlobalVariables() {
+        return new GlobalVariables(new ArrayList<>(loadGlobalVariables()));
+    }
+
+    public GlobalVariables saveGlobalVariables(GlobalVariables request) {
+        List<StudioVariable> variables = StudioVariables.normalize(
+                request == null ? null : request.variables(), "Global");
+        studioStorage.saveGlobalVariables(JSON.toJson(new GlobalVariables(variables)));
+        log.info("Saved {} global variables", variables.size());
+        return new GlobalVariables(variables);
+    }
+
+    private List<StudioVariable> loadGlobalVariables() {
+        return studioStorage.findGlobalVariables()
+                .filter(StringUtils::isNotBlank)
+                .map(json -> JSON.fromJson(json, GlobalVariables.class))
+                .map(GlobalVariables::variableList)
+                .orElse(List.of());
+    }
+
+    private RunVariables runVariables(String specId, String environmentId, Map<String, String> secrets) {
+        StudioEnvironment environment = loadEnvironment(specId, environmentId);
+        return RunVariables.of(
+                environment == null ? null : environment.values(),
+                loadGlobalVariables(),
+                environment == null ? null : environment.variableList(),
+                secrets);
+    }
+
+    private Set<String> declaredSecretNames(String specId, String environmentId) {
+        Set<String> names = new LinkedHashSet<>(StudioVariables.secretKeys(loadGlobalVariables()));
+        StudioEnvironment environment = loadEnvironment(specId, environmentId);
+        if (environment != null) {
+            names.addAll(StudioVariables.secretKeys(environment.variableList()));
+        }
+        return names;
     }
 
     private StudioEnvironment loadEnvironment(String specId, String environmentId) {
