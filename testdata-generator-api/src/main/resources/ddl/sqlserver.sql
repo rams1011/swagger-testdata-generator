@@ -273,6 +273,9 @@ IF COL_LENGTH('dbo.td_test_case', 'lifecycle') IS NULL
 IF COL_LENGTH('dbo.td_test_case', 'response_match') IS NULL
     ALTER TABLE dbo.td_test_case ADD response_match VARCHAR(16) NULL;
 
+IF COL_LENGTH('dbo.td_test_case', 'ignore_fields') IS NULL
+    ALTER TABLE dbo.td_test_case ADD ignore_fields NVARCHAR(MAX) NULL;
+
 IF NOT EXISTS (
     SELECT 1 FROM sys.indexes
      WHERE name = N'ix_td_test_case_spec' AND object_id = OBJECT_ID(N'dbo.td_test_case')

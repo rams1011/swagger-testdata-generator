@@ -82,6 +82,27 @@ public final class JsonBodyMatcher {
         return mode == Mode.STRICT ? null : mode.value();
     }
 
+    /** Ignore fields stored one JSONPath per line (blank lines and surrounding spaces dropped); null when none. */
+    public static String normalizeIgnoreFields(String value) {
+        java.util.List<String> paths = ignorePaths(value);
+        return paths.isEmpty() ? null : String.join("\n", paths);
+    }
+
+    /** Ignore field JSONPaths from text with one per line (a lone {@code NA} means none). */
+    public static java.util.List<String> ignorePaths(String value) {
+        java.util.List<String> paths = new java.util.ArrayList<>();
+        if (StringUtils.isBlank(value) || "NA".equalsIgnoreCase(value.trim())) {
+            return paths;
+        }
+        for (String line : value.split("\r?\n")) {
+            String path = line.trim();
+            if (!path.isEmpty() && !paths.contains(path)) {
+                paths.add(path);
+            }
+        }
+        return paths;
+    }
+
     /** First difference such as {@code $.items[0].roleId: expected 48 but was "48"}, or {@code null} when they match. */
     public static String difference(JsonElement expected, JsonElement actual, Mode mode) {
         return diff("$", expected, actual, mode == null ? Mode.STRICT : mode);

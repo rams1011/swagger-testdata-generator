@@ -163,6 +163,92 @@ class PlanRunTest {
         assertEquals("Stopped because 'Untitled case' failed", PlanRun.stopReason("  "));
     }
 
+    @Test
+    void retriesAFailedCaseAndWaitsTheDelayBetweenRequests() {
+        StudioTestCase flaky = named("flaky");
+        StudioTestCase next = named("next");
+        List<String> events = new ArrayList<>();
+        int[] calls = {0};
+
+        PlanRun.Outcome outcome = PlanRun.execute(List.of(flaky, next), new PlanRun.Actions() {
+            @Override
+            public boolean runnable(StudioTestCase testCase) {
+                return true;
+            }
+
+            @Override
+            public RunTestResult execute(StudioTestCase testCase) {
+                events.add("send " + testCase.getId());
+                boolean passed = !"flaky".equals(testCase.getId()) || ++calls[0] >= 3;
+                return result(testCase, passed);
+            }
+
+            @Override
+            public RunTestResult skip(StudioTestCase testCase, String reason) {
+                return skipped(testCase, reason);
+            }
+
+            @Override
+            public void pause(long millis) {
+                events.add("wait " + millis);
+            }
+        }, new PlanRun.Options(false, 250L, 3));
+
+        assertEquals(List.of("send flaky", "wait 250", "send flaky", "wait 250", "send flaky", "wait 250", "send next"),
+                events);
+        assertEquals(2, outcome.passed());
+        var attempts = outcome.results().get(0).assertions().stream()
+                .filter(check -> "attempts".equals(check.name())).findFirst().orElseThrow();
+        assertEquals("3", attempts.actual());
+        assertEquals("up to 4", attempts.expected());
+        assertTrue(outcome.results().get(1).assertions().stream().noneMatch(check -> "attempts".equals(check.name())));
+    }
+
+    @Test
+    void retriesStopAtTheLimitAndTheFailureStillStopsThePlan() {
+        StudioTestCase broken = named("broken");
+        StudioTestCase later = named("later");
+        List<String> sent = new ArrayList<>();
+
+        PlanRun.Outcome outcome = PlanRun.execute(List.of(broken, later), new PlanRun.Actions() {
+            @Override
+            public boolean runnable(StudioTestCase testCase) {
+                return true;
+            }
+
+            @Override
+            public RunTestResult execute(StudioTestCase testCase) {
+                sent.add(testCase.getId());
+                return result(testCase, false);
+            }
+
+            @Override
+            public RunTestResult skip(StudioTestCase testCase, String reason) {
+                return skipped(testCase, reason);
+            }
+
+            @Override
+            public void pause(long millis) {
+            }
+        }, new PlanRun.Options(false, 0L, 2));
+
+        assertEquals(List.of("broken", "broken", "broken"), sent);
+        assertEquals(1, outcome.failed());
+        assertEquals(1, outcome.skipped());
+        assertEquals("3", outcome.results().get(0).assertions().get(0).actual());
+    }
+
+    @Test
+    void runPlanRequestClampsDelayAndRetries() {
+        var request = new com.tx.api.test.generator.studio.dto.RunPlanRequest("s", "p", null, null, null, null,
+                999_999L, 99);
+        assertEquals(60_000L, request.delayMillis());
+        assertEquals(5, request.retryCount());
+        var none = new com.tx.api.test.generator.studio.dto.RunPlanRequest("s", "p", null, null);
+        assertEquals(0L, none.delayMillis());
+        assertEquals(0, none.retryCount());
+    }
+
     private static StudioTestCase named(String id) {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setId(id);

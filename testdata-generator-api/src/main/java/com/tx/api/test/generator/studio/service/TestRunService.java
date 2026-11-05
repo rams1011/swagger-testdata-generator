@@ -112,6 +112,7 @@ public class TestRunService {
             applyContentType(headers, bound.getContentType(), method, textBody);
         }
 
+        String sentBody = binaryBody != null ? "[multipart body, " + binaryBody.length + " bytes]" : textBody;
         long maxMs = bound.getMaxResponseTimeMs() <= 0 ? 3000L : bound.getMaxResponseTimeMs();
         long timeoutMs = Math.min(MAX_TIMEOUT_MS, Math.max(MIN_TIMEOUT_MS, maxMs + 5_000L));
 
@@ -144,11 +145,11 @@ public class TestRunService {
                 bodyText = new String(bytes, charsetOf(contentType));
             }
             return evaluate(bound, url, redact(headers), response.statusCode(), rawHeaders,
-                    bodyText, downloadPath, bytes, elapsedMs, maxMs, null, store);
+                    bodyText, downloadPath, bytes, elapsedMs, maxMs, null, store).withRequestBody(sentBody);
         } catch (HttpTimeoutException exception) {
             long elapsedMs = elapsed(started);
             return evaluate(bound, url, redact(headers), 0, Map.of(), null, null, null, elapsedMs, maxMs,
-                    "Request timed out after " + timeoutMs + "ms", store);
+                    "Request timed out after " + timeoutMs + "ms", store).withRequestBody(sentBody);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             return failed(bound, url, headers, elapsed(started), true, List.of(), "Run interrupted");
@@ -290,10 +291,14 @@ public class TestRunService {
                 continue;
             }
             String want = StringUtils.defaultString(entry.getValue());
-            JsonPathEvaluator.Check check = JsonPathEvaluator.check(root, entry.getKey(), want);
+            boolean xpath = XPathEvaluator.isXPath(entry.getKey());
+            JsonPathEvaluator.Check check = xpath
+                    ? XPathEvaluator.check(body, entry.getKey(), want)
+                    : JsonPathEvaluator.check(root, entry.getKey(), want);
             String actual = check.actual();
             boolean match = check.passed();
-            checks.add(new AssertionCheck("jsonPath", entry.getKey(), JsonPathEvaluator.describe(want), actual, match));
+            checks.add(new AssertionCheck(xpath ? "xpath" : "jsonPath", entry.getKey(), JsonPathEvaluator.describe(want),
+                    actual, match));
         }
         return checks;
     }
@@ -338,8 +343,14 @@ public class TestRunService {
         boolean match;
         JsonElement expectedJson = parseJsonDocument(expected);
         JsonElement actualJson = expectedJson == null ? null : parseJsonDocument(actual);
+        List<String> ignored = JsonBodyMatcher.ignorePaths(testCase.getIgnoreFields());
         if (expectedJson != null && actualJson != null) {
-            difference = JsonBodyMatcher.difference(expectedJson, actualJson, mode);
+            try {
+                difference = JsonBodyMatcher.difference(JsonPathEvaluator.withoutPaths(expectedJson, ignored),
+                        JsonPathEvaluator.withoutPaths(actualJson, ignored), mode);
+            } catch (IllegalArgumentException invalidIgnorePath) {
+                difference = invalidIgnorePath.getMessage();
+            }
             match = difference == null;
         } else {
             match = XmlPayloadSupport.xmlEquals(expected, actual, testCase.getResponseJsonSchema())
@@ -347,6 +358,10 @@ public class TestRunService {
         }
         // path carries the compare mode and, on a JSON mismatch, where the bodies first differ.
         String detail = mode == JsonBodyMatcher.Mode.STRICT ? null : mode.label();
+        if (expectedJson != null && !ignored.isEmpty()) {
+            String note = ignored.size() == 1 ? "ignoring " + ignored.get(0) : "ignoring " + ignored.size() + " fields";
+            detail = detail == null ? note : detail + ", " + note;
+        }
         if (difference != null) {
             detail = detail == null ? difference : detail + " · " + difference;
         }

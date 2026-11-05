@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.service;
 
+import com.tx.api.test.generator.studio.dto.AssertionCheck;
 import com.tx.api.test.generator.studio.dto.RunTestResult;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import org.apache.commons.lang3.StringUtils;
@@ -13,6 +14,7 @@ import java.util.Map;
  * Runs plan cases in order. By default it stops after the first failure so later cases are not sent.
  * With continue on failure, later cases still run, except a case that needs a variable an earlier
  * failed case should have extracted: that case is skipped with the reason, instead of failing on it.
+ * A delay waits between requests; retries re-send a failed case (an "attempts" check records how many it took).
  */
 final class PlanRun {
 
@@ -31,6 +33,20 @@ final class PlanRun {
         default boolean defined(String name) {
             return false;
         }
+
+        default void pause(long millis) {
+            try {
+                Thread.sleep(millis);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    record Options(boolean continueOnFailure, long delayMs, int retries) {
+        static Options of(boolean continueOnFailure) {
+            return new Options(continueOnFailure, 0L, 0);
+        }
     }
 
     record Outcome(int passed, int failed, int skipped, List<RunTestResult> results) {
@@ -41,6 +57,12 @@ final class PlanRun {
     }
 
     static Outcome execute(List<StudioTestCase> cases, Actions actions, boolean continueOnFailure) {
+        return execute(cases, actions, Options.of(continueOnFailure));
+    }
+
+    static Outcome execute(List<StudioTestCase> cases, Actions actions, Options options) {
+        boolean continueOnFailure = options.continueOnFailure();
+        boolean sent = false;
         List<RunTestResult> results = new ArrayList<>();
         int passed = 0;
         int failed = 0;
@@ -64,7 +86,11 @@ final class PlanRun {
                 skipped++;
                 continue;
             }
-            RunTestResult result = actions.execute(testCase);
+            if (sent && options.delayMs() > 0) {
+                actions.pause(options.delayMs());
+            }
+            RunTestResult result = attempt(testCase, actions, options);
+            sent = true;
             results.add(result);
             if (result.passed()) {
                 passed++;
@@ -80,6 +106,29 @@ final class PlanRun {
             }
         }
         return new Outcome(passed, failed, skipped, List.copyOf(results));
+    }
+
+    /** Sends the case, re-sending a failure up to {@code retries} times. */
+    private static RunTestResult attempt(StudioTestCase testCase, Actions actions, Options options) {
+        RunTestResult result = actions.execute(testCase);
+        int attempts = 1;
+        while (!result.passed() && !result.skipped() && attempts <= options.retries()) {
+            if (Thread.currentThread().isInterrupted()) {
+                break;
+            }
+            if (options.delayMs() > 0) {
+                actions.pause(options.delayMs());
+            }
+            result = actions.execute(testCase);
+            attempts++;
+        }
+        if (attempts == 1) {
+            return result;
+        }
+        List<AssertionCheck> checks = new ArrayList<>(result.assertions() == null ? List.of() : result.assertions());
+        checks.add(new AssertionCheck("attempts", null, "up to " + (options.retries() + 1),
+                String.valueOf(attempts), result.passed()));
+        return result.withAssertions(List.copyOf(checks));
     }
 
     private static void recordMissingExtracts(StudioTestCase testCase, RunTestResult result,

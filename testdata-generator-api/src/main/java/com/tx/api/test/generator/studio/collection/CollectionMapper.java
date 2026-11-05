@@ -200,6 +200,7 @@ public final class CollectionMapper {
                 testCase.getResponseType(),
                 testCase.getExpectedResponse(),
                 JsonBodyMatcher.normalize(testCase.getResponseMatch()),
+                JsonBodyMatcher.normalizeIgnoreFields(testCase.getIgnoreFields()),
                 testCase.getEnabled(),
                 CaseLifecycle.isDraft(testCase) ? CaseLifecycle.DRAFT : null,
                 testCase.getTestGroup(),
@@ -273,6 +274,7 @@ public final class CollectionMapper {
         testCase.setResponseType(item.responseType());
         testCase.setExpectedResponse(item.expectedResponse());
         testCase.setResponseMatch(JsonBodyMatcher.normalize(item.responseMatch()));
+        testCase.setIgnoreFields(JsonBodyMatcher.normalizeIgnoreFields(item.ignoreFields()));
         testCase.setEnabled(StringUtils.defaultIfBlank(item.enabled(), "Y"));
         testCase.setLifecycle(CaseLifecycle.normalizeOr(item.lifecycle(), CaseLifecycle.READY));
         testCase.setTestGroup(item.testGroup());

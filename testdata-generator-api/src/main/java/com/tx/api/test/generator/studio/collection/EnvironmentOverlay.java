@@ -137,6 +137,7 @@ public final class EnvironmentOverlay {
         copy.setResponseType(source.getResponseType());
         copy.setExpectedResponse(source.getExpectedResponse());
         copy.setResponseMatch(source.getResponseMatch());
+        copy.setIgnoreFields(source.getIgnoreFields());
         copy.setEnabled(source.getEnabled());
         copy.setLifecycle(source.getLifecycle());
         copy.setTestGroup(source.getTestGroup());

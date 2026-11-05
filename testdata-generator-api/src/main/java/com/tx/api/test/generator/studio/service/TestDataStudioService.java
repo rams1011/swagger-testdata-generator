@@ -412,11 +412,11 @@ public class TestDataStudioService {
             public boolean defined(String name) {
                 return variables.containsKey(name);
             }
-        }, request.continuesOnFailure());
+        }, new PlanRun.Options(request.continuesOnFailure(), request.delayMillis(), request.retryCount()));
         runHistoryService.recordPlan(request.specId(), request.planId(), environmentId, outcome.results(), cases);
-        log.info("Finished plan {} on spec {} passed={} failed={} skipped={} continueOnFailure={}",
+        log.info("Finished plan {} on spec {} passed={} failed={} skipped={} continueOnFailure={} delayMs={} retries={}",
                 request.planId(), request.specId(), outcome.passed(), outcome.failed(), outcome.skipped(),
-                request.continuesOnFailure());
+                request.continuesOnFailure(), request.delayMillis(), request.retryCount());
         return new RunPlanResult(request.specId(), request.planId(), outcome.passed(), outcome.failed(),
                 outcome.skipped(), outcome.failed() == 0 && outcome.passed() > 0, outcome.results());
     }
@@ -824,6 +824,9 @@ public class TestDataStudioService {
         if (creating || request.responseMatch() != null) {
             testCase.setResponseMatch(JsonBodyMatcher.normalize(request.responseMatch()));
         }
+        if (creating || request.ignoreFields() != null) {
+            testCase.setIgnoreFields(JsonBodyMatcher.normalizeIgnoreFields(request.ignoreFields()));
+        }
         testCase.setEnabled(StringUtils.defaultIfBlank(request.enabled(), "Y"));
         if (creating) {
             testCase.setLifecycle(CaseLifecycle.normalizeOr(request.lifecycle(), CaseLifecycle.DRAFT));
@@ -874,6 +877,7 @@ public class TestDataStudioService {
                 view.getResponseType(),
                 view.getExpectedResponse(),
                 StringUtils.defaultIfBlank(JsonBodyMatcher.normalize(view.getResponseMatch()), JsonBodyMatcher.STRICT),
+                view.getIgnoreFields(),
                 view.getEnabled(),
                 CaseLifecycle.normalizeOr(view.getLifecycle(), CaseLifecycle.READY),
                 view.getTestGroup(),

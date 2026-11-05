@@ -27,6 +27,8 @@ public class StudioTestCase {
     private String expectedResponse;
     /** How the expected body is compared: blank/strict, ignoreOrder, lenient (see JsonBodyMatcher). */
     private String responseMatch;
+    /** JSONPaths (one per line) removed from both bodies before the expected body is compared. */
+    private String ignoreFields;
     private String enabled;
     private String lifecycle;
     private String testGroup;
@@ -201,6 +203,14 @@ public class StudioTestCase {
 
     public void setEnabled(String enabled) {
         this.enabled = enabled;
+    }
+
+    public String getIgnoreFields() {
+        return ignoreFields;
+    }
+
+    public void setIgnoreFields(String ignoreFields) {
+        this.ignoreFields = ignoreFields;
     }
 
     public String getResponseMatch() {
