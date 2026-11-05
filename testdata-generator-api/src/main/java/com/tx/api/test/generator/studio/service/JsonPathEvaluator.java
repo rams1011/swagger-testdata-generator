@@ -121,6 +121,12 @@ final class JsonPathEvaluator {
 
     /** Extract value: a single match of a many-match path (such as a filter) is unwrapped; several stay a JSON list. */
     static String readText(JsonElement root, String jsonPath) {
+        JsonElement value = readValue(root, jsonPath);
+        return value == null ? null : formatValue(value);
+    }
+
+    /** Like {@link #readText} but keeps the JSON value, so extracts can remember numbers, booleans, objects. */
+    static JsonElement readValue(JsonElement root, String jsonPath) {
         Read read;
         try {
             read = readOrThrow(root, jsonPath);
@@ -134,7 +140,7 @@ final class JsonPathEvaluator {
         if (!read.definite() && value.isJsonArray() && value.getAsJsonArray().size() == 1) {
             value = value.getAsJsonArray().get(0);
         }
-        return formatValue(value);
+        return value;
     }
 
     static boolean matches(String expected, JsonElement actual) {

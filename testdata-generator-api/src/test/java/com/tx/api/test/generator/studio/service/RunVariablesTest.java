@@ -146,4 +146,39 @@ class RunVariablesTest {
         assertEquals("/orders/42", CaseVariables.bind(get, scope).getEndpoint());
         assertTrue(CaseVariables.producedNames("orderId=$.id").containsAll(Set.of("orderId", "extract:orderId")));
     }
+
+    @Test
+    void numericExtractKeepsItsJsonTypeInQuotedWholeValuePlaceholders() {
+        Map<String, String> extracted = new java.util.LinkedHashMap<>();
+        Map<String, String> json = new java.util.LinkedHashMap<>();
+        List<AssertionCheck> checks = CaseVariables.extractInto(extracted, json,
+                "roleId=$.roleId|code=$.code|active=$.active", "{\"roleId\":48,\"code\":\"007\",\"active\":true}",
+                Map.of());
+        assertTrue(checks.stream().allMatch(AssertionCheck::passed));
+        assertEquals("48", extracted.get("roleId"));
+        assertFalse(json.containsKey("code"));
+
+        Map<String, String> scope = new java.util.LinkedHashMap<>();
+        CaseVariables.putExtracted(scope, extracted, json);
+        StudioTestCase get = new StudioTestCase();
+        get.setEndpoint("/roles/{{roleId}}");
+        get.setExpectedResponse("{\"roleId\":\"{{roleId}}\",\"code\":\"{{code}}\",\"label\":\"role-{{roleId}}\","
+                + "\"active\":\"{{extract:active}}\"}");
+        get.setRequestBody(new java.util.LinkedHashMap<>(Map.of("roleId", "{{roleId}}", "code", "{{code}}")));
+
+        StudioTestCase bound = CaseVariables.bind(get, scope);
+        assertEquals("/roles/48", bound.getEndpoint());
+        assertEquals(com.google.gson.JsonParser.parseString(
+                        "{\"roleId\":48,\"code\":\"007\",\"label\":\"role-48\",\"active\":true}"),
+                com.google.gson.JsonParser.parseString(bound.getExpectedResponse()));
+        Map<?, ?> body = (Map<?, ?>) bound.getRequestBody();
+        assertEquals(0, new java.math.BigDecimal("48").compareTo((java.math.BigDecimal) body.get("roleId")));
+        assertEquals("007", body.get("code"));
+
+        CaseVariables.putExtracted(scope, Map.of("roleId", "abc"), Map.of());
+        assertEquals("{\"roleId\":\"abc\"}",
+                CaseVariables.substitute("{\"roleId\":\"{{roleId}}\"}", scope));
+        get.setExpectedResponse("{\"roleId\":\"{{roleId}}\"}");
+        assertEquals("{\"roleId\":\"abc\"}", CaseVariables.bind(get, scope).getExpectedResponse());
+    }
 }

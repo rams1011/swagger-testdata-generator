@@ -236,8 +236,10 @@ public class TestRunService {
             if (schema != null) {
                 assertions.add(schema);
             }
-            assertions.addAll(CaseVariables.extractInto(extracted, testCase.getExtracts(), body, rawHeaders));
-            CaseVariables.putExtracted(variables, extracted);
+            Map<String, String> extractedJson = new LinkedHashMap<>();
+            assertions.addAll(CaseVariables.extractInto(extracted, extractedJson, testCase.getExtracts(), body,
+                    rawHeaders));
+            CaseVariables.putExtracted(variables, extracted, extractedJson);
         }
 
         boolean assertionsPassed = assertions.stream().allMatch(AssertionCheck::passed);
