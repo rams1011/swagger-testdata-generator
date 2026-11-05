@@ -94,6 +94,10 @@ testdata:
     allow-private-networks: ${TESTDATA_RUN_ALLOW_PRIVATE_NETWORKS:false}
     # Optional tighter list. Example: api.example.com,*.partner.test
     allow-hosts: ${TESTDATA_RUN_ALLOW_HOSTS:}
+    # Upper bound for a request's timeout (an environment's Request timeout is capped by this).
+    max-request-timeout-ms: ${TESTDATA_RUN_MAX_REQUEST_TIMEOUT_MS:300000}
+    # Response bodies longer than this are cut in run results and history; checks still see the full body.
+    max-response-chars: ${TESTDATA_RUN_MAX_RESPONSE_CHARS:1000000}
   # Studio user sign-in (not run-auth on Try/Run). Ignored when testdata.edition=local.
   auth:
     # local = PBKDF2 passwords in td_account. ldap = directory bind at POST /api/auth/login only.

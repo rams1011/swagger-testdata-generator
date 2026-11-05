@@ -76,7 +76,8 @@ public final class EnvironmentOverlay {
                 environment.values(),
                 environment.auth(),
                 cases,
-                environment.variables()
+                environment.variables(),
+                environment.network()
         );
     }
 
@@ -93,7 +94,8 @@ public final class EnvironmentOverlay {
                 environment.values(),
                 environment.auth(),
                 cases,
-                environment.variables()
+                environment.variables(),
+                environment.network()
         );
     }
 
@@ -138,6 +140,7 @@ public final class EnvironmentOverlay {
         copy.setExpectedResponse(source.getExpectedResponse());
         copy.setResponseMatch(source.getResponseMatch());
         copy.setIgnoreFields(source.getIgnoreFields());
+        copy.setAuth(source.getAuth());
         copy.setEnabled(source.getEnabled());
         copy.setLifecycle(source.getLifecycle());
         copy.setTestGroup(source.getTestGroup());

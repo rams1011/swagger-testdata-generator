@@ -33,6 +33,11 @@ public final class EnvironmentMapper {
     }
 
     public static StudioEnvironment fromInputs(String name, String baseUrl, String authType,
+                                               List<StudioVariable> variables, StudioEnvironmentNetwork network) {
+        return fromInputs(name, baseUrl, authType, variables).withNetwork(network);
+    }
+
+    public static StudioEnvironment fromInputs(String name, String baseUrl, String authType,
                                                List<StudioVariable> variables) {
         String environmentName = StringUtils.defaultIfBlank(name, DEFAULT_ENVIRONMENT_NAME).trim();
         Map<String, String> values = new LinkedHashMap<>();
@@ -55,6 +60,16 @@ public final class EnvironmentMapper {
 
     public static StudioEnvironment merge(StudioEnvironment existing, String name, String baseUrl, String authType) {
         return merge(existing, name, baseUrl, authType, null);
+    }
+
+    /** A null {@code network} keeps the existing connection settings. */
+    public static StudioEnvironment merge(StudioEnvironment existing, String name, String baseUrl, String authType,
+                                          List<StudioVariable> variables, StudioEnvironmentNetwork network) {
+        StudioEnvironment merged = merge(existing, name, baseUrl, authType, variables);
+        if (network != null) {
+            return merged.withNetwork(network);
+        }
+        return existing == null ? merged : merged.withNetwork(existing.network());
     }
 
     /** A null {@code variables} list keeps the existing variables. */
@@ -105,7 +120,8 @@ public final class EnvironmentMapper {
                 environment.values() == null ? new LinkedHashMap<>() : new LinkedHashMap<>(environment.values()),
                 environment.auth(),
                 new LinkedHashMap<>(),
-                new ArrayList<>(environment.variableList())
+                new ArrayList<>(environment.variableList()),
+                environment.network()
         );
     }
 
@@ -134,7 +150,7 @@ public final class EnvironmentMapper {
         StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
         String baseUrl = environment.values() == null ? null : environment.values().get("baseUrl");
         return new EnvironmentSummary(stored.getId(), stored.getSpecId(), stored.getName(), baseUrl,
-                authType(environment), new ArrayList<>(environment.variableList()));
+                authType(environment), new ArrayList<>(environment.variableList()), environment.network());
     }
 
     public static String baseUrl(StudioEnvironment environment) {

@@ -212,6 +212,26 @@ public class StudioProperties {
          * Empty means any host that passes the network check.
          */
         private String allowHosts = "";
+        /** Upper bound for a request's timeout, including an environment's request timeout setting. */
+        private long maxRequestTimeoutMs = 300_000L;
+        /** Response bodies longer than this are cut in run results and history (checks still see the full body). */
+        private int maxResponseChars = 1_000_000;
+
+        public long getMaxRequestTimeoutMs() {
+            return maxRequestTimeoutMs;
+        }
+
+        public void setMaxRequestTimeoutMs(long maxRequestTimeoutMs) {
+            this.maxRequestTimeoutMs = maxRequestTimeoutMs;
+        }
+
+        public int getMaxResponseChars() {
+            return maxResponseChars;
+        }
+
+        public void setMaxResponseChars(int maxResponseChars) {
+            this.maxResponseChars = maxResponseChars;
+        }
 
         public boolean isAllowPrivateNetworks() {
             return allowPrivateNetworks;

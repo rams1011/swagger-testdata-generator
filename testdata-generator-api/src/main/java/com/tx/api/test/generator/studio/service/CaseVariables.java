@@ -66,6 +66,7 @@ public final class CaseVariables {
                 : substituteObject(source.getRequestBody(), resolve, vars));
         bound.setExpectedResponse(substituteJsonText(source.getExpectedResponse(), resolve, vars));
         bound.setJsonPathAssertions(resolve.apply(quotedTyped(source.getJsonPathAssertions(), vars)));
+        bound.setAuth(source.getAuth() == null ? null : source.getAuth().map(resolve));
         return bound;
     }
 
@@ -137,6 +138,12 @@ public final class CaseVariables {
         collectMap(testCase.getHeaders(), names);
         collectMap(testCase.getCookieParams(), names);
         collectObject(testCase.getRequestBody(), names);
+        if (testCase.getAuth() != null) {
+            testCase.getAuth().map(text -> {
+                collectNames(text, names);
+                return text;
+            });
+        }
         return names;
     }
 
@@ -610,6 +617,7 @@ public final class CaseVariables {
         copy.setExpectedResponse(source.getExpectedResponse());
         copy.setResponseMatch(source.getResponseMatch());
         copy.setIgnoreFields(source.getIgnoreFields());
+        copy.setAuth(source.getAuth());
         copy.setEnabled(source.getEnabled());
         copy.setLifecycle(source.getLifecycle());
         copy.setTestGroup(source.getTestGroup());

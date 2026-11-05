@@ -18,6 +18,7 @@ public record SaveTestDataRequest(
         String expectedResponse,
         String responseMatch,
         String ignoreFields,
+        RunAuth auth,
         String enabled,
         String lifecycle,
         String testGroup,

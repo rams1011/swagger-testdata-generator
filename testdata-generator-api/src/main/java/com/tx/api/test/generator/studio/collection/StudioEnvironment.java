@@ -10,11 +10,24 @@ public record StudioEnvironment(
         Map<String, String> values,
         StudioEnvironmentAuth auth,
         Map<String, StudioEnvironmentCaseOverlay> cases,
-        List<StudioVariable> variables
+        List<StudioVariable> variables,
+        /** Connection settings (redirects, TLS, proxy, timeout); null means defaults. */
+        StudioEnvironmentNetwork network
 ) {
     public StudioEnvironment(String format, int version, String name, Map<String, String> values,
                              StudioEnvironmentAuth auth, Map<String, StudioEnvironmentCaseOverlay> cases) {
         this(format, version, name, values, auth, cases, List.of());
+    }
+
+    public StudioEnvironment(String format, int version, String name, Map<String, String> values,
+                             StudioEnvironmentAuth auth, Map<String, StudioEnvironmentCaseOverlay> cases,
+                             List<StudioVariable> variables) {
+        this(format, version, name, values, auth, cases, variables, null);
+    }
+
+    public StudioEnvironment withNetwork(StudioEnvironmentNetwork next) {
+        return new StudioEnvironment(format, version, name, values, auth, cases, variables,
+                StudioEnvironmentNetwork.normalize(next));
     }
 
     public Map<String, StudioEnvironmentCaseOverlay> caseOverlays() {

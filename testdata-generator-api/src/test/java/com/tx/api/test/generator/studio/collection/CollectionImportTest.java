@@ -116,7 +116,7 @@ class CollectionImportTest {
                                 create.endpoint(), create.baseUrl(), create.contentType(), create.pathParams(),
                                 create.queryParams(), create.headers(), create.cookies(), Map.of("code", "UPDATED"),
                                 create.responseJsonSchema(), create.statusCode(), create.responseType(),
-                                create.expectedResponse(), "ignore_order", " $.createdAt \n\n$..updatedAt\n", create.enabled(), create.lifecycle(), create.testGroup(),
+                                create.expectedResponse(), "ignore_order", " $.createdAt \n\n$..updatedAt\n", null, create.enabled(), create.lifecycle(), create.testGroup(),
                                 create.jsonPathAssertions(), "roleId=$.id", create.maxResponseTimeMs(), create.files(),
                                 create.environments()),
                         edited.cases().get(1)

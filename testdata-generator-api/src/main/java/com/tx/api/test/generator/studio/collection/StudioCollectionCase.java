@@ -23,6 +23,7 @@ public record StudioCollectionCase(
         String expectedResponse,
         String responseMatch,
         String ignoreFields,
+        com.tx.api.test.generator.studio.dto.RunAuth auth,
         String enabled,
         String lifecycle,
         String testGroup,

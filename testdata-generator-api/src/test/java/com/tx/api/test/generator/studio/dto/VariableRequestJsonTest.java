@@ -40,4 +40,27 @@ class VariableRequestJsonTest {
                 "{\"variables\":[{\"key\":\"token\",\"value\":null,\"secret\":true}]}", GlobalVariables.class);
         assertEquals(new StudioVariable("token", null, true), globals.variableList().get(0));
     }
+
+    @Test
+    void requestsCarryNetworkSettingsCaseAuthAndRunOptions() throws Exception {
+        SaveEnvironmentRequest save = mapper.readValue("{\"name\":\"int\",\"baseUrl\":\"https://x\","
+                + "\"network\":{\"followRedirects\":true,\"verifySsl\":false,\"proxyUrl\":\"http://proxy:3128\","
+                + "\"requestTimeoutMs\":120000}}", SaveEnvironmentRequest.class);
+        assertTrue(save.network().followsRedirects());
+        assertFalse(save.network().verifiesSsl());
+        assertEquals(120_000L, save.network().requestTimeoutMs());
+        assertNull(mapper.readValue("{\"name\":\"int\"}", SaveEnvironmentRequest.class).network());
+
+        SaveTestDataRequest testCase = mapper.readValue("{\"specId\":\"s\",\"auth\":{\"type\":\"OAUTH2\","
+                + "\"clientId\":\"{{clientId}}\",\"clientSecret\":\"{{clientSecret}}\",\"tokenUrl\":\"https://idp/token\","
+                + "\"scope\":\"roles.read\"}}", SaveTestDataRequest.class);
+        assertEquals("roles.read", testCase.auth().scope());
+        assertEquals("{{clientSecret}}", testCase.auth().clientSecret());
+
+        RunPlanRequest plan = mapper.readValue("{\"specId\":\"s\",\"planId\":\"p\",\"delayMs\":250,\"retries\":2,"
+                + "\"auth\":{\"type\":\"OAUTH2\",\"scope\":\"a b\"}}", RunPlanRequest.class);
+        assertEquals(250L, plan.delayMillis());
+        assertEquals(2, plan.retryCount());
+        assertEquals("a b", plan.auth().scope());
+    }
 }

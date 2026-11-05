@@ -75,6 +75,9 @@ Key tests: `RunVariablesTest`, `EnvironmentImportTest` (variables round-trip), `
 
 - Single case / try: `TestDataStudioService.run(RunTestRequest)`.
 - Plan: `runPlan` with shared variable map across ordered chain (`CaseVariables.orderForChain`). `RunPlanRequest.delayMs` (≤60000) and `retries` (≤5) go to `PlanRun.Options`; a retried case gets an `attempts` check.
+- Connection settings: `StudioEnvironment.network` (`collection/StudioEnvironmentNetwork`: followRedirects, verifySsl, caCertificate PEM, proxyUrl, requestTimeoutMs; normalized, null = defaults) on create/update (`SaveEnvironmentRequest.network`, null keeps) and in the environment file. `TestRunService.execute(..., network)`: clients from `NetworkClients` (trust-all or default+extra CA trust manager, proxy; cached), redirects followed by `followRedirects` with an `OutboundUrlPolicy` check per hop (proxy URL checked too), timeout = env timeout or case max + 5 s, capped by `testdata.run.max-request-timeout-ms` (300000, env `TESTDATA_RUN_MAX_REQUEST_TIMEOUT_MS`); response display cut at `testdata.run.max-response-chars` (1,000,000).
+- OAuth: `OAuthTokenCache` (in memory, SHA-256 key incl. secrets and `RunAuth.scope`, `expires_in` − 30 s, default 5 min); a 401 invalidates.
+- Case auth: `StudioTestCase.auth` (`RunAuth`; null = run auth, `NONE` = none), column `case_auth` (Flyway **V14**), exported as collection `auth`. `CaseAuth.normalize` requires `{{variable}}` in secret fields; `CaseVariables.bind` resolves it and `placeholderNames` includes it.
 - `RunTestResult.requestBody` holds the body as sent (masked by `RunVariables.mask`) for the UI's Copy as cURL.
 - Prerequisites: `CaseVariables.prerequisites(..., definedNames)` skips names already in run scope.
 - Tenant: `TenantContext.tenantId()` for storage scoping.
