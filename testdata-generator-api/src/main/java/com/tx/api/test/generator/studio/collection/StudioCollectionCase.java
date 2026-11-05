@@ -21,6 +21,7 @@ public record StudioCollectionCase(
         int statusCode,
         String responseType,
         String expectedResponse,
+        String responseMatch,
         String enabled,
         String lifecycle,
         String testGroup,

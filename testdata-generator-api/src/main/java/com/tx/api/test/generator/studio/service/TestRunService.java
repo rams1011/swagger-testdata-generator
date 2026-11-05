@@ -333,19 +333,33 @@ public class TestRunService {
             return null;
         }
         String actual = StringUtils.defaultString(body);
-        boolean match = jsonEquals(expected, actual)
-                || XmlPayloadSupport.xmlEquals(expected, actual, testCase.getResponseJsonSchema())
-                || expected.trim().equals(actual.trim());
-        return new AssertionCheck("expectedResponse", null, truncate(expected.trim()), truncate(actual), match);
+        JsonBodyMatcher.Mode mode = JsonBodyMatcher.mode(testCase.getResponseMatch());
+        String difference = null;
+        boolean match;
+        JsonElement expectedJson = parseJsonDocument(expected);
+        JsonElement actualJson = expectedJson == null ? null : parseJsonDocument(actual);
+        if (expectedJson != null && actualJson != null) {
+            difference = JsonBodyMatcher.difference(expectedJson, actualJson, mode);
+            match = difference == null;
+        } else {
+            match = XmlPayloadSupport.xmlEquals(expected, actual, testCase.getResponseJsonSchema())
+                    || expected.trim().equals(actual.trim());
+        }
+        // path carries the compare mode and, on a JSON mismatch, where the bodies first differ.
+        String detail = mode == JsonBodyMatcher.Mode.STRICT ? null : mode.label();
+        if (difference != null) {
+            detail = detail == null ? difference : detail + " · " + difference;
+        }
+        return new AssertionCheck("expectedResponse", detail, truncate(expected.trim()), truncate(actual), match);
     }
 
-    private static boolean jsonEquals(String left, String right) {
+    /** JSON object or array, or null when the text is not one (plain text and XML bodies). */
+    private static JsonElement parseJsonDocument(String text) {
         try {
-            JsonElement expected = JsonParser.parseString(left);
-            JsonElement actual = JsonParser.parseString(right);
-            return expected.equals(actual);
+            JsonElement element = JsonParser.parseString(text);
+            return element.isJsonObject() || element.isJsonArray() ? element : null;
         } catch (RuntimeException ignored) {
-            return false;
+            return null;
         }
     }
 

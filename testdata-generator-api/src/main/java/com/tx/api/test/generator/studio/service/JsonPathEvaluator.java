@@ -105,7 +105,8 @@ final class JsonPathEvaluator {
 
     private static boolean appliesToList(String want) {
         return switch (operatorName(want)) {
-            case "op:exists", "op:nonempty", "op:empty", "op:contains", "op:notcontains", "op:length", "op:type" -> true;
+            case "op:exists", "op:nonempty", "op:empty", "op:contains", "op:notcontains", "op:length", "op:type",
+                 "op:containsobject", "op:notcontainsobject" -> true;
             default -> false;
         };
     }
@@ -167,6 +168,8 @@ final class JsonPathEvaluator {
             case "op:ne" -> "not " + arg;
             case "op:contains" -> "contains " + arg;
             case "op:notcontains" -> "does not contain " + arg;
+            case "op:containsobject" -> "contains object " + arg;
+            case "op:notcontainsobject" -> "does not contain object " + arg;
             case "op:gt" -> "> " + arg;
             case "op:gte" -> ">= " + arg;
             case "op:lt" -> "< " + arg;
@@ -347,6 +350,9 @@ final class JsonPathEvaluator {
             case "op:ne" -> actual != null && !equalsValue(arg, actual);
             case "op:contains" -> contains(actual, arg);
             case "op:notcontains" -> actual != null && !actual.isJsonNull() && !contains(actual, arg);
+            case "op:containsobject" -> containsObject(actual, arg);
+            case "op:notcontainsobject" -> actual != null && !actual.isJsonNull() && parseJson(arg) != null
+                    && !containsObject(actual, arg);
             case "op:gt" -> compare(actual, arg, 1, false);
             case "op:gte" -> compare(actual, arg, 1, true);
             case "op:lt" -> compare(actual, arg, -1, false);
@@ -405,6 +411,26 @@ final class JsonPathEvaluator {
             return false;
         }
         return high.isEmpty() || (isNumeric(high) && value.compareTo(new BigDecimal(high)) <= 0);
+    }
+
+    /**
+     * A list contains an item that has (at least) the expected fields, compared leniently: extra fields and list
+     * items are ignored, list order does not matter. On a single object, the object itself must have them.
+     */
+    private static boolean containsObject(JsonElement actual, String expectedJson) {
+        JsonElement expected = parseJson(expectedJson);
+        if (actual == null || actual.isJsonNull() || expected == null || expected.isJsonNull()) {
+            return false;
+        }
+        if (actual.isJsonArray()) {
+            for (JsonElement item : actual.getAsJsonArray()) {
+                if (JsonBodyMatcher.matches(expected, item, JsonBodyMatcher.Mode.LENIENT)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        return JsonBodyMatcher.matches(expected, actual, JsonBodyMatcher.Mode.LENIENT);
     }
 
     /** Strings contain substrings, arrays contain an equal element, objects contain a key. */

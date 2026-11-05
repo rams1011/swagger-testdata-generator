@@ -181,4 +181,18 @@ class RunVariablesTest {
         get.setExpectedResponse("{\"roleId\":\"{{roleId}}\"}");
         assertEquals("{\"roleId\":\"abc\"}", CaseVariables.bind(get, scope).getExpectedResponse());
     }
+
+    @Test
+    void quotedTypedPlaceholdersInAssertionsBecomeJsonValues() {
+        Map<String, String> scope = new java.util.LinkedHashMap<>();
+        CaseVariables.putExtracted(scope, Map.of("roleId", "48", "code", "TestCode"),
+                Map.of("roleId", "48"));
+        StudioTestCase list = new StudioTestCase();
+        list.setEndpoint("/roles");
+        list.setJsonPathAssertions("$.items=op:containsObject:{\"roleId\":\"{{roleId}}\",\"code\":\"{{code}}\"}"
+                + "|$.items[?(@.roleId=='{{roleId}}')].code=TestCode");
+        assertEquals("$.items=op:containsObject:{\"roleId\":48,\"code\":\"TestCode\"}"
+                        + "|$.items[?(@.roleId==48)].code=TestCode",
+                CaseVariables.bind(list, scope).getJsonPathAssertions());
+    }
 }

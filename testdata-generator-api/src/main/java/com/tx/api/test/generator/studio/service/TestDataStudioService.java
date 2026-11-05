@@ -821,6 +821,9 @@ public class TestDataStudioService {
             testCase.setResponseType(request.responseType());
         }
         testCase.setExpectedResponse(StringUtils.defaultIfBlank(request.expectedResponse(), NA));
+        if (creating || request.responseMatch() != null) {
+            testCase.setResponseMatch(JsonBodyMatcher.normalize(request.responseMatch()));
+        }
         testCase.setEnabled(StringUtils.defaultIfBlank(request.enabled(), "Y"));
         if (creating) {
             testCase.setLifecycle(CaseLifecycle.normalizeOr(request.lifecycle(), CaseLifecycle.DRAFT));
@@ -870,6 +873,7 @@ public class TestDataStudioService {
                 view.getStatusCode(),
                 view.getResponseType(),
                 view.getExpectedResponse(),
+                StringUtils.defaultIfBlank(JsonBodyMatcher.normalize(view.getResponseMatch()), JsonBodyMatcher.STRICT),
                 view.getEnabled(),
                 CaseLifecycle.normalizeOr(view.getLifecycle(), CaseLifecycle.READY),
                 view.getTestGroup(),
