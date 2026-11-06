@@ -15,14 +15,54 @@ class JsonBodyMatcherTest {
     private static final JsonBodyMatcher.Mode LENIENT = JsonBodyMatcher.Mode.LENIENT;
 
     @Test
-    void strictNamesTheFirstDifferenceIncludingNumberVersusString() {
-        assertEquals("$.roleId: expected \"48\" but was 48",
-                diff("{\"roleId\":\"48\",\"name\":\"Test\"}", "{\"roleId\":48,\"name\":\"Test\"}", STRICT));
+    void strictNamesTheFirstDifference() {
+        assertEquals("$.roleId: expected \"49\" but was 48",
+                diff("{\"roleId\":\"49\",\"name\":\"Test\"}", "{\"roleId\":48,\"name\":\"Test\"}", STRICT));
         assertNull(diff("{\"a\":48,\"b\":[1,2]}", "{\"b\":[1,2],\"a\":48.0}", STRICT));
         assertEquals("$.b[0]: expected 1 but was 2", diff("{\"b\":[1,2]}", "{\"b\":[2,1]}", STRICT));
         assertEquals("$.extra: unexpected field (use lenient to allow extra fields)",
                 diff("{\"a\":1}", "{\"a\":1,\"extra\":true}", STRICT));
         assertEquals("$.items: expected 2 items but was 3", diff("{\"items\":[1,2]}", "{\"items\":[1,2,3]}", STRICT));
+    }
+
+    @Test
+    void numericTextEqualsTheSameNumberInEitherDirectionAndEveryMode() {
+        for (JsonBodyMatcher.Mode mode : JsonBodyMatcher.Mode.values()) {
+            assertNull(diff("{\"roleId\":\"2\"}", "{\"roleId\":2}", mode));
+            assertNull(diff("{\"roleId\":2}", "{\"roleId\":\"2\"}", mode));
+            assertNull(diff("{\"n\":\"2.0\"}", "{\"n\":2}", mode));
+            assertNull(diff("{\"n\":\"-1.5\"}", "{\"n\":-1.5}", mode));
+            assertNull(diff("{\"n\":\"1e3\"}", "{\"n\":1000}", mode));
+            assertNull(diff("[\"2\"]", "[2]", mode));
+        }
+        assertEquals("$.roleId: expected \"3\" but was 2", diff("{\"roleId\":\"3\"}", "{\"roleId\":2}", STRICT));
+        assertEquals("$.roleId: expected 3 but was \"2\"", diff("{\"roleId\":3}", "{\"roleId\":\"2\"}", STRICT));
+    }
+
+    @Test
+    void textThatIsNotAJsonNumberStaysText() {
+        for (String text : new String[] {"007", "+7", " 7", "7 ", "", "abc", "0x7", "7.", ".7", "NaN", "Infinity", "\u0667"}) {
+            String expected = "{\"code\":\"" + text + "\"}";
+            assertTrue(diff(expected, "{\"code\":7}", STRICT) != null, "should stay text: " + text);
+            assertTrue(diff("{\"code\":7}", expected, STRICT) != null, "should stay text: " + text);
+        }
+        assertEquals("$.code: expected \"007\" but was \"7\"", diff("{\"code\":\"007\"}", "{\"code\":\"7\"}", STRICT));
+        assertEquals("$.n: expected \"1e99999999999\" but was 1", diff("{\"n\":\"1e99999999999\"}", "{\"n\":1}", STRICT));
+    }
+
+    @Test
+    void onlyNumbersGetTheFallback() {
+        assertEquals("$.active: expected \"true\" but was true", diff("{\"active\":\"true\"}", "{\"active\":true}", STRICT));
+        assertEquals("$.a: expected \"1\" but was true", diff("{\"a\":\"1\"}", "{\"a\":true}", STRICT));
+        assertEquals("$.a: expected null but was \"2\"", diff("{\"a\":null}", "{\"a\":\"2\"}", STRICT));
+        assertEquals("$.a: expected \"2\" but was [2]", diff("{\"a\":\"2\"}", "{\"a\":[2]}", STRICT));
+    }
+
+    @Test
+    void anyOrderListsPairNumbersWithNumericText() {
+        assertNull(diff("[\"1\",\"2\"]", "[2,1]", IGNORE_ORDER));
+        assertNull(diff("[{\"id\":\"9\"}]", "[{\"id\":7},{\"id\":9}]", LENIENT));
+        assertEquals("$: no item matches expected[1] \"1\"", diff("[\"1\",\"1\"]", "[1,2]", IGNORE_ORDER));
     }
 
     @Test
@@ -67,7 +107,9 @@ class JsonBodyMatcherTest {
         assertTrue(JsonPathEvaluator.check(root, "$.items",
                 "op:containsObject:{\"code\":\"TestCode\",\"name\":\"Test\"}").passed());
         assertTrue(JsonPathEvaluator.check(root, "$.items", "op:containsObject:{\"roleId\":48}").passed());
-        assertTrue(!JsonPathEvaluator.check(root, "$.items", "op:containsObject:{\"roleId\":\"48\"}").passed());
+        assertTrue(JsonPathEvaluator.check(root, "$.items", "op:containsObject:{\"roleId\":\"48\"}").passed());
+        assertTrue(!JsonPathEvaluator.check(root, "$.items", "op:containsObject:{\"roleId\":\"49\"}").passed());
+        assertTrue(!JsonPathEvaluator.check(root, "$.items", "op:notContainsObject:{\"roleId\":\"48\"}").passed());
         assertTrue(!JsonPathEvaluator.check(root, "$.items", "op:containsObject:{\"code\":\"Nope\"}").passed());
         assertTrue(JsonPathEvaluator.check(root, "$.items", "op:notContainsObject:{\"code\":\"Nope\"}").passed());
         assertTrue(!JsonPathEvaluator.check(root, "$.items", "op:notContainsObject:{\"code\":\"X\"}").passed());

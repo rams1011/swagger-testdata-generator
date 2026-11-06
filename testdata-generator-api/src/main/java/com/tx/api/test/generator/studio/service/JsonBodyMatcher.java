@@ -20,7 +20,8 @@ import java.util.regex.Pattern;
  *   <li>{@code lenient}: the expected JSON is a subset; the actual body may have extra fields and extra list items,
  *       and lists may be in any order.</li>
  * </ul>
- * Numbers compare by value ({@code 48} equals {@code 48.0}); a number never equals a string ({@code 48} vs {@code "48"}).
+ * Numbers compare by value ({@code 48} equals {@code 48.0}), also against text holding a JSON number ({@code 48} equals
+ * {@code "48"}), because global and environment variables are always text. Other text stays text ({@code "048"}).
  */
 public final class JsonBodyMatcher {
 
@@ -29,6 +30,7 @@ public final class JsonBodyMatcher {
     public static final String LENIENT = "lenient";
 
     private static final Pattern SIMPLE_KEY = Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*");
+    private static final Pattern JSON_NUMBER = Pattern.compile("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?");
     private static final int PREVIEW = 120;
 
     public enum Mode {
@@ -231,10 +233,27 @@ public final class JsonBodyMatcher {
                 return expected.equals(other);
             }
         }
+        if (expected.isNumber() && other.isString()) {
+            return numberEqualsText(expected, other);
+        }
+        if (expected.isString() && other.isNumber()) {
+            return numberEqualsText(other, expected);
+        }
         if (expected.isNumber() != other.isNumber() || expected.isBoolean() != other.isBoolean()) {
             return false;
         }
         return expected.getAsString().equals(other.getAsString());
+    }
+
+    private static boolean numberEqualsText(JsonPrimitive number, JsonPrimitive text) {
+        if (!JSON_NUMBER.matcher(text.getAsString()).matches()) {
+            return false;
+        }
+        try {
+            return new BigDecimal(number.getAsString()).compareTo(new BigDecimal(text.getAsString())) == 0;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
     }
 
     private static String child(String path, String key) {

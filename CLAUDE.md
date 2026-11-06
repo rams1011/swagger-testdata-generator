@@ -65,6 +65,7 @@ Key tests: `RunVariablesTest`, `EnvironmentImportTest` (variables round-trip), `
 ## Assertions
 
 - Expected body: `TestRunService.expectedBodyCheck` uses `JsonBodyMatcher` with the case's `responseMatch` (`strict` default / `ignoreOrder` / `lenient`; stored normalized, null = strict; column `response_match`, Flyway **V12**). The check's `path` carries the mode label and the first difference.
+- Number vs text: `JsonBodyMatcher` treats text holding a JSON number as that number in every mode, both directions (global/environment variables are always text); `"007"` and `"true"` stay text.
 - JSONPath operators: `JsonPathEvaluator` (`op:containsObject:<json>` / `op:notContainsObject:<json>` compare list items leniently via `JsonBodyMatcher`).
 - Typed extracts: a quoted whole-value `"{{x}}"` keeps the extract's JSON type in bodies, expected response and assertion text (`CaseVariables.JSON_TYPE_PREFIX`, `quotedTyped`).
 - Ignore fields: case field `ignoreFields` (JSONPaths, one per line; column `ignore_fields`, Flyway **V13**), removed from both bodies by `JsonPathEvaluator.withoutPaths` before `JsonBodyMatcher`.
