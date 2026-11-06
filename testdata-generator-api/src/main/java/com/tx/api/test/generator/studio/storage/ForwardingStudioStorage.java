@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.storage;
 
+import com.tx.api.test.generator.studio.dto.CaseLastRunView;
 import com.tx.api.test.generator.studio.audit.AuditAction;
 import com.tx.api.test.generator.studio.audit.AuditResourceType;
 import com.tx.api.test.generator.studio.dto.AuditEventView;
@@ -199,8 +200,18 @@ abstract class ForwardingStudioStorage implements StudioStorage {
     }
 
     @Override
+    public int countTestCases(String specId) {
+        return delegate.countTestCases(specId);
+    }
+
+    @Override
     public void deleteRun(String runId) {
         delegate.deleteRun(runId);
+    }
+
+    @Override
+    public List<CaseLastRunView> latestCaseRuns(String specId, String planId, String environmentId, int scanLimit) {
+        return delegate.latestCaseRuns(specId, planId, environmentId, scanLimit);
     }
 
     @Override

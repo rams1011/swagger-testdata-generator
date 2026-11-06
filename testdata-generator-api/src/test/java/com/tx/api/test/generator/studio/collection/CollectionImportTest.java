@@ -75,20 +75,21 @@ class CollectionImportTest {
         assertEquals("case-create-role", storage.listTestCases("spec-local", "plan-default", null).get(0).getId());
         assertEquals("{{roleId}}", storage.findTestCase("case-get-role").orElseThrow().getPathParams().get("id"));
         assertEquals("roleId=$.roleId", storage.findTestCase("case-create-role").orElseThrow().getExtracts());
-        assertEquals("http://localhost:8080/employee-service",
+        assertEquals("{{baseUrl}}",
                 storage.findTestCase("case-create-role").orElseThrow().getBaseUrl());
     }
 
     @Test
-    void importResolvesSharedBaseUrlAgainstTheTargetSpec() throws Exception {
+    void importStoresSharedBaseUrlAsThePlaceholder() throws Exception {
         StoredSpec spec = localSpec();
         spec.setBaseUrl("https://int.example.com/employee-service");
         storage.saveSpec(spec);
 
         CollectionImporter.importInto(storage, goldenBytes(), "employee-service.Default.collection.json", "spec-local");
 
-        assertEquals("https://int.example.com/employee-service",
-                storage.findTestCase("case-create-role").orElseThrow().getBaseUrl());
+        assertEquals("{{baseUrl}}",
+                storage.findTestCase("case-create-role").orElseThrow().getBaseUrl(),
+                "a case on the collection's base URL follows the environment");
         assertEquals("{{baseUrl}}", CollectionMapper.readFrom(storage, "spec-local", "plan-default")
                 .cases().get(0).baseUrl());
     }

@@ -4,7 +4,10 @@ import com.google.gson.Gson;
 import com.tx.api.test.generator.studio.config.StudioDatasourceSettings;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.catalog.OperationPage;
+import com.tx.api.test.generator.studio.dto.SpecActivityView;
+import com.tx.api.test.generator.studio.dto.RunView;
 import com.tx.api.test.generator.studio.collection.CollectionDocuments;
+import com.tx.api.test.generator.studio.collection.CollectionFormat;
 import com.tx.api.test.generator.studio.collection.CollectionExporter;
 import com.tx.api.test.generator.studio.collection.CollectionImporter;
 import com.tx.api.test.generator.studio.collection.EnvironmentExporter;
@@ -83,6 +86,8 @@ public class TestDataStudioService {
     private static final long MAX_REQUEST_FILE_BYTES = 20L * 1024 * 1024;
     private static final Gson JSON = new Gson();
     private static final Logger log = LoggerFactory.getLogger(TestDataStudioService.class);
+
+    static final int MAX_ACTIVITY_SPECS = 100;
 
     private final SpecCatalogService specCatalogService;
     private final StudioProperties properties;
@@ -553,6 +558,30 @@ public class TestDataStudioService {
         }
         log.info("Imported environment {} into spec {} (applied={})", summary.name(), specId, applied);
         return new EnvironmentImportResult(specId, stored.getId(), summary.name(), summary.baseUrl(), applied, created);
+    }
+
+    /** Card details for the home page; ids that are not specs in this workspace are skipped. */
+    public List<SpecActivityView> specActivity(List<String> specIds) {
+        List<SpecActivityView> views = new ArrayList<>();
+        if (specIds == null) {
+            return views;
+        }
+        for (String specId : new LinkedHashSet<>(specIds)) {
+            if (views.size() >= MAX_ACTIVITY_SPECS) {
+                break;
+            }
+            if (StringUtils.isBlank(specId) || studioStorage.findSpec(specId.trim()).isEmpty()) {
+                continue;
+            }
+            String id = specId.trim();
+            List<RunView> runs = runHistoryService.list(id, null, null, null, null, null, 1);
+            views.add(new SpecActivityView(
+                    id,
+                    studioStorage.countTestCases(id),
+                    studioStorage.listEnvironments(id).size(),
+                    runs.isEmpty() ? null : runs.get(0)));
+        }
+        return views;
     }
 
     public List<EnvironmentSummary> listEnvironments(String specId) {
@@ -1026,10 +1055,30 @@ public class TestDataStudioService {
     private RunVariables runVariables(String specId, String environmentId, Map<String, String> secrets) {
         StudioEnvironment environment = loadEnvironment(specId, environmentId);
         return RunVariables.of(
-                environment == null ? null : environment.values(),
+                withSpecBaseUrl(specId, environment == null ? null : environment.values()),
                 loadGlobalVariables(),
                 environment == null ? null : environment.variableList(),
                 secrets);
+    }
+
+    /**
+     * {{baseUrl}} falls back to the collection's base URL when the environment has none (or none is selected), so
+     * cases saved with the placeholder still run.
+     */
+    private Map<String, String> withSpecBaseUrl(String specId, Map<String, String> values) {
+        String specBaseUrl = StringUtils.isBlank(specId) ? null
+                : studioStorage.findSpec(specId).map(stored -> stored.getBaseUrl()).orElse(null);
+        return withBaseUrlFallback(values, specBaseUrl);
+    }
+
+    static Map<String, String> withBaseUrlFallback(Map<String, String> values, String specBaseUrl) {
+        if (values != null && StringUtils.isNotBlank(values.get(CollectionFormat.BASE_URL_KEY))
+                || StringUtils.isBlank(specBaseUrl)) {
+            return values;
+        }
+        Map<String, String> merged = values == null ? new LinkedHashMap<>() : new LinkedHashMap<>(values);
+        merged.put(CollectionFormat.BASE_URL_KEY, specBaseUrl.trim());
+        return merged;
     }
 
     private Set<String> declaredSecretNames(String specId, String environmentId) {

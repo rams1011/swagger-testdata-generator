@@ -5,6 +5,7 @@ import com.google.gson.JsonParser;
 import com.google.gson.reflect.TypeToken;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AssertionCheck;
+import com.tx.api.test.generator.studio.dto.CaseLastRunView;
 import com.tx.api.test.generator.studio.dto.RunCompareField;
 import com.tx.api.test.generator.studio.dto.RunCompareView;
 import com.tx.api.test.generator.studio.dto.RunResultView;
@@ -41,6 +42,8 @@ public class RunHistoryService {
     private static final Set<String> TRIGGERS = Set.of(TRIGGER_TRY, TRIGGER_CASE, TRIGGER_PLAN);
     private static final Set<String> OUTCOMES = Set.of("passed", "failed", "skipped", "error");
     private static final int DEFAULT_LIMIT = 100;
+    /** How many recent results the Last run column looks through. */
+    static final int LATEST_SCAN_LIMIT = 2000;
     private static final int MAX_LIMIT = 500;
     private static final int MAX_BODY_CHARS = 100_000;
     private static final Set<String> SECRET_HEADERS = Set.of(
@@ -104,6 +107,15 @@ public class RunHistoryService {
                 .stream()
                 .map(run -> toView(run, false))
                 .toList();
+    }
+
+    /** The newest result of each case that ran in this spec (and plan / environment when given). */
+    public List<CaseLastRunView> latestByCase(String specId, String planId, String environmentId) {
+        if (StringUtils.isBlank(specId)) {
+            throw new IllegalArgumentException("specId is required");
+        }
+        return studioStorage.latestCaseRuns(specId.trim(), blankToNull(planId), blankToNull(environmentId),
+                LATEST_SCAN_LIMIT);
     }
 
     public RunView get(String runId) {

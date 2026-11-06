@@ -164,18 +164,16 @@ public final class CollectionMapper {
         return new StudioCollectionPlan(plan.getId(), plan.getName(), plan.getDescription());
     }
 
+    /**
+     * A case that uses the collection's base URL (or {{baseUrl}}) is stored as {{baseUrl}}, so it follows the
+     * selected environment; other URLs stay as the case's own override.
+     */
     public static String resolveStoredBaseUrl(String caseBaseUrl, String collectionSpecBaseUrl,
                                               String targetSpecBaseUrl) {
         if (!CollectionFormat.sharesSpecBaseUrl(caseBaseUrl, collectionSpecBaseUrl)) {
             return caseBaseUrl;
         }
-        if (StringUtils.isNotBlank(targetSpecBaseUrl)) {
-            return targetSpecBaseUrl.trim();
-        }
-        if (StringUtils.isNotBlank(collectionSpecBaseUrl)) {
-            return collectionSpecBaseUrl.trim();
-        }
-        return null;
+        return CollectionFormat.BASE_URL_PLACEHOLDER;
     }
 
     private static StudioCollectionCase toCollectionCase(StudioTestCase testCase, List<StudioRequestFile> files,

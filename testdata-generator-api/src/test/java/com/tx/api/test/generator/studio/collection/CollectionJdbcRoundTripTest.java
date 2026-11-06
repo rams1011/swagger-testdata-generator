@@ -80,7 +80,7 @@ class CollectionJdbcRoundTripTest {
         assertEquals("plan-default", get.getPlanId());
         assertEquals("/api/roles/{id}", get.getRawPath());
         assertEquals("/api/roles/{{roleId}}", get.getEndpoint());
-        assertEquals("http://localhost:8080/employee-service", create.getBaseUrl());
+        assertEquals("{{baseUrl}}", create.getBaseUrl());
         assertEquals("{{baseUrl}}", reloaded.cases().get(0).baseUrl());
     }
 
