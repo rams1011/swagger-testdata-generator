@@ -103,6 +103,11 @@
             <artifactId>json-path</artifactId>
         </dependency>
         <dependency>
+            <!-- Connects to a validated IP while Host, SNI and certificate checks use the host name; version from the Spring Boot BOM -->
+            <groupId>org.apache.httpcomponents.client5</groupId>
+            <artifactId>httpclient5</artifactId>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>

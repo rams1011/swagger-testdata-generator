@@ -169,4 +169,23 @@ public interface StudioStorage {
     default List<AuditEventView> listAuditEventsForTenant(int limit) {
         return List.of();
     }
+
+    /** Last audited private target allowlist per environment id, one entry per line. Not tenant scoped. */
+    default Map<String, String> listPrivateTargetAllowlists() {
+        return Map.of();
+    }
+
+    default void savePrivateTargetAllowlist(String environmentId, String entries) {
+    }
+
+    default void deletePrivateTargetAllowlist(String environmentId) {
+    }
+
+    /** Looks across tenants, for server-level work that has no tenant of its own. */
+    default Optional<EnvironmentOwner> findEnvironmentOwner(String environmentId) {
+        return Optional.empty();
+    }
+
+    record EnvironmentOwner(String tenantId, String name) {
+    }
 }

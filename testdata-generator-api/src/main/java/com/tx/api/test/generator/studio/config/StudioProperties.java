@@ -205,8 +205,16 @@ public class StudioProperties {
         /**
          * When false, loopback, private, link-local, and cloud-metadata targets are rejected.
          * The local profile turns this on so a desktop app can call localhost.
+         * Deprecated fallback: prefer {@link #privateTargetAllowlist}. The always-blocked targets stay blocked.
          */
         private boolean allowPrivateNetworks = false;
+        /**
+         * Private targets an environment may call, by environment id (not name, which any user can change).
+         * Entries are {@code host:port}, {@code ip:port}, {@code cidr:port}, or {@code [ipv6-or-cidr]:port}.
+         */
+        private java.util.Map<String, java.util.List<String>> privateTargetAllowlist = new java.util.LinkedHashMap<>();
+        /** Comma-separated ports that are always blocked on non-public addresses, whatever the allowlist says. */
+        private String blockedInfrastructurePorts = "22,25,1433,2375,2376,2379,2380,3306,5432,6379,6443,10250,10255,11211,27017";
         /**
          * Comma-separated hosts. {@code *.example.com} matches subdomains only.
          * Empty means any host that passes the network check.
@@ -233,10 +241,42 @@ public class StudioProperties {
             this.maxResponseChars = maxResponseChars;
         }
 
+        public java.util.Map<String, java.util.List<String>> getPrivateTargetAllowlist() {
+            return privateTargetAllowlist;
+        }
+
+        public void setPrivateTargetAllowlist(java.util.Map<String, java.util.List<String>> privateTargetAllowlist) {
+            this.privateTargetAllowlist = privateTargetAllowlist == null
+                    ? new java.util.LinkedHashMap<>() : privateTargetAllowlist;
+        }
+
+        public String getBlockedInfrastructurePorts() {
+            return blockedInfrastructurePorts;
+        }
+
+        public void setBlockedInfrastructurePorts(String blockedInfrastructurePorts) {
+            this.blockedInfrastructurePorts = blockedInfrastructurePorts;
+        }
+
+        public java.util.Set<Integer> blockedInfrastructurePortSet() {
+            if (blockedInfrastructurePorts == null || blockedInfrastructurePorts.isBlank()) {
+                return java.util.Set.of();
+            }
+            return java.util.Arrays.stream(blockedInfrastructurePorts.split(","))
+                    .map(String::trim)
+                    .filter(value -> !value.isEmpty())
+                    .map(Integer::valueOf)
+                    .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        }
+
+        /** @deprecated Use {@link #getPrivateTargetAllowlist()}. */
+        @Deprecated
         public boolean isAllowPrivateNetworks() {
             return allowPrivateNetworks;
         }
 
+        /** @deprecated Use {@link #setPrivateTargetAllowlist(java.util.Map)}. */
+        @Deprecated
         public void setAllowPrivateNetworks(boolean allowPrivateNetworks) {
             this.allowPrivateNetworks = allowPrivateNetworks;
         }

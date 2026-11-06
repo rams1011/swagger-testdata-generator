@@ -135,6 +135,26 @@ public class StudioAuditService {
                 "Requested access to " + StringUtils.defaultString(workspaceName));
     }
 
+    /** Not tied to a spec, so one row per request stays in the workspace log and out of spec history. */
+    public void recordPrivateTargetAllowed(String environmentId, String environmentName, String host, int port,
+                                           String address, String method, String rule) {
+        append(null, AuditResourceType.OUTBOUND_TARGET, StringUtils.defaultIfBlank(environmentId, "none"),
+                AuditAction.PRIVATE_TARGET_ALLOWED,
+                method + " to private target " + host + ":" + port
+                        + (address == null ? "" : " (" + address + ")")
+                        + " in environment " + StringUtils.defaultIfBlank(environmentName, "none")
+                        + ", allowed by " + rule);
+    }
+
+    /** {@code tenantId} owns the environment. The change came from server configuration, so there is no account. */
+    public void recordAllowlistChanged(String tenantId, String environmentId, String environmentName,
+                                       List<String> added, List<String> removed) {
+        appendForTenant(tenantId, null, "server configuration", null, AuditResourceType.OUTBOUND_TARGET, environmentId,
+                AuditAction.ALLOWLIST_CHANGED,
+                "Private target allowlist for environment " + StringUtils.defaultIfBlank(environmentName, environmentId)
+                        + " changed: added " + added + ", removed " + removed);
+    }
+
     public List<AuditEventView> listForCase(String caseId, int limit) {
         return studioStorage.listAuditEvents(AuditResourceType.CASE, caseId, clamp(limit));
     }

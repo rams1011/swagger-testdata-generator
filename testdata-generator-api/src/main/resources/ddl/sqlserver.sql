@@ -649,3 +649,14 @@ IF NOT EXISTS (
 )
     CREATE INDEX ix_td_audit_tenant_resource_time
         ON dbo.td_audit_event (tenant_id, resource_type, resource_id, occurred_at DESC);
+
+/* ---------- td_private_target_allowlist ---------- */
+IF OBJECT_ID(N'dbo.td_private_target_allowlist', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.td_private_target_allowlist (
+        environment_id VARCHAR(36)   NOT NULL,
+        entries        NVARCHAR(MAX) NOT NULL,
+        updated_at     DATETIME2(3)  NOT NULL CONSTRAINT DF_td_private_target_allowlist_updated_at DEFAULT (SYSUTCDATETIME()),
+        CONSTRAINT pk_td_private_target_allowlist PRIMARY KEY (environment_id)
+    );
+END;

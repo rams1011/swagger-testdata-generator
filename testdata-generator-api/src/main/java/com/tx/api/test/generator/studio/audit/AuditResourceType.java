@@ -4,5 +4,6 @@ public enum AuditResourceType {
     CASE,
     SPEC,
     ACCOUNT,
-    WORKSPACE
+    WORKSPACE,
+    OUTBOUND_TARGET
 }

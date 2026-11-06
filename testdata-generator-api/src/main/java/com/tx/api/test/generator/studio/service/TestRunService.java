@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.service;
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
+import com.tx.api.test.generator.studio.audit.StudioAuditService;
 import com.tx.api.test.generator.studio.collection.StudioEnvironmentNetwork;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AssertionCheck;
@@ -13,10 +14,10 @@ import com.tx.api.test.generator.studio.storage.StudioStorage;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
-import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
@@ -55,11 +56,19 @@ public class TestRunService {
     private final StudioStorage studioStorage;
     private final StudioProperties properties;
     private final OutboundUrlPolicy outboundUrlPolicy;
+    private final StudioAuditService auditService;
 
     public TestRunService(StudioStorage studioStorage, StudioProperties properties, OutboundUrlPolicy outboundUrlPolicy) {
+        this(studioStorage, properties, outboundUrlPolicy, null);
+    }
+
+    @Autowired
+    public TestRunService(StudioStorage studioStorage, StudioProperties properties, OutboundUrlPolicy outboundUrlPolicy,
+                          StudioAuditService auditService) {
         this.studioStorage = studioStorage;
         this.properties = properties;
         this.outboundUrlPolicy = outboundUrlPolicy;
+        this.auditService = auditService;
     }
 
     public RunTestResult execute(StudioTestCase testCase, RunAuth auth) {
@@ -76,6 +85,12 @@ public class TestRunService {
      */
     public RunTestResult execute(StudioTestCase testCase, RunAuth auth, Map<String, String> variables,
                                  StudioEnvironmentNetwork network) {
+        return execute(testCase, auth, variables, network, OutboundUrlPolicy.Scope.NONE);
+    }
+
+    /** {@code scope} is the environment whose private target allowlist applies to this request. */
+    public RunTestResult execute(StudioTestCase testCase, RunAuth auth, Map<String, String> variables,
+                                 StudioEnvironmentNetwork network, OutboundUrlPolicy.Scope scope) {
         if (testCase == null) {
             throw new IllegalArgumentException("Test case is required");
         }
@@ -90,16 +105,17 @@ public class TestRunService {
         Map<String, String> query = copyMap(bound.getQueryParams());
         Map<String, String> cookies = copyMap(bound.getCookieParams());
         RunAuth effectiveAuth = bound.getAuth() != null ? bound.getAuth() : auth;
-        RunAuth oauthUsed = applyAuth(headers, query, cookies, effectiveAuth);
+        RunAuth oauthUsed = applyAuth(headers, query, cookies, effectiveAuth, scope);
         String cookieHeader = HttpPayloadSupport.cookieHeader(cookies);
         if (StringUtils.isNotBlank(cookieHeader)) {
             HttpPayloadSupport.putHeader(headers, "Cookie", cookieHeader);
         }
 
         String url;
+        OutboundUrlPolicy.Target target;
         try {
             url = buildUrl(bound.getBaseUrl(), bound.getEndpoint(), query);
-            outboundUrlPolicy.check(url);
+            target = outboundUrlPolicy.check(url, scope);
         } catch (IllegalArgumentException exception) {
             return failed(bound, "", headers, 0, false, List.of(), exception.getMessage());
         }
@@ -126,12 +142,17 @@ public class TestRunService {
         String sentBody = binaryBody != null ? "[multipart body, " + binaryBody.length + " bytes]" : textBody;
         long maxMs = bound.getMaxResponseTimeMs() <= 0 ? 3000L : bound.getMaxResponseTimeMs();
         long timeoutMs = timeoutMs(maxMs, network);
-        HttpClient httpClient;
+        NetworkClients.Channel channel;
         try {
+            OutboundUrlPolicy.Target proxy = null;
             if (network != null && StringUtils.isNotBlank(network.proxyUrl())) {
-                outboundUrlPolicy.check(StudioEnvironmentNetwork.proxyUri(network.proxyUrl()).toString());
+                proxy = outboundUrlPolicy.check(StudioEnvironmentNetwork.proxyUri(network.proxyUrl()).toString(), scope);
+                if (proxy.address() == null) {
+                    throw new IllegalArgumentException("Proxy host " + proxy.host() + " could not be resolved.");
+                }
+                auditPrivateTarget(proxy, "CONNECT", scope);
             }
-            httpClient = networkClients.client(network);
+            channel = networkClients.channel(network, proxy);
         } catch (IllegalArgumentException exception) {
             return failed(bound, url, headers, 0, false, List.of(), exception.getMessage());
         }
@@ -151,9 +172,11 @@ public class TestRunService {
         long started = System.nanoTime();
         List<String> hops = new ArrayList<>();
         try {
-            HttpResponse<byte[]> response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+            auditPrivateTarget(target, method, scope);
+            HttpResponse<byte[]> response = channel.send(builder.build(), payload(method, binaryBody, textBody), target);
             if (network != null && network.followsRedirects()) {
-                response = followRedirects(httpClient, response, method, headers, binaryBody, textBody, timeoutMs, hops);
+                response = followRedirects(channel, response, method, headers, binaryBody, textBody, timeoutMs, hops,
+                        scope);
             }
             if (response.statusCode() == 401 && oauthUsed != null && oauthTokens.invalidate(oauthUsed)) {
                 log.info("API answered 401; dropped the cached OAuth token so the next request fetches a new one");
@@ -249,13 +272,15 @@ public class TestRunService {
     }
 
     /**
-     * Follows 301/302/303/307/308 up to {@link #MAX_REDIRECTS} hops. Each target passes the outbound URL policy.
+     * Follows 301/302/303/307/308 up to {@link #MAX_REDIRECTS} hops. Each target passes the outbound URL policy and
+     * is connected to by its validated address.
      * 303 (and 301/302 after a POST) switch to GET without a body, like browsers and curl; 307/308 keep the method
      * and body. Authorization and Cookie headers are dropped when the redirect leaves the original host.
      */
-    private HttpResponse<byte[]> followRedirects(HttpClient httpClient, HttpResponse<byte[]> first, String method,
+    private HttpResponse<byte[]> followRedirects(NetworkClients.Channel channel, HttpResponse<byte[]> first, String method,
                                                  Map<String, String> headers, byte[] binaryBody, String textBody,
-                                                 long timeoutMs, List<String> hops) throws Exception {
+                                                 long timeoutMs, List<String> hops,
+                                                 OutboundUrlPolicy.Scope scope) throws Exception {
         HttpResponse<byte[]> response = first;
         String currentMethod = method;
         byte[] currentBinary = binaryBody;
@@ -271,7 +296,7 @@ public class TestRunService {
                 throw new IllegalArgumentException("Stopped after " + MAX_REDIRECTS + " redirects");
             }
             URI next = response.uri().resolve(location.trim());
-            outboundUrlPolicy.check(next.toString());
+            OutboundUrlPolicy.Target nextTarget = outboundUrlPolicy.check(next.toString(), scope);
             int status = response.statusCode();
             if (status == 303 || ((status == 301 || status == 302) && !"GET".equals(currentMethod)
                     && !"HEAD".equals(currentMethod))) {
@@ -291,9 +316,39 @@ public class TestRunService {
                             ? HttpRequest.BodyPublishers.ofByteArray(currentBinary)
                             : bodyPublisher(currentMethod, currentText));
             currentHeaders.forEach(builder::header);
-            response = httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofByteArray());
+            auditPrivateTarget(nextTarget, currentMethod, scope);
+            response = channel.send(builder.build(), payload(currentMethod, currentBinary, currentText), nextTarget);
         }
         return response;
+    }
+
+    private static byte[] payload(String method, byte[] binaryBody, String textBody) {
+        if (binaryBody != null) {
+            return binaryBody;
+        }
+        return textBody == null || "GET".equals(method) || "HEAD".equals(method)
+                ? null : textBody.getBytes(StandardCharsets.UTF_8);
+    }
+
+    /** A failed audit write is logged and does not fail the run; the attempt is still in the application log. */
+    private void auditPrivateTarget(OutboundUrlPolicy.Target target, String method, OutboundUrlPolicy.Scope scope) {
+        if (target.privateRule() == null) {
+            return;
+        }
+        log.info("Allowed private target {}:{} ({}) for environment {} by rule {}", target.host(), target.port(),
+                target.address() == null ? "unresolved" : target.address().getHostAddress(), scope.environmentId(),
+                target.privateRule());
+        if (auditService == null) {
+            return;
+        }
+        try {
+            auditService.recordPrivateTargetAllowed(scope.environmentId(), scope.environmentName(), target.host(),
+                    target.port(), target.address() == null ? null : target.address().getHostAddress(), method,
+                    target.privateRule());
+        } catch (RuntimeException exception) {
+            log.warn("Could not write the audit entry for private target {}:{}: {}", target.host(), target.port(),
+                    exception.toString());
+        }
     }
 
     private static boolean isRedirect(int status) {
@@ -528,7 +583,7 @@ public class TestRunService {
 
     /** Applies {@code auth}; returns it when the bearer token came from the OAuth token cache, else null. */
     private RunAuth applyAuth(Map<String, String> headers, Map<String, String> query, Map<String, String> cookies,
-                              RunAuth auth) {
+                              RunAuth auth, OutboundUrlPolicy.Scope scope) {
         if (auth == null) {
             return null;
         }
@@ -551,8 +606,8 @@ public class TestRunService {
             return null;
         }
         if (RunAuth.OAUTH2.equals(type)) {
-            validateOAuth(auth);
-            applyBearer(headers, oauthTokens.token(auth, this::fetchOAuthToken));
+            validateOAuth(auth, scope);
+            applyBearer(headers, oauthTokens.token(auth, setup -> fetchOAuthToken(setup, scope)));
             return auth;
         }
         if (RunAuth.API_KEY.equals(type)) {
@@ -583,18 +638,18 @@ public class TestRunService {
     }
 
     /** Checks an OAuth setup before the token cache is consulted, so a bad setup fails even with a cached token. */
-    private void validateOAuth(RunAuth auth) {
+    private void validateOAuth(RunAuth auth, OutboundUrlPolicy.Scope scope) {
         if (StringUtils.isBlank(auth.tokenUrl())) {
             throw new IllegalArgumentException("tokenUrl is required for OAuth2, or paste a bearer token");
         }
-        outboundUrlPolicy.check(auth.tokenUrl().trim());
+        outboundUrlPolicy.check(auth.tokenUrl().trim(), scope);
     }
 
-    private OAuthTokenCache.Fetched fetchOAuthToken(RunAuth auth) {
+    private OAuthTokenCache.Fetched fetchOAuthToken(RunAuth auth, OutboundUrlPolicy.Scope scope) {
         if (StringUtils.isBlank(auth.tokenUrl())) {
             throw new IllegalArgumentException("tokenUrl is required for OAuth2, or paste a bearer token");
         }
-        outboundUrlPolicy.check(auth.tokenUrl().trim());
+        OutboundUrlPolicy.Target target = outboundUrlPolicy.check(auth.tokenUrl().trim(), scope);
         String grant = StringUtils.defaultIfBlank(auth.grantType(), "client_credentials").trim();
         if ("authorization_code".equalsIgnoreCase(grant) || "implicit".equalsIgnoreCase(grant)) {
             throw new IllegalArgumentException("This OAuth flow needs a bearer token pasted in Run authentication");
@@ -622,12 +677,13 @@ public class TestRunService {
                     .header("Content-Type", "application/x-www-form-urlencoded")
                     .POST(HttpRequest.BodyPublishers.ofString(form.toString(), StandardCharsets.UTF_8))
                     .build();
-            HttpResponse<String> response = networkClients.client(null)
-                    .send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            auditPrivateTarget(target, "POST", scope);
+            HttpResponse<byte[]> response = networkClients.channel(null, null)
+                    .send(request, form.toString().getBytes(StandardCharsets.UTF_8), target);
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalArgumentException("OAuth token request failed HTTP " + response.statusCode());
             }
-            JsonElement parsed = JsonParser.parseString(StringUtils.defaultString(response.body()));
+            JsonElement parsed = JsonParser.parseString(new String(response.body(), StandardCharsets.UTF_8));
             if (!parsed.isJsonObject() || !parsed.getAsJsonObject().has("access_token")) {
                 throw new IllegalArgumentException("OAuth token response did not include access_token");
             }

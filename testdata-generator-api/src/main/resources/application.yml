@@ -91,7 +91,18 @@ testdata:
   run:
     # Try and Run plan. Hosted editions cannot call loopback, private, link-local, or cloud metadata.
     # The local profile allows private networks so a desktop app can call localhost.
+    # Deprecated fallback; prefer private-target-allowlist. Cloud metadata, link-local, this server's own ports,
+    # and blocked-infrastructure-ports stay blocked either way.
     allow-private-networks: ${TESTDATA_RUN_ALLOW_PRIVATE_NETWORKS:false}
+    # Private targets per environment, keyed by environment id. Changes are written to the audit log at startup.
+    # private-target-allowlist:
+    #   3f2b8c1e-0000-0000-0000-000000000000:
+    #     - orders.internal:8443
+    #     - 10.20.30.40:8080
+    #     - 10.20.0.0/16:443
+    #     - "[fd12:3456::/48]:443"
+    # Always blocked on non-public addresses, even when allowlisted.
+    blocked-infrastructure-ports: ${TESTDATA_RUN_BLOCKED_INFRASTRUCTURE_PORTS:22,25,1433,2375,2376,2379,2380,3306,5432,6379,6443,10250,10255,11211,27017}
     # Optional tighter list. Example: api.example.com,*.partner.test
     allow-hosts: ${TESTDATA_RUN_ALLOW_HOSTS:}
     # Upper bound for a request's timeout (an environment's Request timeout is capped by this).
