@@ -250,4 +250,24 @@ abstract class ForwardingStudioStorage implements StudioStorage {
     public List<AuditEventView> listAuditEventsForTenant(int limit) {
         return delegate.listAuditEventsForTenant(limit);
     }
+
+    @Override
+    public Map<String, String> listPrivateTargetAllowlists() {
+        return delegate.listPrivateTargetAllowlists();
+    }
+
+    @Override
+    public void savePrivateTargetAllowlist(String environmentId, String entries) {
+        delegate.savePrivateTargetAllowlist(environmentId, entries);
+    }
+
+    @Override
+    public void deletePrivateTargetAllowlist(String environmentId) {
+        delegate.deletePrivateTargetAllowlist(environmentId);
+    }
+
+    @Override
+    public Optional<EnvironmentOwner> findEnvironmentOwner(String environmentId) {
+        return delegate.findEnvironmentOwner(environmentId);
+    }
 }

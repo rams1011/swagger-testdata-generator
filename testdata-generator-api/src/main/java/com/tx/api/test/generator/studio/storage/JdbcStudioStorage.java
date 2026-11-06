@@ -1311,6 +1311,50 @@ public class JdbcStudioStorage implements StudioStorage {
                 auditEventMapper(), tenantId(), limit);
     }
 
+    @Override
+    public Map<String, String> listPrivateTargetAllowlists() {
+        Map<String, String> allowlists = new LinkedHashMap<>();
+        jdbcTemplate.query("SELECT environment_id, entries FROM td_private_target_allowlist",
+                rs -> {
+                    allowlists.put(rs.getString(1), rs.getString(2));
+                });
+        return allowlists;
+    }
+
+    @Override
+    public void savePrivateTargetAllowlist(String environmentId, String entries) {
+        Timestamp now = Timestamp.from(Instant.now());
+        int rows = jdbcTemplate.update(
+                "UPDATE td_private_target_allowlist SET entries = ?, updated_at = ? WHERE environment_id = ?",
+                entries, now, environmentId);
+        if (rows == 0) {
+            try {
+                jdbcTemplate.update(
+                        "INSERT INTO td_private_target_allowlist (environment_id, entries, updated_at) VALUES (?, ?, ?)",
+                        environmentId, entries, now);
+            } catch (DuplicateKeyException ignored) {
+                // Another instance starting at the same time saved the same configuration.
+            }
+        }
+    }
+
+    @Override
+    public void deletePrivateTargetAllowlist(String environmentId) {
+        jdbcTemplate.update("DELETE FROM td_private_target_allowlist WHERE environment_id = ?", environmentId);
+    }
+
+    @Override
+    public Optional<EnvironmentOwner> findEnvironmentOwner(String environmentId) {
+        return jdbcTemplate.query(
+                """
+                SELECT s.tenant_id, e.name FROM td_environment e
+                  JOIN td_spec s ON s.spec_id = e.spec_id
+                 WHERE e.environment_id = ?
+                """,
+                (rs, rowNum) -> new EnvironmentOwner(rs.getString(1), rs.getString(2)), environmentId)
+                .stream().findFirst();
+    }
+
     private RowMapper<AuditEventView> auditEventMapper() {
         return (rs, rowNum) -> new AuditEventView(
                 rs.getString("event_id"),

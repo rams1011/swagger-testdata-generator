@@ -347,7 +347,8 @@ public class TestDataStudioService {
             log.info("Skipped {} for case {} because {} failed", trigger, testCase.getId(), failedPrior.testName());
             return skipped;
         }
-        RunTestResult result = scope.mask(testRunService.execute(testCase, request.auth(), variables, network));
+        RunTestResult result = scope.mask(testRunService.execute(testCase, request.auth(), variables, network,
+                outboundScope(testCase.getSpecId(), environmentId)));
         runHistoryService.recordSingle(trigger, environmentId, testCase, result);
         log.info("Finished {} for case {} passed={}", trigger, testCase.getId(), result.passed());
         return result;
@@ -371,7 +372,8 @@ public class TestDataStudioService {
                 continue;
             }
             RunTestResult priorResult = scope.mask(testRunService.execute(
-                    withLiveResponseSchema(applyOverlay(prior, environmentId)), auth, variables, network));
+                    withLiveResponseSchema(applyOverlay(prior, environmentId)), auth, variables, network,
+                    outboundScope(testCase.getSpecId(), environmentId)));
             runHistoryService.recordSingle(trigger, environmentId, prior, priorResult);
             if (!priorResult.passed()) {
                 return priorResult;
@@ -396,6 +398,7 @@ public class TestDataStudioService {
         RunVariables scope = runVariables(request.specId(), environmentId, request.secrets());
         Map<String, String> variables = scope.newScope();
         StudioEnvironmentNetwork network = network(request.specId(), environmentId);
+        OutboundUrlPolicy.Scope outboundScope = outboundScope(request.specId(), environmentId);
         PlanRun.Outcome outcome = PlanRun.execute(cases, new PlanRun.Actions() {
             @Override
             public boolean runnable(StudioTestCase testCase) {
@@ -408,7 +411,7 @@ public class TestDataStudioService {
             public RunTestResult execute(StudioTestCase testCase) {
                 return scope.mask(testRunService.execute(
                         withLiveResponseSchema(applyOverlay(testCase, environmentId)), request.auth(), variables,
-                        network));
+                        network, outboundScope));
             }
 
             @Override
@@ -1101,6 +1104,14 @@ public class TestDataStudioService {
     private StudioEnvironmentNetwork network(String specId, String environmentId) {
         StudioEnvironment environment = loadEnvironment(specId, environmentId);
         return environment == null ? null : environment.network();
+    }
+
+    /** Uses the loaded environment, so a request cannot claim the allowlist of an environment outside its spec or tenant. */
+    private OutboundUrlPolicy.Scope outboundScope(String specId, String environmentId) {
+        StudioEnvironment environment = loadEnvironment(specId, environmentId);
+        return environment == null
+                ? OutboundUrlPolicy.Scope.NONE
+                : new OutboundUrlPolicy.Scope(environmentId, environment.name());
     }
 
     private StudioEnvironment loadEnvironment(String specId, String environmentId) {

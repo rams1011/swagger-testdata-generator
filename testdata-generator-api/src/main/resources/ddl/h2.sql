@@ -495,3 +495,10 @@ CREATE INDEX IF NOT EXISTS ix_td_audit_tenant_spec_time
 
 CREATE INDEX IF NOT EXISTS ix_td_audit_tenant_resource_time
     ON td_audit_event (tenant_id, resource_type, resource_id, occurred_at DESC);
+
+CREATE TABLE IF NOT EXISTS td_private_target_allowlist (
+    environment_id VARCHAR(36)  NOT NULL,
+    entries        TEXT         NOT NULL,
+    updated_at     TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT pk_td_private_target_allowlist PRIMARY KEY (environment_id)
+);
