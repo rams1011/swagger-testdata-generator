@@ -95,7 +95,7 @@ class AssertionsGuideExamplesTest {
     void checkExamplesFail() {
         List<String> wrong = new ArrayList<>();
         fail(wrong, "$.items[?(@.code=='Nope')].name", "Test");
-        fail(wrong, "$.items", "op:containsObject:{\"roleId\":\"48\"}");
+        fail(wrong, "$.items", "op:containsObject:{\"roleId\":\"49\"}");
         fail(wrong, "$.items[0].name", "op:matches:es");
         fail(wrong, "$.missing", "op:ne:x");
         fail(wrong, "$.items[?(@.code=='TestCode')].permissions", "op:contains:WRITE");
@@ -125,8 +125,14 @@ class AssertionsGuideExamplesTest {
         assertEquals("$.owner: missing", lenient("{\"owner\":\"x\"}"));
         assertEquals("$.items: expected at least 4 items but was 3", lenient("{\"items\":[{},{},{},{}]}"));
         assertEquals(null, lenient("{\"items\":[{\"permissions\":[\"DELETE\"]}]}"));
-        assertEquals("$.roleId: expected \"48\" but was 48", JsonBodyMatcher.difference(
+        assertEquals(null, JsonBodyMatcher.difference(
                 JsonParser.parseString("{\"roleId\":\"48\"}"), JsonParser.parseString("{\"roleId\":48}"),
+                JsonBodyMatcher.Mode.STRICT));
+        assertEquals("$.roleId: expected 49 but was 48", JsonBodyMatcher.difference(
+                JsonParser.parseString("{\"roleId\":49}"), JsonParser.parseString("{\"roleId\":48}"),
+                JsonBodyMatcher.Mode.STRICT));
+        assertEquals("$.active: expected \"true\" but was true", JsonBodyMatcher.difference(
+                JsonParser.parseString("{\"active\":\"true\"}"), JsonParser.parseString("{\"active\":true}"),
                 JsonBodyMatcher.Mode.STRICT));
     }
 

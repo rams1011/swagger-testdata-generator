@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.service;
 
 import com.sun.net.httpserver.HttpServer;
+import com.tx.api.test.generator.studio.collection.StudioVariable;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AssertionCheck;
 import com.tx.api.test.generator.studio.dto.RunTestResult;
@@ -14,6 +15,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -80,6 +82,20 @@ class ExpectedBodyMatchTest {
         AssertionCheck failing = expectedBody(run("{\"items\":[{\"code\":\"Nope\"}]}", "lenient"));
         assertFalse(failing.passed());
         assertEquals("lenient · $.items: no item matches expected[0] {\"code\":\"Nope\"}", failing.path());
+    }
+
+    @Test
+    void aGlobalVariableHoldingANumberMatchesANumericField() {
+        Map<String, String> scope = RunVariables.of(null, List.of(new StudioVariable("roleId", "48", false)), null, null)
+                .newScope();
+        RunTestResult result = service.execute(testCase("{\"items\":[{\"roleId\":\"{{roleId}}\"}]}", "lenient"), null, scope);
+        assertTrue(result.passed(), String.valueOf(result.assertions()));
+
+        Map<String, String> wrong = RunVariables.of(null, List.of(new StudioVariable("total", "3", false)), null, null)
+                .newScope();
+        AssertionCheck failing = expectedBody(service.execute(testCase("{\"total\":\"{{total}}\"}", "lenient"), null, wrong));
+        assertFalse(failing.passed());
+        assertEquals("lenient · $.total: expected \"3\" but was 2", failing.path());
     }
 
     @Test
