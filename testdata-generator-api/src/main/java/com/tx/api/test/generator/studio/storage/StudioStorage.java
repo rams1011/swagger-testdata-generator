@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.storage;
 
+import com.tx.api.test.generator.studio.dto.CaseLastRunView;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
@@ -103,6 +104,11 @@ public interface StudioStorage {
 
     List<StudioTestCase> listTestCases(String specId, String planId, String operationKey);
 
+    /** Number of cases in a spec (all plans). */
+    default int countTestCases(String specId) {
+        return listTestCases(specId, null, null).size();
+    }
+
     void saveRequestFile(StudioRequestFile file);
 
     Optional<StudioRequestFile> findRequestFile(String testCaseId, String fileId);
@@ -124,6 +130,14 @@ public interface StudioStorage {
     List<StudioRun> listRuns(RunHistoryFilter filter);
 
     void deleteRun(String runId);
+
+    /**
+     * The newest recorded result per case for a spec (optionally one plan and environment), looking at the newest
+     * {@code scanLimit} results only.
+     */
+    default List<CaseLastRunView> latestCaseRuns(String specId, String planId, String environmentId, int scanLimit) {
+        return List.of();
+    }
 
     default int pruneOldestRuns(String specId, int keep) {
         return 0;

@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.api;
 
+import com.tx.api.test.generator.studio.dto.CaseLastRunView;
 import com.tx.api.test.generator.studio.dto.RunCompareView;
 import com.tx.api.test.generator.studio.dto.RunResultView;
 import com.tx.api.test.generator.studio.dto.RunView;
@@ -31,6 +32,13 @@ public class RunHistoryController {
                                   @RequestParam String rightRunId,
                                   @RequestParam String rightResultId) {
         return runHistoryService.compare(leftRunId, leftResultId, rightRunId, rightResultId);
+    }
+
+    @GetMapping("/latest-by-case")
+    public List<CaseLastRunView> latestByCase(@RequestParam String specId,
+                                              @RequestParam(required = false) String planId,
+                                              @RequestParam(required = false) String environmentId) {
+        return runHistoryService.latestByCase(specId, planId, environmentId);
     }
 
     @GetMapping

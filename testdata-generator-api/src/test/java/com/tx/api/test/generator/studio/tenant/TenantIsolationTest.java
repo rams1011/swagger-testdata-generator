@@ -224,6 +224,37 @@ class TenantIsolationTest {
     }
 
     @Test
+    void latestCaseRunsKeepsTheNewestResultPerCaseInTheWorkspace() {
+        var acme = authService.register(new RegisterRequest("qa@acme.test", "password1234", "Acme QA", "Acme"));
+        var globex = authService.register(new RegisterRequest("qa@globex.test", "password1234", "Globex QA", "Globex"));
+
+        TenantContext.runAs(acme.tenant().id(), () -> {
+            storage.saveSpec(spec("spec-acme", "employee-service"));
+            storage.savePlan(plan("plan-acme", "spec-acme"));
+            storage.saveTestCase(listCase("case-a", "spec-acme", "plan-acme"));
+            storage.saveTestCase(listCase("case-b", "spec-acme", "plan-acme"));
+            storage.saveRun(caseRun("run-old", "case-a", "passed", 200, "2026-01-15T12:00:00Z"));
+            storage.saveRun(caseRun("run-new", "case-a", "failed", 500, "2026-01-15T13:00:00Z"));
+            storage.saveRun(caseRun("run-b", "case-b", "passed", 201, "2026-01-15T12:30:00Z"));
+
+            var latest = storage.latestCaseRuns("spec-acme", "plan-acme", null, 100);
+            assertEquals(2, latest.size());
+            assertEquals("case-a", latest.get(0).caseId());
+            assertEquals("run-new", latest.get(0).runId());
+            assertEquals("failed", latest.get(0).outcome());
+            assertEquals(500, latest.get(0).actualStatus());
+            assertEquals(Instant.parse("2026-01-15T13:00:00Z"), latest.get(0).startedAt());
+            assertEquals("case-b", latest.get(1).caseId());
+            assertTrue(storage.latestCaseRuns("spec-acme", "other-plan", null, 100).isEmpty());
+            assertEquals(2, storage.countTestCases("spec-acme"));
+        });
+        TenantContext.runAs(globex.tenant().id(), () -> {
+            assertTrue(storage.latestCaseRuns("spec-acme", null, null, 100).isEmpty());
+            assertEquals(0, storage.countTestCases("spec-acme"));
+        });
+    }
+
+    @Test
     void healthIsPublicWhenLoginIsRequired() throws Exception {
         TenantFilter filter = new TenantFilter(properties, authService, new EntitlementService(
                 properties, new FixedProvider<>(new JdbcTenantStore(new JdbcTemplate(dataSource)))));
@@ -517,6 +548,34 @@ class TenantIsolationTest {
         result.setOutcome("passed");
         result.setCreatedAt(now);
         run.setResults(List.of(result));
+        return run;
+    }
+
+    private static StudioTestCase listCase(String id, String specId, String planId) {
+        StudioTestCase testCase = new StudioTestCase();
+        testCase.setId(id);
+        testCase.setSpecId(specId);
+        testCase.setPlanId(planId);
+        testCase.setOperationKey("GET /employees");
+        testCase.setTestName(id);
+        testCase.setMethod("GET");
+        testCase.setRawPath("/employees");
+        testCase.setEndpoint("/employees");
+        testCase.setStatusCode(200);
+        testCase.setEnabled("Y");
+        return testCase;
+    }
+
+    private static StudioRun caseRun(String runId, String caseId, String outcome, int status, String at) {
+        StudioRun run = run(runId, "spec-acme", runId + "-result");
+        run.setPlanId("plan-acme");
+        run.setStartedAt(Instant.parse(at));
+        StudioRunResult result = run.getResults().get(0);
+        result.setPlanId("plan-acme");
+        result.setCaseId(caseId);
+        result.setOutcome(outcome);
+        result.setActualStatus(status);
+        result.setCreatedAt(Instant.parse(at));
         return run;
     }
 

@@ -7,6 +7,7 @@ public final class CollectionFormat {
     public static final int VERSION = 1;
     public static final String JSON_MEDIA_TYPE = "application/json";
     public static final String ZIP_MEDIA_TYPE = "application/zip";
+    public static final String BASE_URL_KEY = "baseUrl";
     public static final String BASE_URL_PLACEHOLDER = "{{baseUrl}}";
 
     private CollectionFormat() {

@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.storage;
 
+import com.tx.api.test.generator.studio.dto.CaseLastRunView;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
@@ -647,6 +648,16 @@ public class JdbcStudioStorage implements StudioStorage {
     }
 
     @Override
+    public int countTestCases(String specId) {
+        Integer count = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*) FROM td_test_case c
+                  JOIN td_spec s ON s.spec_id = c.spec_id
+                 WHERE s.tenant_id = ? AND c.spec_id = ?
+                """, Integer.class, tenantId(), specId);
+        return count == null ? 0 : count;
+    }
+
+    @Override
     public List<StudioTestCase> listTestCases(String specId, String planId, String operationKey) {
         List<Object> args = new ArrayList<>();
         StringBuilder sql = new StringBuilder("""
@@ -1024,6 +1035,47 @@ public class JdbcStudioStorage implements StudioStorage {
         sql.append(" ORDER BY r.started_at DESC LIMIT ?");
         args.add(filter.limit());
         return jdbcTemplate.query(sql.toString(), runMapper(), args.toArray());
+    }
+
+    @Override
+    public List<CaseLastRunView> latestCaseRuns(String specId, String planId, String environmentId, int scanLimit) {
+        StringBuilder sql = new StringBuilder("""
+                SELECT rr.case_id, rr.run_id, rr.result_id, rr.run_trigger, rr.outcome, rr.actual_status, r.started_at
+                  FROM td_run_result rr
+                  JOIN td_run r ON r.run_id = rr.run_id
+                  JOIN td_spec s ON s.spec_id = r.spec_id
+                 WHERE r.spec_id = ? AND s.tenant_id = ? AND rr.case_id IS NOT NULL
+                """);
+        List<Object> args = new ArrayList<>();
+        args.add(specId);
+        args.add(tenantId());
+        if (hasText(planId)) {
+            sql.append(" AND r.plan_id = ?");
+            args.add(planId);
+        }
+        if (hasText(environmentId)) {
+            sql.append(" AND r.environment_id = ?");
+            args.add(environmentId);
+        }
+        sql.append(" ORDER BY r.started_at DESC, rr.created_at DESC LIMIT ?");
+        args.add(Math.max(1, scanLimit));
+        Map<String, CaseLastRunView> latest = new LinkedHashMap<>();
+        jdbcTemplate.query(sql.toString(), (rs, rowNum) -> {
+            String caseId = rs.getString("case_id");
+            if (!latest.containsKey(caseId)) {
+                int status = rs.getInt("actual_status");
+                latest.put(caseId, new CaseLastRunView(
+                        caseId,
+                        rs.getString("run_id"),
+                        rs.getString("result_id"),
+                        rs.getString("run_trigger"),
+                        rs.getString("outcome"),
+                        rs.wasNull() ? null : status,
+                        toInstant(rs, "started_at")));
+            }
+            return null;
+        }, args.toArray());
+        return List.copyOf(latest.values());
     }
 
     @Override

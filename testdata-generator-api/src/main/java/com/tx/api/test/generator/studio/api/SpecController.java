@@ -10,6 +10,7 @@ import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
 import com.tx.api.test.generator.studio.dto.ReloadSpecResult;
 import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
 import com.tx.api.test.generator.studio.dto.SpecListPage;
+import com.tx.api.test.generator.studio.dto.SpecActivityView;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
 import com.tx.api.test.generator.studio.storage.SpecListFilter;
 import com.tx.api.test.generator.studio.service.SpecCatalogService;
@@ -106,6 +107,15 @@ public class SpecController {
             return specCatalogService.list();
         }
         return specCatalogService.listPage(filter);
+    }
+
+    /** Case count, environment count and newest run for each id in {@code ids} (comma separated). */
+    @GetMapping("/activity")
+    public List<SpecActivityView> activity(@RequestParam("ids") String ids) {
+        return testDataStudioService.specActivity(java.util.Arrays.stream(ids.split(","))
+                .map(String::trim)
+                .filter(id -> !id.isEmpty())
+                .toList());
     }
 
     @GetMapping("/{specId}")

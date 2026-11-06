@@ -49,7 +49,7 @@ class CollectionMapperTest {
         assertEquals("roleId=$.roleId", snapshot.cases().get(0).getExtracts());
         assertEquals("{{roleId}}", snapshot.cases().get(1).getPathParams().get("id"));
         assertEquals("ADMIN", ((Map<?, ?>) snapshot.cases().get(0).getRequestBody()).get("code"));
-        assertEquals("http://localhost:8080/employee-service", snapshot.cases().get(0).getBaseUrl());
+        assertEquals("{{baseUrl}}", snapshot.cases().get(0).getBaseUrl());
     }
 
     @Test

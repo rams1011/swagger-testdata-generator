@@ -304,6 +304,30 @@ class NetworkAndAuthRunTest {
         assertNull(cleared.network());
     }
 
+    @Test
+    void sendFailuresSayWhy() throws IOException {
+        int closedPort;
+        try (var socket = new java.net.ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"))) {
+            closedPort = socket.getLocalPort();
+        }
+        StudioTestCase refused = get("/x", 200);
+        refused.setBaseUrl("http://127.0.0.1:" + closedPort);
+        String error = service.execute(refused, null, new LinkedHashMap<>(), null).error();
+        assertTrue(error.startsWith("Connection refused by 127.0.0.1:" + closedPort), error);
+
+        assertEquals("Host not found: api.example.test. Check the base URL and the selected environment.",
+                TestRunService.sendFailure(new java.net.ConnectException("x") {{
+                    initCause(new java.nio.channels.UnresolvedAddressException());
+                }}, "https://api.example.test/orders?token=secret", null));
+        assertTrue(TestRunService.sendFailure(new java.io.IOException("Connection reset"), "http://h:8080/a", null)
+                .contains("expects HTTPS instead of HTTP"));
+        assertEquals("The proxy refused the connection to h:443 (HTTP 403). Check the environment's proxy "
+                + "setting or the server's proxy rules.",
+                TestRunService.sendFailure(new java.io.IOException("Tunnel failed, got: 403"), "https://h/a", null));
+        assertEquals("The request to h:443 could not be sent.",
+                TestRunService.sendFailure(new IllegalStateException("odd"), "https://h/a", null));
+    }
+
     private StudioTestCase get(String path, int status) {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setTestName("case " + path);
