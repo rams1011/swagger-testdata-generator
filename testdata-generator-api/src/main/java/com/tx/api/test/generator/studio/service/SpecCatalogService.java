@@ -31,6 +31,10 @@ import org.springframework.stereotype.Service;
 
 import jakarta.annotation.PostConstruct;
 import org.springframework.context.annotation.DependsOn;
+import java.io.IOException;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -48,7 +52,9 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SpecCatalogService {
 
     private static final Logger log = LoggerFactory.getLogger(SpecCatalogService.class);
+    private static final Duration SPEC_DOWNLOAD_TIMEOUT = Duration.ofSeconds(30);
 
+    private final NetworkClients networkClients = new NetworkClients();
     private final StudioStorage studioStorage;
     private final EntitlementService entitlements;
     private final StudioAuditService auditService;
@@ -468,13 +474,46 @@ public class SpecCatalogService {
         return null;
     }
 
+    /** Connects to the address the policy validated. Redirects are not followed. */
     private String readAllowedLocation(String location) {
-        SpecLocationGuard.check(location, outboundUrlPolicy);
+        OutboundUrlPolicy.Target target = SpecLocationGuard.check(location, outboundUrlPolicy);
+        auditPrivateDownload(target);
         try {
-            return TestdataGenerator.readSpecText(location.trim());
-        } catch (RuntimeException exception) {
+            HttpRequest request = HttpRequest.newBuilder(target.uri())
+                    .timeout(SPEC_DOWNLOAD_TIMEOUT)
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> response = networkClients.channel(null, null).send(request, null, target);
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalArgumentException("The spec could not be downloaded.");
+            }
+            return new String(response.body(),
+                    TestRunService.charsetOf(response.headers().firstValue("Content-Type").orElse(null)));
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalArgumentException("The spec could not be downloaded.");
+        } catch (IOException | RuntimeException exception) {
             log.warn("Spec download failed", exception);
             throw new IllegalArgumentException("The spec could not be downloaded.");
+        }
+    }
+
+    /** A failed audit write is logged and does not fail the download, as with run requests. */
+    private void auditPrivateDownload(OutboundUrlPolicy.Target target) {
+        if (target.privateRule() == null) {
+            return;
+        }
+        log.info("Allowed spec download from private target {}:{} by rule {}", target.host(), target.port(),
+                target.privateRule());
+        if (auditService == null) {
+            return;
+        }
+        try {
+            auditService.recordPrivateSpecDownload(target.host(), target.port(),
+                    target.address() == null ? null : target.address().getHostAddress(), target.privateRule());
+        } catch (RuntimeException exception) {
+            log.warn("Could not write the audit entry for private spec download from {}:{}: {}", target.host(),
+                    target.port(), exception.toString());
         }
     }
 

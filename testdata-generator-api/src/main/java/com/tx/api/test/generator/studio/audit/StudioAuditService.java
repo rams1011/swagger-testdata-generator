@@ -146,6 +146,12 @@ public class StudioAuditService {
                         + ", allowed by " + rule);
     }
 
+    public void recordPrivateSpecDownload(String host, int port, String address, String rule) {
+        append(null, AuditResourceType.OUTBOUND_TARGET, "spec-import", AuditAction.PRIVATE_TARGET_ALLOWED,
+                "Spec download from private target " + host + ":" + port
+                        + (address == null ? "" : " (" + address + ")") + ", allowed by " + rule);
+    }
+
     /** {@code tenantId} owns the environment. The change came from server configuration, so there is no account. */
     public void recordAllowlistChanged(String tenantId, String environmentId, String environmentName,
                                        List<String> added, List<String> removed) {

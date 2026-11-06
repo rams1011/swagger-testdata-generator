@@ -18,7 +18,8 @@ public final class SpecLocationGuard {
                 || trimmed.regionMatches(true, 0, "https://", 0, "https://".length());
     }
 
-    public static void check(String location, OutboundUrlPolicy policy) {
+    /** Returns the validated target. The download must connect to its address rather than resolve the host again. */
+    public static OutboundUrlPolicy.Target check(String location, OutboundUrlPolicy policy) {
         if (location == null || location.isBlank()) {
             throw new IllegalArgumentException("Spec location is required.");
         }
@@ -28,7 +29,7 @@ public final class SpecLocationGuard {
         if (policy == null) {
             throw new IllegalArgumentException("Spec location is not allowed.");
         }
-        policy.check(location.trim());
+        return policy.check(location.trim(), OutboundUrlPolicy.Scope.SPEC_IMPORT);
     }
 
     /** Value safe to store and return. Server file paths are omitted. */

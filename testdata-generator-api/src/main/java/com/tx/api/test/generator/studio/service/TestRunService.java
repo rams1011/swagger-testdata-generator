@@ -927,7 +927,7 @@ public class TestRunService {
         return null;
     }
 
-    private static Charset charsetOf(String contentType) {
+    static Charset charsetOf(String contentType) {
         if (StringUtils.isBlank(contentType)) {
             return StandardCharsets.UTF_8;
         }

@@ -496,10 +496,12 @@ public class OutboundUrlPolicy {
     /** The environment a request runs in. Build it only from an environment the caller's tenant owns. */
     public record Scope(String environmentId, String environmentName) {
         public static final Scope NONE = new Scope(null, null);
+        /** Spec import has no environment, so no environment's allowlist applies to it. */
+        public static final Scope SPEC_IMPORT = new Scope(null, "spec import");
 
         String label() {
             if (environmentId == null) {
-                return "no environment selected";
+                return environmentName == null ? "no environment selected" : environmentName;
             }
             String name = environmentName == null ? environmentId : display(environmentName);
             return "environment \"" + name + "\"";
