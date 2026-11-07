@@ -37,6 +37,16 @@ public class StudioAuditService {
                 summary(testCase.getTestName(), "updated"));
     }
 
+    public void recordCaseDraftSaved(StudioTestCase testCase) {
+        append(testCase.getSpecId(), AuditResourceType.CASE, testCase.getId(), AuditAction.UPDATED,
+                summary(testCase.getTestName(), "draft changes saved"));
+    }
+
+    public void recordCaseDraftDiscarded(StudioTestCase testCase) {
+        append(testCase.getSpecId(), AuditResourceType.CASE, testCase.getId(), AuditAction.UPDATED,
+                summary(testCase.getTestName(), "draft changes discarded"));
+    }
+
     public void recordCaseDeleted(String specId, String caseId, String testName) {
         append(specId, AuditResourceType.CASE, caseId, AuditAction.DELETED,
                 summary(testName, "deleted"));

@@ -1,5 +1,7 @@
 package com.tx.api.test.generator.studio.service;
 
+import com.tx.api.test.generator.studio.model.StudioCaseDraft;
+import com.tx.api.test.generator.studio.audit.CaseAudit;
 import com.google.gson.Gson;
 import com.tx.api.test.generator.studio.config.StudioDatasourceSettings;
 import com.tx.api.test.generator.studio.config.StudioProperties;
@@ -44,7 +46,6 @@ import com.tx.api.test.generator.studio.dto.TestCaseView;
 import com.tx.api.test.generator.studio.dto.TestPlanView;
 import com.tx.api.test.generator.studio.collection.StudioEnvironmentNetwork;
 import com.tx.api.test.generator.studio.model.CaseLifecycle;
-import com.tx.api.test.generator.studio.model.PublishPolicy;
 import com.tx.api.test.generator.studio.model.LoadedSpec;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
@@ -161,7 +162,6 @@ public class TestDataStudioService {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setId(UUID.randomUUID().toString());
         apply(testCase, request, true);
-        assertPublisherWhenReady(testCase);
         RequestFileSupport.stampTestCaseId(testCase.getRequestBody(), testCase.getId());
         studioStorage.saveTestCase(testCase);
         bindCaseFiles(testCase);
@@ -176,10 +176,18 @@ public class TestDataStudioService {
         String environmentId = request == null ? null : request.environmentId();
         StudioTestCase base = requireCase(id);
         boolean wasDraft = CaseLifecycle.isDraft(base);
+        StudioCaseDraft draft = wasDraft ? null : studioStorage.findCaseDraft(id).orElse(null);
+        if (!wasDraft && requestsDraft(request)) {
+            return saveDraftChanges(base, draft, request, environmentId);
+        }
         assertCaseRevision(base, request, environmentId);
+        boolean publishing = !wasDraft && requestsPublish(request);
+        if (publishing) {
+            assertDraftUnchanged(base, draft, request, environmentId);
+            assertPublishedUnchanged(base, draft, request, environmentId);
+        }
         StudioTestCase testCase = applyOverlay(base, environmentId);
         apply(testCase, request, false);
-        assertPublisherWhenReady(testCase);
         applyCaseWriteOptionsForSave(testCase, request);
         RequestFileSupport.stampTestCaseId(testCase.getRequestBody(), testCase.getId());
         try {
@@ -191,10 +199,108 @@ public class TestDataStudioService {
         bindCaseFiles(testCase);
         saveOverlay(testCase, request);
         auditService.recordCaseUpdated(testCase);
-        auditPublished(testCase, wasDraft);
+        auditPublished(testCase, wasDraft || (publishing && draft != null));
         StudioTestCase persisted = requireCase(id);
+        if (draft != null && (publishing || Boolean.TRUE.equals(request.keepDraft()))) {
+            settleDraft(draft, persisted, publishing);
+        }
         log.info("Updated case {} ({}) on spec {}", persisted.getId(), persisted.getTestName(), persisted.getSpecId());
         return toView(persisted, environmentId);
+    }
+
+    /** Saves changes to a published case beside it: runs, export and CI keep using the published version. */
+    private TestCaseView saveDraftChanges(StudioTestCase base, StudioCaseDraft existing, SaveTestDataRequest request,
+                                          String environmentId) {
+        assertDraftUnchanged(base, existing, request, environmentId);
+        StudioTestCase preview = EnvironmentOverlay.copy(applyOverlay(base, environmentId));
+        apply(preview, request, false);
+        RequestFileSupport.stampTestCaseId(preview.getRequestBody(), base.getId());
+        CaseAudit.stampUpdate(preview, Instant.now());
+        StudioCaseDraft draft = new StudioCaseDraft();
+        draft.setTestCaseId(base.getId());
+        draft.setDocumentJson(CaseDraftDocument.write(request));
+        draft.setBaseUpdatedAt(existing == null ? base.getUpdatedAt() : existing.getBaseUpdatedAt());
+        draft.setUpdatedAt(preview.getUpdatedAt());
+        draft.setUpdatedByLabel(preview.getUpdatedByLabel());
+        studioStorage.saveCaseDraft(draft);
+        removeAbandonedDraftFiles(existing, base.getId(), base.getRequestBody(), request.requestBody());
+        auditService.recordCaseDraftSaved(base);
+        log.info("Saved draft changes to case {} ({})", base.getId(), base.getTestName());
+        return toView(base, environmentId);
+    }
+
+    /** Throws the draft changes away. The published version was never touched. */
+    public TestCaseView discardDraft(String id, String environmentId) {
+        StudioTestCase base = requireCase(id);
+        StudioCaseDraft draft = studioStorage.findCaseDraft(id).orElse(null);
+        if (draft != null) {
+            studioStorage.deleteCaseDraft(id);
+            removeAbandonedDraftFiles(draft, id, base.getRequestBody());
+            auditService.recordCaseDraftDiscarded(base);
+            log.info("Discarded draft changes to case {} ({})", id, base.getTestName());
+        }
+        return toView(base, environmentId);
+    }
+
+    private void settleDraft(StudioCaseDraft draft, StudioTestCase persisted, boolean publishing) {
+        if (publishing) {
+            studioStorage.deleteCaseDraft(persisted.getId());
+            removeAbandonedDraftFiles(draft, persisted.getId(), persisted.getRequestBody());
+            return;
+        }
+        // A setting such as Enabled changed, not the content, so the draft still applies.
+        draft.setBaseUpdatedAt(persisted.getUpdatedAt());
+        studioStorage.saveCaseDraft(draft);
+    }
+
+    /** A file uploaded for draft changes goes when nothing refers to it any more, or an export would carry it. */
+    private void removeAbandonedDraftFiles(StudioCaseDraft draft, String caseId, Object... keptBodies) {
+        if (draft == null) {
+            return;
+        }
+        Set<String> kept = new LinkedHashSet<>();
+        for (Object body : keptBodies) {
+            kept.addAll(CaseDraftDocument.bodyFileIds(body));
+        }
+        for (String fileId : CaseDraftDocument.fileIds(draft.getDocumentJson())) {
+            if (!kept.contains(fileId)) {
+                studioStorage.deleteRequestFile(caseId, fileId);
+            }
+        }
+    }
+
+    private static boolean requestsDraft(SaveTestDataRequest request) {
+        return request != null && StringUtils.isNotBlank(request.lifecycle())
+                && CaseLifecycle.DRAFT.equals(CaseLifecycle.normalize(request.lifecycle()));
+    }
+
+    private static boolean requestsPublish(SaveTestDataRequest request) {
+        return request != null && !Boolean.TRUE.equals(request.keepDraft())
+                && StringUtils.isNotBlank(request.lifecycle())
+                && CaseLifecycle.READY.equals(CaseLifecycle.normalize(request.lifecycle()));
+    }
+
+    private void assertDraftUnchanged(StudioTestCase base, StudioCaseDraft draft, SaveTestDataRequest request,
+                                      String environmentId) {
+        if (draft == null || OptimisticConcurrency.force(request.forceOverwrite())) {
+            return;
+        }
+        Instant expected = OptimisticConcurrency.parse(request.expectedDraftUpdatedAt());
+        if (!OptimisticConcurrency.same(draft.getUpdatedAt(), expected)) {
+            throw new ConflictException("Someone else saved draft changes to this case. Reload their copy or overwrite.",
+                    toView(base, environmentId));
+        }
+    }
+
+    private void assertPublishedUnchanged(StudioTestCase base, StudioCaseDraft draft, SaveTestDataRequest request,
+                                          String environmentId) {
+        if (draft == null || OptimisticConcurrency.force(request.forceOverwrite())) {
+            return;
+        }
+        if (!OptimisticConcurrency.same(draft.getBaseUpdatedAt(), base.getUpdatedAt())) {
+            throw new ConflictException("The published version changed after these draft changes were started. "
+                    + "Reload to review it, or overwrite it with your changes.", toView(base, environmentId));
+        }
     }
 
     public List<AuditEventView> caseAuditHistory(String caseId, int limit) {
@@ -304,9 +410,18 @@ public class TestDataStudioService {
         }
         StudioEnvironment environment = loadEnvironment(specId, environmentId);
         String environmentName = environment == null ? null : environment.name();
-        return studioStorage.listTestCases(specId, planId, operationKey).stream()
+        List<StudioTestCase> cases = studioStorage.listTestCases(specId, planId, operationKey).stream()
                 .filter(testCase -> EnvironmentScope.visible(testCase.getEnvironments(), environmentName))
-                .map(testCase -> toView(testCase, environment))
+                .toList();
+        if (StringUtils.isBlank(specId)) {
+            return cases.stream().map(testCase -> toView(testCase, environment)).toList();
+        }
+        Map<String, StudioCaseDraft> drafts = new LinkedHashMap<>();
+        for (StudioCaseDraft draft : studioStorage.listCaseDrafts(specId)) {
+            drafts.put(draft.getTestCaseId(), draft);
+        }
+        return cases.stream()
+                .map(testCase -> toView(testCase, environment, drafts.get(testCase.getId())))
                 .toList();
     }
 
@@ -521,7 +636,7 @@ public class TestDataStudioService {
         }
         String environmentName = environmentName(specId, environmentId);
         CollectionImportResult imported = CollectionImporter.importInto(
-                studioStorage, bytes, fileName, specId, environmentName, canPublish());
+                studioStorage, bytes, fileName, specId, environmentName);
         log.info("Imported collection into spec {} plan {} (created={}, updated={}, files={})",
                 imported.specName(), imported.planName(), imported.createdCases(), imported.updatedCases(),
                 imported.importedFiles());
@@ -770,6 +885,7 @@ public class TestDataStudioService {
             throw new IllegalArgumentException("File is larger than 20MB");
         }
         StudioTestCase testCase = requireCase(caseId);
+        boolean published = !CaseLifecycle.isDraft(testCase);
         StudioRequestFile file = new StudioRequestFile();
         file.setFileId(UUID.randomUUID().toString());
         file.setTestCaseId(testCase.getId());
@@ -780,6 +896,10 @@ public class TestDataStudioService {
         file.setSizeBytes(content.length);
         file.setCreatedAt(Instant.now());
         studioStorage.saveRequestFile(file);
+        if (published) {
+            // The file only reaches the case when draft changes referring to it are published.
+            return toFileView(file, testCase.getUpdatedAt());
+        }
         Object body = RequestFileSupport.putFileRef(testCase.getRequestBody(), partName, file);
         testCase.setRequestBody(body);
         if (!RequestFileSupport.isMultipartContentType(testCase.getContentType())) {
@@ -894,6 +1014,34 @@ public class TestDataStudioService {
     }
 
     private TestCaseView toView(StudioTestCase testCase, StudioEnvironment environment) {
+        StudioCaseDraft draft = testCase == null || CaseLifecycle.isDraft(testCase) ? null
+                : studioStorage.findCaseDraft(testCase.getId()).orElse(null);
+        return toView(testCase, environment, draft);
+    }
+
+    private TestCaseView toView(StudioTestCase testCase, StudioEnvironment environment, StudioCaseDraft draft) {
+        return publishedView(testCase, environment, draft != null, draft == null ? null : draftView(testCase, draft));
+    }
+
+    /** What the editor shows for a case with draft changes; null if they no longer apply, say to a removed operation. */
+    private TestCaseView draftView(StudioTestCase testCase, StudioCaseDraft draft) {
+        try {
+            StudioTestCase preview = EnvironmentOverlay.copy(testCase);
+            apply(preview, CaseDraftDocument.read(draft.getDocumentJson()), false);
+            preview.setId(testCase.getId());
+            preview.setEnabled(testCase.getEnabled());
+            preview.setLifecycle(testCase.getLifecycle());
+            preview.setUpdatedAt(draft.getUpdatedAt());
+            preview.setUpdatedByLabel(draft.getUpdatedByLabel());
+            return publishedView(preview, null, true, null);
+        } catch (IllegalArgumentException | IllegalStateException | NoSuchElementException exception) {
+            log.warn("Draft changes to case {} could not be shown: {}", testCase.getId(), exception.getMessage());
+            return null;
+        }
+    }
+
+    private TestCaseView publishedView(StudioTestCase testCase, StudioEnvironment environment, boolean hasDraft,
+                                       TestCaseView draft) {
         boolean hasOverlay = environment != null && EnvironmentOverlay.hasOverlay(environment, testCase.getId());
         StudioTestCase view = hasOverlay
                 ? EnvironmentOverlay.merge(testCase, environment.caseOverlays().get(testCase.getId()))
@@ -931,7 +1079,9 @@ public class TestDataStudioService {
                 testCase.getCreatedAt(),
                 testCase.getUpdatedAt(),
                 testCase.getCreatedByLabel(),
-                testCase.getUpdatedByLabel()
+                testCase.getUpdatedByLabel(),
+                hasDraft,
+                draft
         );
     }
 
@@ -968,19 +1118,6 @@ public class TestDataStudioService {
         throw new IllegalStateException(environmentName == null
                 ? "No published test cases have been saved for this plan yet"
                 : "No published test cases in environment '" + environmentName + "' for this plan");
-    }
-
-    private void assertPublisherWhenReady(StudioTestCase testCase) {
-        if (testCase == null || CaseLifecycle.isDraft(testCase) || canPublish()) {
-            return;
-        }
-        throw new ForbiddenException("An owner or admin has to publish a case");
-    }
-
-    private boolean canPublish() {
-        TenantContext.Scope scope = TenantContext.current();
-        String role = scope == null ? null : scope.role();
-        return PublishPolicy.allows(properties.isAuthEnabled(), role);
     }
 
     private void auditPublished(StudioTestCase testCase, boolean wasDraftOrNew) {

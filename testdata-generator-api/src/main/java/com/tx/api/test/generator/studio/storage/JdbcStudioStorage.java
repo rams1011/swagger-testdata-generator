@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.storage;
 import com.tx.api.test.generator.studio.dto.CaseLastRunView;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
+import com.tx.api.test.generator.studio.model.StudioCaseDraft;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
 import com.tx.api.test.generator.studio.model.StudioRunResult;
@@ -484,6 +485,108 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public void saveTestCase(StudioTestCase testCase) {
+        writeTestCase(testCase);
+        if (!com.tx.api.test.generator.studio.model.CaseLifecycle.isDraft(testCase)) {
+            recordPublishedVersion(testCase);
+        }
+    }
+
+    /** A copy of each published state, so a change can be looked up or undone later. */
+    private void recordPublishedVersion(StudioTestCase testCase) {
+        Map<String, Object> document = new LinkedHashMap<>();
+        document.put("testName", testCase.getTestName());
+        document.put("method", testCase.getMethod());
+        document.put("rawPath", testCase.getRawPath());
+        document.put("endpoint", testCase.getEndpoint());
+        document.put("baseUrl", testCase.getBaseUrl());
+        document.put("contentType", testCase.getContentType());
+        document.put("pathParams", testCase.getPathParams());
+        document.put("queryParams", testCase.getQueryParams());
+        document.put("headers", testCase.getHeaders());
+        document.put("cookieParams", testCase.getCookieParams());
+        document.put("requestBody", testCase.getRequestBody());
+        document.put("statusCode", testCase.getStatusCode());
+        document.put("responseType", testCase.getResponseType());
+        document.put("expectedResponse", testCase.getExpectedResponse());
+        document.put("responseMatch", testCase.getResponseMatch());
+        document.put("ignoreFields", testCase.getIgnoreFields());
+        document.put("auth", com.tx.api.test.generator.studio.service.CaseAuth.toJson(testCase.getAuth()));
+        document.put("enabled", testCase.getEnabled());
+        document.put("testGroup", testCase.getTestGroup());
+        document.put("jsonPathAssertions", testCase.getJsonPathAssertions());
+        document.put("extracts", testCase.getExtracts());
+        document.put("maxResponseTimeMs", testCase.getMaxResponseTimeMs());
+        document.put("environments", testCase.getEnvironments());
+        jdbcTemplate.update("""
+                INSERT INTO td_test_case_version (version_id, test_case_id, document_json, published_at, published_by_label)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                java.util.UUID.randomUUID().toString(), testCase.getId(), JsonMaps.toJson(document),
+                Timestamp.from(com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(Instant.now())),
+                testCase.getUpdatedByLabel());
+    }
+
+    @Override
+    public Optional<StudioCaseDraft> findCaseDraft(String testCaseId) {
+        if (testCaseId == null) {
+            return Optional.empty();
+        }
+        return jdbcTemplate.query("""
+                SELECT d.* FROM td_test_case_draft d
+                  JOIN td_test_case c ON c.test_case_id = d.test_case_id
+                  JOIN td_spec s ON s.spec_id = c.spec_id
+                 WHERE d.test_case_id = ? AND s.tenant_id = ?
+                """, caseDraftMapper(), testCaseId, tenantId()).stream().findFirst();
+    }
+
+    @Override
+    public List<StudioCaseDraft> listCaseDrafts(String specId) {
+        return jdbcTemplate.query("""
+                SELECT d.* FROM td_test_case_draft d
+                  JOIN td_test_case c ON c.test_case_id = d.test_case_id
+                  JOIN td_spec s ON s.spec_id = c.spec_id
+                 WHERE c.spec_id = ? AND s.tenant_id = ?
+                """, caseDraftMapper(), specId, tenantId());
+    }
+
+    @Override
+    public void saveCaseDraft(StudioCaseDraft draft) {
+        requireOwnedTestCase(draft.getTestCaseId());
+        Timestamp base = draft.getBaseUpdatedAt() == null ? null : Timestamp.from(draft.getBaseUpdatedAt());
+        Timestamp updated = Timestamp.from(draft.getUpdatedAt());
+        int changed = jdbcTemplate.update("""
+                UPDATE td_test_case_draft
+                   SET document_json = ?, base_updated_at = ?, updated_at = ?, updated_by_label = ?
+                 WHERE test_case_id = ?
+                """, draft.getDocumentJson(), base, updated, draft.getUpdatedByLabel(), draft.getTestCaseId());
+        if (changed == 0) {
+            jdbcTemplate.update("""
+                    INSERT INTO td_test_case_draft (test_case_id, document_json, base_updated_at, updated_at, updated_by_label)
+                    VALUES (?, ?, ?, ?, ?)
+                    """, draft.getTestCaseId(), draft.getDocumentJson(), base, updated, draft.getUpdatedByLabel());
+        }
+    }
+
+    @Override
+    public void deleteCaseDraft(String testCaseId) {
+        requireOwnedTestCase(testCaseId);
+        jdbcTemplate.update("DELETE FROM td_test_case_draft WHERE test_case_id = ?", testCaseId);
+    }
+
+    private static org.springframework.jdbc.core.RowMapper<StudioCaseDraft> caseDraftMapper() {
+        return (rs, rowNum) -> {
+            StudioCaseDraft draft = new StudioCaseDraft();
+            draft.setTestCaseId(rs.getString("test_case_id"));
+            draft.setDocumentJson(rs.getString("document_json"));
+            Timestamp base = rs.getTimestamp("base_updated_at");
+            draft.setBaseUpdatedAt(base == null ? null : base.toInstant());
+            draft.setUpdatedAt(rs.getTimestamp("updated_at").toInstant());
+            draft.setUpdatedByLabel(rs.getString("updated_by_label"));
+            return draft;
+        };
+    }
+
+    private void writeTestCase(StudioTestCase testCase) {
         requireOwnedSpec(testCase.getSpecId());
         boolean exists = findTestCase(testCase.getId()).isPresent();
         Instant now = Instant.now();

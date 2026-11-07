@@ -29,6 +29,8 @@ public record SaveTestDataRequest(
         String environmentId,
         java.util.List<String> environments,
         String expectedUpdatedAt,
-        Boolean forceOverwrite
+        Boolean forceOverwrite,
+        String expectedDraftUpdatedAt,
+        Boolean keepDraft
 ) {
 }

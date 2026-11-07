@@ -660,3 +660,34 @@ BEGIN
         CONSTRAINT pk_td_private_target_allowlist PRIMARY KEY (environment_id)
     );
 END;
+
+/* ---------- td_test_case_draft ---------- */
+IF OBJECT_ID(N'dbo.td_test_case_draft', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.td_test_case_draft (
+        test_case_id     VARCHAR(36)   NOT NULL,
+        document_json    NVARCHAR(MAX) NOT NULL,
+        base_updated_at  DATETIME2(3)  NULL,
+        updated_at       DATETIME2(3)  NOT NULL CONSTRAINT DF_td_test_case_draft_updated_at DEFAULT (SYSUTCDATETIME()),
+        updated_by_label NVARCHAR(255) NULL,
+        CONSTRAINT pk_td_test_case_draft PRIMARY KEY (test_case_id),
+        CONSTRAINT fk_td_test_case_draft_case FOREIGN KEY (test_case_id)
+            REFERENCES dbo.td_test_case (test_case_id) ON DELETE CASCADE
+    );
+END;
+
+/* ---------- td_test_case_version ---------- */
+IF OBJECT_ID(N'dbo.td_test_case_version', N'U') IS NULL
+BEGIN
+    CREATE TABLE dbo.td_test_case_version (
+        version_id         VARCHAR(36)   NOT NULL,
+        test_case_id       VARCHAR(36)   NOT NULL,
+        document_json      NVARCHAR(MAX) NOT NULL,
+        published_at       DATETIME2(3)  NOT NULL CONSTRAINT DF_td_test_case_version_published_at DEFAULT (SYSUTCDATETIME()),
+        published_by_label NVARCHAR(255) NULL,
+        CONSTRAINT pk_td_test_case_version PRIMARY KEY (version_id),
+        CONSTRAINT fk_td_test_case_version_case FOREIGN KEY (test_case_id)
+            REFERENCES dbo.td_test_case (test_case_id) ON DELETE CASCADE
+    );
+    CREATE INDEX ix_td_test_case_version_case ON dbo.td_test_case_version (test_case_id, published_at);
+END;

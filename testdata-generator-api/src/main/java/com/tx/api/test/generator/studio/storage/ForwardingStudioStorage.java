@@ -6,6 +6,7 @@ import com.tx.api.test.generator.studio.audit.AuditResourceType;
 import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
+import com.tx.api.test.generator.studio.model.StudioCaseDraft;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
 import com.tx.api.test.generator.studio.model.StudioRunResult;
@@ -147,6 +148,26 @@ abstract class ForwardingStudioStorage implements StudioStorage {
     @Override
     public List<StudioTestCase> listTestCases(String specId, String planId, String operationKey) {
         return delegate.listTestCases(specId, planId, operationKey);
+    }
+
+    @Override
+    public Optional<StudioCaseDraft> findCaseDraft(String testCaseId) {
+        return delegate.findCaseDraft(testCaseId);
+    }
+
+    @Override
+    public List<StudioCaseDraft> listCaseDrafts(String specId) {
+        return delegate.listCaseDrafts(specId);
+    }
+
+    @Override
+    public void saveCaseDraft(StudioCaseDraft draft) {
+        delegate.saveCaseDraft(draft);
+    }
+
+    @Override
+    public void deleteCaseDraft(String testCaseId) {
+        delegate.deleteCaseDraft(testCaseId);
     }
 
     @Override

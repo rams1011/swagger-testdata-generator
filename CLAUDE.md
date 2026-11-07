@@ -72,6 +72,10 @@ Key tests: `RunVariablesTest`, `EnvironmentImportTest` (variables round-trip), `
 - XPath: `xpath:<expr>=<check>` rows in `jsonPathAssertions` go to `XPathEvaluator` (secure DOM, no namespaces; nodes → value/list, then `JsonPathEvaluator.checkRead`).
 - User guide: `D:\code\testdata-studio-ui\docs\ASSERTIONS.md`; `AssertionsGuideExamplesTest` verifies its examples. api-automation mirrors `JsonBodyMatcher` and the operators.
 
+## Drafts of published cases
+
+Editing a published case and saving a draft (`lifecycle: DRAFT` on PUT) never touches `td_test_case`: the request is stored in `td_test_case_draft` (Flyway **V16**), so Run plan, single-case Run, export and api-automation's JDBC read keep the published version. `lifecycle: READY` publishes and clears the draft; `keepDraft: true` changes a setting such as Enabled and leaves it; `DELETE /api/testdata/{id}/draft` discards it; import replaces the case and clears it. Publishing checks `expectedDraftUpdatedAt` and that the published version hasn't moved on (`base_updated_at`), and answers 409 otherwise. `TestCaseView` carries `hasDraft` and `draft`. A file uploaded to a published case waits for a draft to refer to it; export leaves out draft-only files (`CollectionMapper`). Every published state is copied to `td_test_case_version` (`JdbcStudioStorage.saveTestCase`), with no restore yet. Anyone signed in to a workspace can publish.
+
 ## Runs and entitlements
 
 - Single case / try: `TestDataStudioService.run(RunTestRequest)`.
@@ -81,7 +85,7 @@ Key tests: `RunVariablesTest`, `EnvironmentImportTest` (variables round-trip), `
 - OAuth: `OAuthTokenCache` (in memory, SHA-256 key incl. secrets and `RunAuth.scope`, `expires_in` − 30 s, default 5 min); a 401 invalidates.
 - Case auth: `StudioTestCase.auth` (`RunAuth`; null = run auth, `NONE` = none), column `case_auth` (Flyway **V14**), exported as collection `auth`. `CaseAuth.normalize` requires `{{variable}}` in secret fields; `CaseVariables.bind` resolves it and `placeholderNames` includes it.
 - `RunTestResult.requestBody` holds the body as sent (masked by `RunVariables.mask`) for the UI's Copy as cURL.
-- Prerequisites: `CaseVariables.prerequisites(..., definedNames)` skips names already in run scope.
+- Prerequisites: `CaseVariables.prerequisites(..., definedNames)` skips names already in run scope, and never picks a draft: a draft's extracts aren't available to other cases until it is published.
 - `{{baseUrl}}`: `TestDataStudioService.withBaseUrlFallback` adds the spec's base URL when the environment has none (or none is selected). Collection import stores cases on the collection's base URL as `{{baseUrl}}` (`CollectionMapper.resolveStoredBaseUrl`).
 - Last run per case: `GET /api/runs/latest-by-case?specId&planId&environmentId` (`RunHistoryService.latestByCase`, storage `latestCaseRuns`). Home cards: `GET /api/specs/activity?ids=` (`TestDataStudioService.specActivity`: `countTestCases`, environment count, newest run).
 - Tenant: `TenantContext.tenantId()` for storage scoping.
