@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.api;
 
+import com.tx.api.test.generator.studio.dto.CaseVersionView;
 import com.tx.api.test.generator.studio.dto.CollectionExport;
 import com.tx.api.test.generator.studio.dto.CollectionImportResult;
 import com.tx.api.test.generator.studio.dto.CopyEnvironmentOverlayRequest;
@@ -7,6 +8,7 @@ import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.EnvironmentImportResult;
 import com.tx.api.test.generator.studio.dto.ExportEnvironmentRequest;
 import com.tx.api.test.generator.studio.dto.ExportRequest;
+import com.tx.api.test.generator.studio.dto.RestoreCaseVersionRequest;
 import com.tx.api.test.generator.studio.dto.RunAuth;
 import com.tx.api.test.generator.studio.dto.RunPlanRequest;
 import com.tx.api.test.generator.studio.dto.RunPlanResult;
@@ -93,6 +95,17 @@ public class TestDataController {
     @DeleteMapping("/{id}/draft")
     public TestCaseView discardDraft(@PathVariable String id, @RequestParam(required = false) String environmentId) {
         return testDataStudioService.discardDraft(id, environmentId);
+    }
+
+    @GetMapping("/{id}/versions")
+    public List<CaseVersionView> versions(@PathVariable String id) {
+        return testDataStudioService.caseVersions(id);
+    }
+
+    @PostMapping("/{id}/versions/{versionId}/restore")
+    public TestCaseView restoreVersion(@PathVariable String id, @PathVariable String versionId,
+                                       @RequestBody(required = false) RestoreCaseVersionRequest request) {
+        return testDataStudioService.restoreCaseVersion(id, versionId, request);
     }
 
     @GetMapping("/config")

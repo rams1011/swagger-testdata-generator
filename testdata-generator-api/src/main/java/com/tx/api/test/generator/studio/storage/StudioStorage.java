@@ -4,6 +4,7 @@ import com.tx.api.test.generator.studio.dto.CaseLastRunView;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioCaseDraft;
+import com.tx.api.test.generator.studio.model.StudioCaseVersion;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
 import com.tx.api.test.generator.studio.model.StudioRunResult;
@@ -117,6 +118,9 @@ public interface StudioStorage {
     void saveCaseDraft(StudioCaseDraft draft);
 
     void deleteCaseDraft(String testCaseId);
+
+    /** Newest first. */
+    List<StudioCaseVersion> listCaseVersions(String testCaseId, int limit);
 
     void saveRequestFile(StudioRequestFile file);
 

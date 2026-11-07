@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.service;
 
 import com.tx.api.test.generator.studio.model.StudioCaseDraft;
+import com.tx.api.test.generator.studio.model.StudioCaseVersion;
 import com.tx.api.test.generator.studio.audit.CaseAudit;
 import com.google.gson.Gson;
 import com.tx.api.test.generator.studio.config.StudioDatasourceSettings;
@@ -40,6 +41,8 @@ import com.tx.api.test.generator.studio.dto.ValidatePlanResult;
 import com.tx.api.test.generator.studio.dto.RunTestRequest;
 import com.tx.api.test.generator.studio.dto.RunTestResult;
 import com.tx.api.test.generator.studio.dto.SaveSpecRequest;
+import com.tx.api.test.generator.studio.dto.CaseVersionView;
+import com.tx.api.test.generator.studio.dto.RestoreCaseVersionRequest;
 import com.tx.api.test.generator.studio.dto.SaveTestDataRequest;
 import com.tx.api.test.generator.studio.dto.SaveTestPlanRequest;
 import com.tx.api.test.generator.studio.dto.TestCaseView;
@@ -158,6 +161,9 @@ public class TestDataStudioService {
         log.info("Deleted plan {} from spec {}", planId, specId);
     }
 
+    private static final int CASE_VERSIONS_SCANNED = 200;
+    private static final int CASE_VERSIONS_SHOWN = 50;
+
     public TestCaseView create(SaveTestDataRequest request) {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setId(UUID.randomUUID().toString());
@@ -240,6 +246,69 @@ public class TestDataStudioService {
             log.info("Discarded draft changes to case {} ({})", id, base.getTestName());
         }
         return toView(base, environmentId);
+    }
+
+    /** Newest first. A row that only changed a setting such as Enabled isn't a version anyone would go back to. */
+    public List<CaseVersionView> caseVersions(String id) {
+        StudioTestCase testCase = requireCase(id);
+        List<StudioCaseVersion> stored = studioStorage.listCaseVersions(id, CASE_VERSIONS_SCANNED);
+        List<StudioCaseVersion> versions = new ArrayList<>();
+        List<Map<String, Object>> documents = new ArrayList<>();
+        for (int index = stored.size() - 1; index >= 0; index--) {
+            Map<String, Object> document = CaseVersionDocument.read(stored.get(index).documentJson());
+            if (documents.isEmpty() || !CaseVersionDocument.sameContent(documents.get(0), document)) {
+                versions.add(0, stored.get(index));
+                documents.add(0, document);
+            }
+        }
+        Map<String, Object> published = CaseVersionDocument.of(testCase);
+        Set<String> files = storedFileIds(id);
+        List<CaseVersionView> views = new ArrayList<>();
+        for (int index = 0; index < versions.size() && index < CASE_VERSIONS_SHOWN; index++) {
+            StudioCaseVersion version = versions.get(index);
+            Map<String, Object> document = documents.get(index);
+            views.add(new CaseVersionView(version.id(), version.publishedAt(), version.publishedByLabel(),
+                    index == 0 && CaseVersionDocument.sameContent(published, document),
+                    !files.containsAll(RequestFileSupport.fileIds(document.get("requestBody"))),
+                    CaseVersionDocument.forView(document)));
+        }
+        return views;
+    }
+
+    /** Publishes an earlier version's content as a new version, and ends any draft changes. Enabled and environments stay. */
+    public TestCaseView restoreCaseVersion(String id, String versionId, RestoreCaseVersionRequest request) {
+        StudioTestCase base = requireCase(id);
+        String environmentId = request == null ? null : request.environmentId();
+        StudioCaseVersion version = studioStorage.listCaseVersions(id, CASE_VERSIONS_SCANNED).stream()
+                .filter(item -> item.id().equals(versionId))
+                .findFirst()
+                .orElseThrow(() -> new NoSuchElementException("Version not found: " + versionId));
+        Map<String, Object> document = CaseVersionDocument.read(version.documentJson());
+        if (!storedFileIds(id).containsAll(RequestFileSupport.fileIds(document.get("requestBody")))) {
+            throw new IllegalArgumentException("This version uses an uploaded file that is no longer stored, so it can't be restored");
+        }
+        String expectedUpdatedAt = request == null ? null : request.expectedUpdatedAt();
+        String expectedDraft = request == null ? null : request.expectedDraftUpdatedAt();
+        SaveTestDataRequest checked = CaseVersionDocument.toRequest(document, base, expectedUpdatedAt, expectedDraft, false);
+        assertCaseRevision(base, checked, environmentId);
+        assertDraftUnchanged(base, studioStorage.findCaseDraft(id).orElse(null), checked, environmentId);
+        // Checked just above. A draft's own "published version moved on" check doesn't apply when the draft is being ended.
+        update(id, CaseVersionDocument.toRequest(document, base, expectedUpdatedAt, expectedDraft, true));
+        clearOverlay(base.getSpecId(), environmentId, id);
+        StudioTestCase persisted = requireCase(id);
+        auditService.recordCaseRestored(persisted, version.publishedAt());
+        log.info("Restored case {} ({}) to version {}", id, persisted.getTestName(), versionId);
+        return toView(persisted, environmentId);
+    }
+
+    private Set<String> storedFileIds(String caseId) {
+        Set<String> ids = new HashSet<>();
+        for (StudioRequestFile file : studioStorage.listRequestFiles(caseId)) {
+            if (file != null) {
+                ids.add(file.getFileId());
+            }
+        }
+        return ids;
     }
 
     private void settleDraft(StudioCaseDraft draft, StudioTestCase persisted, boolean publishing) {
