@@ -416,9 +416,8 @@ public class TestDataStudioService {
 
             @Override
             public RunTestResult skip(StudioTestCase testCase, String reason) {
-                return reason == null
-                        ? testRunService.skipped(testCase)
-                        : testRunService.skipped(testCase, reason);
+                return testRunService.skipped(testCase,
+                        reason == null ? PlanRun.notRunnableReason(testCase, environmentName) : reason);
             }
 
             @Override
