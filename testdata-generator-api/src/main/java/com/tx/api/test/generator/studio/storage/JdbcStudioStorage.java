@@ -493,37 +493,32 @@ public class JdbcStudioStorage implements StudioStorage {
 
     /** A copy of each published state, so a change can be looked up or undone later. */
     private void recordPublishedVersion(StudioTestCase testCase) {
-        Map<String, Object> document = new LinkedHashMap<>();
-        document.put("testName", testCase.getTestName());
-        document.put("method", testCase.getMethod());
-        document.put("rawPath", testCase.getRawPath());
-        document.put("endpoint", testCase.getEndpoint());
-        document.put("baseUrl", testCase.getBaseUrl());
-        document.put("contentType", testCase.getContentType());
-        document.put("pathParams", testCase.getPathParams());
-        document.put("queryParams", testCase.getQueryParams());
-        document.put("headers", testCase.getHeaders());
-        document.put("cookieParams", testCase.getCookieParams());
-        document.put("requestBody", testCase.getRequestBody());
-        document.put("statusCode", testCase.getStatusCode());
-        document.put("responseType", testCase.getResponseType());
-        document.put("expectedResponse", testCase.getExpectedResponse());
-        document.put("responseMatch", testCase.getResponseMatch());
-        document.put("ignoreFields", testCase.getIgnoreFields());
-        document.put("auth", com.tx.api.test.generator.studio.service.CaseAuth.toJson(testCase.getAuth()));
-        document.put("enabled", testCase.getEnabled());
-        document.put("testGroup", testCase.getTestGroup());
-        document.put("jsonPathAssertions", testCase.getJsonPathAssertions());
-        document.put("extracts", testCase.getExtracts());
-        document.put("maxResponseTimeMs", testCase.getMaxResponseTimeMs());
-        document.put("environments", testCase.getEnvironments());
         jdbcTemplate.update("""
                 INSERT INTO td_test_case_version (version_id, test_case_id, document_json, published_at, published_by_label)
                 VALUES (?, ?, ?, ?, ?)
                 """,
-                java.util.UUID.randomUUID().toString(), testCase.getId(), JsonMaps.toJson(document),
+                java.util.UUID.randomUUID().toString(), testCase.getId(),
+                JsonMaps.toJson(com.tx.api.test.generator.studio.service.CaseVersionDocument.of(testCase)),
                 Timestamp.from(com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(Instant.now())),
                 testCase.getUpdatedByLabel());
+    }
+
+    @Override
+    public List<com.tx.api.test.generator.studio.model.StudioCaseVersion> listCaseVersions(String testCaseId, int limit) {
+        return jdbcTemplate.query("""
+                SELECT v.version_id, v.published_at, v.published_by_label, v.document_json
+                  FROM td_test_case_version v
+                  JOIN td_test_case c ON c.test_case_id = v.test_case_id
+                  JOIN td_spec s ON s.spec_id = c.spec_id
+                 WHERE v.test_case_id = ? AND s.tenant_id = ?
+                 ORDER BY v.published_at DESC
+                 LIMIT ?
+                """, (rs, rowNum) -> new com.tx.api.test.generator.studio.model.StudioCaseVersion(
+                        rs.getString("version_id"),
+                        rs.getTimestamp("published_at").toInstant(),
+                        rs.getString("published_by_label"),
+                        rs.getString("document_json")),
+                testCaseId, tenantId(), limit);
     }
 
     @Override

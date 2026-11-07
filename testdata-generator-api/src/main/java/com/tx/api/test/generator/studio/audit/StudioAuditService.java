@@ -47,6 +47,11 @@ public class StudioAuditService {
                 summary(testCase.getTestName(), "draft changes discarded"));
     }
 
+    public void recordCaseRestored(StudioTestCase testCase, Instant versionPublishedAt) {
+        append(testCase.getSpecId(), AuditResourceType.CASE, testCase.getId(), AuditAction.UPDATED,
+                summary(testCase.getTestName(), "restored to the version published " + versionPublishedAt));
+    }
+
     public void recordCaseDeleted(String specId, String caseId, String testName) {
         append(specId, AuditResourceType.CASE, caseId, AuditAction.DELETED,
                 summary(testName, "deleted"));
