@@ -36,6 +36,8 @@ public record TestCaseView(
         Instant createdAt,
         Instant updatedAt,
         String createdBy,
-        String updatedBy
+        String updatedBy,
+        boolean hasDraft,
+        TestCaseView draft
 ) {
 }

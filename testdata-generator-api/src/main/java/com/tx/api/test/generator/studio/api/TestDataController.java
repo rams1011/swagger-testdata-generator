@@ -90,6 +90,11 @@ public class TestDataController {
         testDataStudioService.delete(id, environmentId);
     }
 
+    @DeleteMapping("/{id}/draft")
+    public TestCaseView discardDraft(@PathVariable String id, @RequestParam(required = false) String environmentId) {
+        return testDataStudioService.discardDraft(id, environmentId);
+    }
+
     @GetMapping("/config")
     public Map<String, String> config() {
         return testDataStudioService.runtimeConfig();

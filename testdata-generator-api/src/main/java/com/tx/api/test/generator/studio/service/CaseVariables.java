@@ -7,6 +7,7 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
 import com.tx.api.test.generator.studio.dto.AssertionCheck;
+import com.tx.api.test.generator.studio.model.CaseLifecycle;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import org.apache.commons.lang3.StringUtils;
 
@@ -221,7 +222,9 @@ public final class CaseVariables {
         while (changed) {
             changed = false;
             for (StudioTestCase item : planCases) {
-                if (item == null || "N".equalsIgnoreCase(StringUtils.trimToEmpty(item.getEnabled()))) {
+                // A draft's extracts aren't available to other cases until it is published.
+                if (item == null || CaseLifecycle.isDraft(item)
+                        || "N".equalsIgnoreCase(StringUtils.trimToEmpty(item.getEnabled()))) {
                     continue;
                 }
                 if (currentId != null && currentId.equals(item.getId())) {

@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.collection;
 
 import com.tx.api.test.generator.studio.model.CaseLifecycle;
+import com.tx.api.test.generator.studio.service.CaseDraftDocument;
 import com.tx.api.test.generator.studio.service.CaseAuth;
 import com.tx.api.test.generator.studio.service.JsonBodyMatcher;
 import com.tx.api.test.generator.studio.model.StoredSpec;
@@ -74,12 +75,23 @@ public final class CollectionMapper {
                 .toList();
         Map<String, List<StudioRequestFile>> filesByCaseId = new LinkedHashMap<>();
         for (StudioTestCase testCase : cases) {
-            List<StudioRequestFile> files = storage.listRequestFiles(testCase.getId());
+            List<StudioRequestFile> files = withoutDraftOnlyFiles(storage, testCase);
             if (!files.isEmpty()) {
                 filesByCaseId.put(testCase.getId(), files);
             }
         }
         return fromPlan(spec, plan, cases, filesByCaseId);
+    }
+
+    private static List<StudioRequestFile> withoutDraftOnlyFiles(StudioStorage storage, StudioTestCase testCase) {
+        List<StudioRequestFile> files = storage.listRequestFiles(testCase.getId());
+        return storage.findCaseDraft(testCase.getId())
+                .map(draft -> {
+                    List<String> draftOnly = new ArrayList<>(CaseDraftDocument.fileIds(draft.getDocumentJson()));
+                    draftOnly.removeAll(CaseDraftDocument.bodyFileIds(testCase.getRequestBody()));
+                    return files.stream().filter(file -> !draftOnly.contains(file.getFileId())).toList();
+                })
+                .orElse(files);
     }
 
     public static void writeTo(StudioStorage storage, StudioCollection collection) {

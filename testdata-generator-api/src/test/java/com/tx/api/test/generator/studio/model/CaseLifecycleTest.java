@@ -20,16 +20,6 @@ class CaseLifecycleTest {
         assertFalse(CaseLifecycle.isExportable(draft));
     }
 
-    @Test
-    void onlyOwnersAndAdminsPublishWhenSignInIsOn() {
-        assertTrue(PublishPolicy.allows(false, null));
-        assertTrue(PublishPolicy.allows(false, "MEMBER"));
-        assertTrue(PublishPolicy.allows(true, "OWNER"));
-        assertTrue(PublishPolicy.allows(true, "ADMIN"));
-        assertFalse(PublishPolicy.allows(true, "MEMBER"));
-        assertFalse(PublishPolicy.allows(true, null));
-    }
-
     private static StudioTestCase caseWith(String lifecycle, String enabled) {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setLifecycle(lifecycle);

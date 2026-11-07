@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.storage;
 import com.tx.api.test.generator.studio.dto.CaseLastRunView;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
+import com.tx.api.test.generator.studio.model.StudioCaseDraft;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioRun;
 import com.tx.api.test.generator.studio.model.StudioRunResult;
@@ -108,6 +109,14 @@ public interface StudioStorage {
     default int countTestCases(String specId) {
         return listTestCases(specId, null, null).size();
     }
+
+    Optional<StudioCaseDraft> findCaseDraft(String testCaseId);
+
+    List<StudioCaseDraft> listCaseDrafts(String specId);
+
+    void saveCaseDraft(StudioCaseDraft draft);
+
+    void deleteCaseDraft(String testCaseId);
 
     void saveRequestFile(StudioRequestFile file);
 

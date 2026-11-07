@@ -80,6 +80,7 @@ public final class CollectionImporter {
                 created++;
             }
             storage.saveTestCase(testCase);
+            storage.deleteCaseDraft(testCase.getId());
             FileCounts fileCounts = importFiles(storage, item, binaries);
             importedFiles += fileCounts.imported();
             skippedFiles += fileCounts.skipped();
