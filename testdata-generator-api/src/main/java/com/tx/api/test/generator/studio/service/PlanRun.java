@@ -1,7 +1,9 @@
 package com.tx.api.test.generator.studio.service;
 
 import com.tx.api.test.generator.studio.dto.AssertionCheck;
+import com.tx.api.test.generator.studio.collection.EnvironmentScope;
 import com.tx.api.test.generator.studio.dto.RunTestResult;
+import com.tx.api.test.generator.studio.model.CaseLifecycle;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import org.apache.commons.lang3.StringUtils;
 
@@ -159,6 +161,16 @@ final class PlanRun {
 
     static String dependencyReason(String variable, String producer) {
         return "Skipped because {{" + variable + "}} comes from '" + producer + "', which failed";
+    }
+
+    /** Why a plan left out a case, or null for one simply turned off (the default skip message says so). */
+    static String notRunnableReason(StudioTestCase testCase, String environmentName) {
+        if (CaseLifecycle.isDraft(testCase)) {
+            return "Draft case: publish it to include it in Run plan.";
+        }
+        return EnvironmentScope.visible(testCase.getEnvironments(), environmentName)
+                ? null
+                : "This case isn't in the selected environment.";
     }
 
     static String stopReason(String testName) {

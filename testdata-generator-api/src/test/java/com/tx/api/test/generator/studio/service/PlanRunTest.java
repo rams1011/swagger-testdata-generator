@@ -1,6 +1,7 @@
 package com.tx.api.test.generator.studio.service;
 
 import com.tx.api.test.generator.studio.dto.RunTestResult;
+import com.tx.api.test.generator.studio.model.CaseLifecycle;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import org.junit.jupiter.api.Test;
 
@@ -9,9 +10,25 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PlanRunTest {
+
+    @Test
+    void saysWhyACaseWasLeftOutOfThePlan() {
+        StudioTestCase draft = named("draft");
+        draft.setLifecycle(CaseLifecycle.DRAFT);
+        assertEquals("Draft case: publish it to include it in Run plan.", PlanRun.notRunnableReason(draft, "Default"));
+
+        StudioTestCase elsewhere = named("elsewhere");
+        elsewhere.setEnvironments(List.of("Staging"));
+        assertEquals("This case isn't in the selected environment.", PlanRun.notRunnableReason(elsewhere, "Default"));
+
+        StudioTestCase turnedOff = named("off");
+        turnedOff.setEnabled("N");
+        assertNull(PlanRun.notRunnableReason(turnedOff, "Default"), "the default message covers enabled=N");
+    }
 
     @Test
     void failureSkipsEveryLaterRunnableCase() {
