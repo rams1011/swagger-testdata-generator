@@ -79,22 +79,13 @@ UPDATE td_test_case SET enabled_flag = CASE WHEN UPPER(TRIM(enabled)) = 'N' THEN
 ALTER TABLE td_test_case DROP COLUMN enabled;
 ALTER TABLE td_test_case RENAME COLUMN enabled_flag TO enabled;
 
--- Written as CASE, not IN (...): H2 2.4 evaluates an IN list with the connection that created the check, and
--- fails every insert once that connection has closed. V1's parameter check used IN, so it is replaced here.
+-- MySQL writes these as IN (...): it needs a boolean condition, and to MySQL the CASE ... THEN TRUE form that
+-- db/migration uses (to avoid an H2 bug with IN lists) is a number. V1's parameter check is re-created to match.
 ALTER TABLE td_test_case_param DROP CONSTRAINT ck_td_test_case_param_in;
-ALTER TABLE td_test_case_param ADD CONSTRAINT ck_td_test_case_param_in CHECK (
-    CASE param_in WHEN 'path' THEN TRUE WHEN 'query' THEN TRUE WHEN 'header' THEN TRUE WHEN 'cookie' THEN TRUE
-                  ELSE FALSE END);
-ALTER TABLE td_test_case ADD CONSTRAINT ck_td_test_case_lifecycle CHECK (
-    CASE lifecycle WHEN 'DRAFT' THEN TRUE WHEN 'READY' THEN TRUE ELSE FALSE END);
-ALTER TABLE td_run ADD CONSTRAINT ck_td_run_trigger CHECK (
-    CASE run_trigger WHEN 'try' THEN TRUE WHEN 'case' THEN TRUE WHEN 'plan' THEN TRUE ELSE FALSE END);
-ALTER TABLE td_run_result ADD CONSTRAINT ck_td_run_result_trigger CHECK (
-    CASE run_trigger WHEN 'try' THEN TRUE WHEN 'case' THEN TRUE WHEN 'plan' THEN TRUE ELSE FALSE END);
-ALTER TABLE td_run_result ADD CONSTRAINT ck_td_run_result_outcome CHECK (
-    CASE outcome WHEN 'passed' THEN TRUE WHEN 'failed' THEN TRUE WHEN 'skipped' THEN TRUE WHEN 'error' THEN TRUE
-                 ELSE FALSE END);
-ALTER TABLE td_membership ADD CONSTRAINT ck_td_membership_role CHECK (
-    CASE role WHEN 'OWNER' THEN TRUE WHEN 'ADMIN' THEN TRUE WHEN 'MEMBER' THEN TRUE ELSE FALSE END);
-ALTER TABLE td_org_membership ADD CONSTRAINT ck_td_org_membership_role CHECK (
-    CASE role WHEN 'OWNER' THEN TRUE WHEN 'ADMIN' THEN TRUE WHEN 'MEMBER' THEN TRUE ELSE FALSE END);
+ALTER TABLE td_test_case_param ADD CONSTRAINT ck_td_test_case_param_in CHECK (param_in IN ('path', 'query', 'header', 'cookie'));
+ALTER TABLE td_test_case ADD CONSTRAINT ck_td_test_case_lifecycle CHECK (lifecycle IN ('DRAFT', 'READY'));
+ALTER TABLE td_run ADD CONSTRAINT ck_td_run_trigger CHECK (run_trigger IN ('try', 'case', 'plan'));
+ALTER TABLE td_run_result ADD CONSTRAINT ck_td_run_result_trigger CHECK (run_trigger IN ('try', 'case', 'plan'));
+ALTER TABLE td_run_result ADD CONSTRAINT ck_td_run_result_outcome CHECK (outcome IN ('passed', 'failed', 'skipped', 'error'));
+ALTER TABLE td_membership ADD CONSTRAINT ck_td_membership_role CHECK (role IN ('OWNER', 'ADMIN', 'MEMBER'));
+ALTER TABLE td_org_membership ADD CONSTRAINT ck_td_org_membership_role CHECK (role IN ('OWNER', 'ADMIN', 'MEMBER'));
