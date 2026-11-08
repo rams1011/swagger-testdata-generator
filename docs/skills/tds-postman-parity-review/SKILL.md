@@ -12,7 +12,7 @@ Repeatable procedure for analyzing Test Data Studio (TDS) and reporting strength
 | Repo | Role |
 |------|------|
 | `swagger-testdata-generator/testdata-generator-api` | Spring Boot Studio API — run engine, variables, auth, import/export |
-| `swagger-testdata-generator/testdata-generator-core` | OpenAPI parse, Excel generation, CLI |
+| `swagger-testdata-generator/testdata-generator-core` | OpenAPI parse, schema-based case generation, offline CLI that writes collection and environment JSON |
 | `testdata-studio-ui` | React/Vite UI |
 | `api-automation` | TestNG + RestAssured CI runner (Newman equivalent) |
 
@@ -20,17 +20,18 @@ Read first: both `CLAUDE.md` files, `testdata-studio-ui/docs/DATA_STUDIO_DESIGN.
 
 ## Working rules
 
-- Work on the user's computer with device_bash; do not stage source files to the cloud.
-- Avoid one huge recursive grep over D:\code (it times out — node_modules/target). Instead build a file list of `src/main`, `src`, `docs`, READMEs (*.java, *.js, *.jsx, *.ts, *.md), concatenate into `/tmp/all.txt`, and grep that.
+- Avoid one huge recursive grep over D:\code (it times out on node_modules and target). Grep `src/main`, `src`, `docs` and the READMEs per repo instead.
 - Cite evidence (file + class/function) for every gap or strength claim. If you only read code and did not run the app, say so.
+- Watch for false matches: "Postman-style" appears in comments (`DynamicVariables`, `KeyValueRows.jsx`), and `KeyStore` in `NetworkClients` is for trusting a CA, not client certificates.
 
 ## Building and testing (if the review leads to code changes)
 
-- The device shell has Java 11 only, no Maven and no network; the cloud sandbox has Java 21 + Maven but Maven Central and npm are blocked.
-- Working approach: request read access to `~/.m2`; take the exact test classpath from `target/surefire-reports/TEST-*.xml` (`surefire.test.class.path`), tar only those jars, stage them, and compile/run with `javac` + the JUnit Platform launcher (Studio) or `org.testng.TestNG -testclass` (api-automation).
-- Preserve CRLF line endings; apply changes on the device with `git apply` and verify checksums. `git apply` warns "unable to unlink" without delete permission but still writes the files.
-- UI: `node_modules` on D:\code is Windows-native, so vitest can't run in the device VM; ESLint does. Ask the user to run `npm run test` and `mvn clean install` locally.
-- Clean up temporary files you create in D:\code (ask for delete permission once).
+Both repos build and test locally on Windows (PowerShell; Git Bash is also available). Follow each repo's `CLAUDE.md`.
+
+- API: `mvn -o -f D:/code/swagger-testdata-generator/pom.xml -pl testdata-generator-api -am test`. Pass `"-DargLine=-Djdk.net.unixdomain.tmpdir=<repo>/testdata-generator-api/target"` if the JVM can't create its socket temp files. `StudioAuditServiceTest` is known to be flaky.
+- UI: `npm run lint`, `npm run typecheck`, `npm run test` (Vitest), `npm run build` in `testdata-studio-ui`.
+- Running the app: never point a test API at the real H2 file in `testdata-generator-api/studio-output` (the default profile migrates it, and `testdata.h2.in-memory` doesn't stop that). Set `TESTDATA_H2_JDBC_URL` and `TESTDATA_H2_FILE` to a new file under `target`, use spare ports (`SERVER_PORT`, `MANAGEMENT_PORT`, Vite `--port` with `API_PROXY_TARGET`), and leave the user's own servers alone. `scripts/capture-guide-screenshots.mjs` in the UI repo shows the full setup.
+- Preserve CRLF line endings. Don't commit unless the user asks. Remove temporary databases and servers when done.
 
 ## Key files to inspect (API, package `.../studio/`)
 
@@ -39,7 +40,8 @@ Read first: both `CLAUDE.md` files, `testdata-studio-ui/docs/DATA_STUDIO_DESIGN.
 - `service/JsonPathEvaluator.java` (Jayway) — path syntax, many-match semantics, assertion operators (`op:*`); mirrored in `api-automation/.../validation/JsonPathEvaluator.java`.
 - `service/HeaderAssertions.java`, `CiResponseChecks.java`, `ResponseSchemaOracle.java` — header/cookie/schema/download checks.
 - `service/CaseVariables.java`, `RunVariables.java`, `DynamicVariables.java` — `{{var}}` substitution, precedence, extracts, chain ordering, dynamic `$` vars.
-- `service/OutboundUrlPolicy.java` + `config/StudioProperties` (`run.allowPrivateNetworks`, allow-hosts) — SSRF guard / reachability of private targets.
+- `service/OutboundUrlPolicy.java`, `NetworkClients.java` — SSRF guard, per-environment private-target allowlist (`testdata.run.private-target-allowlist.<environmentId>`), redirects, TLS, proxy.
+- `collection/StudioEnvironmentNetwork.java` — environment Connection settings. `service/CaseVersionDocument.java` + `TestDataStudioService.caseVersions/restoreCaseVersion` — version history and Restore.
 - `dto/RunAuth.java` — auth types. `dto/RunTestRequest.java`, `RunPlanRequest.java` — run options.
 - `collection/CollectionImporter.java`, `CollectionPackage` — import formats.
 - UI: `src/schema.js` (assertion parse/serialize, `JSON_CHECK_KINDS`), `components/JsonPathAssertionsPicker.jsx`, `pages/CasesPage.jsx` (Run plan, Continue on failure), `src/curlImport.js`/`parseCurl.js`, `contentTypes.js`, `components/RunResultPanel.jsx`, `pages/ExportPage.jsx`, `pages/HistoryPage.jsx`, `components/RunComparePanel.jsx`.
@@ -79,23 +81,28 @@ Deliver in chat for a quick verdict; if the user wants something to share or kee
 
 - **2026-11-05 (implemented):** environment Connection settings (follow redirects with per-hop SSRF check, Verify SSL off, extra CA PEM, proxy, request timeout up to 5 min, 1M-char result bodies) in Studio and api-automation (from the environment file); OAuth token cache with expiry and 401 invalidation, OAuth scope (Studio and api-automation, which now renews tokens during a suite); case-level auth (NONE/BASIC/BEARER/API_KEY/OAUTH2, secrets only as `{{variables}}`). Gaps 6 (except proxy auth), 8 and the token-per-request part of 5 closed.
 
-## Baseline findings (updated 2026-11-04 — re-verify each one)
+- **2026-11-05 to 2026-11-07 (implemented, not Postman gaps):** drafts of published cases (`td_test_case_draft`, Flyway V16), so a saved draft never changes what runs or exports until it's published; a draft's extracts aren't available to other cases; every published version kept in `td_test_case_version`, with **Version history** and **Restore** in the case editor. UI: show or hide the left navigation; the case editor's Request / Expected response / Result tabs. Verified with `mvn test`, `npm run test` and a throwaway running app.
 
-**Strengths:** OpenAPI-driven case authoring plus response-schema validation; `{{var}}` globals/env with precedence and 16 `$` dynamic vars; secrets stored as names only, masked in history, exported as `${STUDIO_VAR_*}`; extracts (JSONPath/header/cookie) with automatic producer-before-consumer ordering, single filter match unwrapped; JSON/XML/form/multipart/binary bodies; Basic/Bearer/API key/OAuth2 client-credentials and password grant; assertions for status, time, headers/cookies, full body, schema, and JSONPath with full Jayway syntax and operators equals/ne/exists/notExists/nonempty/empty/contains/notContains/gt/gte/lt/lte/range/matches/type/length (every-match semantics for many-match paths); Studio and api-automation share the same evaluator; Run plan with optional continue on failure and dependency-aware skips; versioned collection/env export, Excel, JDBC; api-automation TestNG CLI with parallel threads and Extent HTML; tenancy, LDAP, audit, conflict detection, run history compare, Validate plan; SSRF guard, no redirects, host allow list.
+- **2026-11-07 (implemented):** gap 1 closed for Studio: Run plan takes `caseIds` and adds the cases they need values from; the Cases page has a Group filter and **Run selected** (run a group by filtering it and ticking the header box). Folders are still not a concept.
 
-**Gaps:**
-1. No pre-request or test scripting.
-2. No data-driven iterations (CSV/JSON).
-3. Body compare is exact match only (no ignore-fields / partial match); no XPath assertions for XML.
-4. No Postman/Insomnia/HAR import (only the Studio collection format and cURL).
-5. No OAuth auth-code/PKCE, Digest, NTLM, SigV4, Hawk or mTLS; OAuth token fetched on every request.
-6. No SSL-skip, custom CA, proxy or follow-redirect options; timeout capped at 60s; response truncated at 100k chars.
-7. Requests run from the server; private networks blocked by default (`allowPrivateNetworks=false`), no local agent.
-8. Auth only at the environment level; no per-case override or inheritance.
-9. No folders/tags inside a plan; can't run a subset from the UI.
-10. No mock servers. 11. No scheduled runs/monitors. 12. No Copy as cURL / code snippets.
-13. No delay/retry/parallel options in Run plan; no JUnit XML.
-14. REST/SOAP-over-HTTP only (no GraphQL, WebSocket, gRPC, SSE).
-15. Extract rules still split on every `|` after the `=`, so a filter source using `||` breaks (assertions are safe).
+- **2026-11-07 (review):** re-verified the open gaps against the code. The baseline below replaces the 2026-11-04 one.
 
-**Roadmap (remaining):** (1) data-driven iterations, folders/tags with run-a-subset → (2) ignore-fields body compare, XPath → (3) Postman v2.1 import → (4) auth and TLS/proxy/redirect options, OAuth token caching, private-target runner → (5) sandboxed scripting → (6) Copy as cURL, JUnit XML, Run plan delay/retry, schedules, mocks.
+## Baseline findings (re-verified 2026-11-07 — re-verify each one)
+
+**Strengths:** OpenAPI-driven case authoring with response-schema validation; `{{var}}` global and environment variables with precedence, scope qualifiers (`{{global:}}`, `{{env:}}`, `{{extract:}}`) and `$` dynamic values; secrets stored as names only, masked in history, exported as `${STUDIO_VAR_*}`; extracts (JSONPath/header/cookie) with typed values and automatic producer-before-consumer ordering; JSON/XML/form/multipart/binary bodies; Basic, Bearer, API key and OAuth2 (client credentials, password) at environment or case level, OAuth tokens cached with 401 renewal; assertions for status, time, headers/cookies, schema, body match (strict / ignore order / lenient, ignore fields), full Jayway JSONPath with operators, XPath; the same evaluator in Studio and api-automation; Run plan with continue on failure, delay, retries and dependency-aware skips; Connection settings (redirects with per-hop SSRF check, Verify SSL off, extra CA, proxy, timeout up to 5 min); Copy as cURL/PowerShell/fetch/Python; api-automation CLI with parallel threads, `--group`, retries, delay, JUnit XML and Extent HTML; tenancy, roles, audit, conflict detection, drafts of published cases, version history with Restore, run history compare, Validate plan.
+
+**Gaps (ordered by impact on REST testing):**
+1. Closed 2026-11-07: Studio runs a subset (`RunPlanRequest.caseIds`, Group filter and **Run selected** on the Cases page). Still no folders.
+2. No data-driven iterations (CSV/JSON rows).
+3. No Postman v2.1, Insomnia or HAR import (Studio collection format and cURL only).
+4. Auth: no OAuth authorization code / PKCE (`TestRunService` rejects `authorization_code` and `implicit`), Digest, NTLM, AWS SigV4, Hawk or client certificates (mTLS).
+5. No pre-request or test scripting.
+6. Variables have only global and environment scope (no collection or data variables).
+7. No inheritance between levels: auth is per environment with a per-case override, nothing at collection or folder level.
+8. Partly closed: private targets need a per-environment allowlist on the server; there's no local agent for localhost and internal APIs.
+9. No parallel runs in Studio's Run plan (api-automation has `--threads`).
+10. Partly closed: proxy is supported but not proxy credentials.
+11. No mock servers; no scheduled runs or monitors.
+12. REST only: no GraphQL body type, WebSocket, gRPC or SSE.
+
+**Roadmap (remaining):** (1) ~~run a subset by group or selection~~ done → (2) data-driven iterations → (3) Postman v2.1 import → (4) client certificates and OAuth authorization code with PKCE → (5) collection variables and auth inheritance → (6) parallel Run plan, proxy credentials → (7) local agent for private targets → (8) sandboxed scripting (last, because of server-side sandbox risk) → schedules and mocks as needed.

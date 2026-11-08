@@ -1,0 +1,265 @@
+td_account
+  column account_id not null
+  column email not null
+  column password_hash not null
+  column display_name not null
+  column platform_role not null
+  column created_at not null
+  column password_changed_at null
+  column must_change_password not null
+  unique index ux_td_account_email (email)
+td_audit_event
+  column event_id not null
+  column tenant_id not null
+  column spec_id null
+  column resource_type not null
+  column resource_id not null
+  column action not null
+  column actor_account_id null
+  column actor_label null
+  column detail null
+  column occurred_at not null
+  index ix_td_audit_tenant_resource_time (tenant_id, resource_type, resource_id, occurred_at)
+  index ix_td_audit_tenant_spec_time (tenant_id, spec_id, occurred_at)
+td_environment
+  column environment_id not null
+  column spec_id not null
+  column name not null
+  column document_json not null
+  column created_at not null
+  column updated_at not null
+  index ix_td_environment_spec (spec_id)
+  unique index ux_td_environment_spec_name (spec_id, name)
+  foreign key fk_td_environment_spec (spec_id) -> td_spec on delete cascade
+td_global_variables
+  column tenant_id not null
+  column document_json not null
+  column updated_at not null
+td_login_guard
+  column subject not null
+  column attempt_count not null
+  column window_started_at not null
+  column locked_until null
+td_membership
+  column tenant_id not null
+  column account_id not null
+  column role not null
+  column created_at not null
+  index ix_td_membership_account (account_id)
+  foreign key fk_td_membership_account (account_id) -> td_account on delete cascade
+  foreign key fk_td_membership_tenant (tenant_id) -> td_tenant on delete cascade
+td_org_membership
+  column org_id not null
+  column account_id not null
+  column role not null
+  column created_at not null
+  index ix_td_org_membership_account (account_id)
+  foreign key fk_td_org_membership_account (account_id) -> td_account on delete cascade
+  foreign key fk_td_org_membership_org (org_id) -> td_organization on delete cascade
+td_organization
+  column org_id not null
+  column slug not null
+  column name not null
+  column created_at not null
+  unique index ux_td_organization_slug (slug)
+td_password_history
+  column history_id not null
+  column account_id not null
+  column password_hash not null
+  column retired_at not null
+  index ix_td_password_history_account (account_id, retired_at)
+  foreign key fk_td_password_history_account (account_id) -> td_account on delete cascade
+td_private_target_allowlist
+  column environment_id not null
+  column entries not null
+  column updated_at not null
+td_request_file
+  column file_id not null
+  column test_case_id not null
+  column file_name not null
+  column content_type null
+  column size_bytes not null
+  column content not null
+  column created_at not null
+  index ix_td_request_file_case (test_case_id)
+  foreign key fk_td_request_file_case (test_case_id) -> td_test_case on delete cascade
+td_run
+  column run_id not null
+  column spec_id not null
+  column plan_id null
+  column run_trigger not null
+  column passed not null
+  column failed not null
+  column skipped not null
+  column started_at not null
+  column environment_id null
+  index ix_td_run_spec (spec_id, started_at)
+  index ix_td_run_spec_plan_env (spec_id, plan_id, environment_id, started_at)
+  foreign key fk_td_run_spec (spec_id) -> td_spec on delete cascade
+td_run_result
+  column result_id not null
+  column run_id not null
+  column spec_id not null
+  column plan_id null
+  column case_id null
+  column operation_key null
+  column test_name null
+  column run_trigger not null
+  column outcome not null
+  column method null
+  column url null
+  column expected_status null
+  column actual_status null
+  column status_matched null
+  column elapsed_ms null
+  column max_response_time_ms null
+  column timed_out null
+  column error null
+  column request_headers null
+  column request_body null
+  column request_content_type null
+  column request_params null
+  column response_headers null
+  column response_body null
+  column assertions_json null
+  column download_path null
+  column created_at not null
+  index ix_td_run_result_case (case_id)
+  index ix_td_run_result_run (run_id)
+  index ix_td_run_result_spec (spec_id, created_at)
+  foreign key fk_td_run_result_case (case_id) -> td_test_case on delete set null
+  foreign key fk_td_run_result_run (run_id) -> td_run on delete cascade
+  foreign key fk_td_run_result_spec (spec_id) -> td_spec on delete cascade
+td_session
+  column token_hash not null
+  column account_id not null
+  column tenant_id not null
+  column expires_at not null
+  column created_at not null
+  column last_seen_at null
+  index ix_td_session_account (account_id)
+  foreign key fk_td_session_account (account_id) -> td_account on delete cascade
+  foreign key fk_td_session_tenant (tenant_id) -> td_tenant on delete cascade
+td_spec
+  column spec_id not null
+  column tenant_id null
+  column name null
+  column label null
+  column title not null
+  column version null
+  column description null
+  column base_url null
+  column source_location null
+  column source_content null
+  column operation_count not null
+  column created_at not null
+  column updated_at not null
+  index ix_td_spec_tenant (tenant_id)
+  unique index ux_td_spec_tenant_name (tenant_id, name)
+  foreign key fk_td_spec_tenant (tenant_id) -> td_tenant on delete no action
+td_subscription
+  column subscription_id not null
+  column org_id not null
+  column plan_code not null
+  column status not null
+  column seat_limit not null
+  column workspace_limit not null
+  column spec_limit not null
+  column run_limit_month not null
+  column trial_ends_at null
+  column current_period_end null
+  column created_at not null
+  unique index ux_td_subscription_org (org_id)
+  foreign key fk_td_subscription_org (org_id) -> td_organization on delete cascade
+td_tenant
+  column tenant_id not null
+  column slug not null
+  column name not null
+  column ready not null
+  column enabled_at null
+  column created_at not null
+  column org_id null
+  unique index ux_td_tenant_slug (slug)
+  foreign key fk_td_tenant_org (org_id) -> td_organization on delete no action
+td_test_case
+  column test_case_id not null
+  column spec_id not null
+  column plan_id null
+  column operation_key not null
+  column test_name not null
+  column http_method not null
+  column raw_path not null
+  column endpoint not null
+  column base_url null
+  column content_type null
+  column request_body_json null
+  column response_schema_json null
+  column status_code not null
+  column response_type null
+  column expected_response null
+  column enabled not null
+  column test_group null
+  column json_path_assertions null
+  column extracts null
+  column max_response_time_ms null
+  column environment_names null
+  column created_at not null
+  column updated_at not null
+  column created_by_account_id null
+  column created_by_label null
+  column updated_by_account_id null
+  column updated_by_label null
+  column lifecycle not null
+  column response_match null
+  column ignore_fields null
+  column case_auth null
+  index ix_td_test_case_operation (spec_id, operation_key)
+  index ix_td_test_case_plan (plan_id)
+  index ix_td_test_case_spec (spec_id)
+  foreign key fk_td_test_case_spec (spec_id) -> td_spec on delete cascade
+td_test_case_draft
+  column test_case_id not null
+  column document_json not null
+  column base_updated_at null
+  column updated_at not null
+  column updated_by_label null
+  foreign key fk_td_test_case_draft_case (test_case_id) -> td_test_case on delete cascade
+td_test_case_param
+  column test_case_id not null
+  column param_in not null
+  column param_name not null
+  column param_value null
+  index ix_td_test_case_param_in (param_in)
+  foreign key fk_td_test_case_param_case (test_case_id) -> td_test_case on delete cascade
+td_test_case_version
+  column version_id not null
+  column test_case_id not null
+  column document_json not null
+  column published_at not null
+  column published_by_label null
+  index ix_td_test_case_version_case (test_case_id, published_at)
+  foreign key fk_td_test_case_version_case (test_case_id) -> td_test_case on delete cascade
+td_test_plan
+  column plan_id not null
+  column spec_id not null
+  column name not null
+  column description null
+  column created_at not null
+  column updated_at not null
+  index ix_td_test_plan_spec (spec_id)
+  foreign key fk_td_test_plan_spec (spec_id) -> td_spec on delete cascade
+td_usage_month
+  column org_id not null
+  column usage_month not null
+  column run_count not null
+  foreign key fk_td_usage_month_org (org_id) -> td_organization on delete cascade
+td_workspace_access_request
+  column request_id not null
+  column tenant_id not null
+  column account_id not null
+  column message null
+  column status not null
+  column created_at not null
+  index ix_td_war_tenant_status (tenant_id, status, created_at)
+  foreign key fk_td_war_account (account_id) -> td_account on delete cascade
+  foreign key fk_td_war_tenant (tenant_id) -> td_tenant on delete cascade

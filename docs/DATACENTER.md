@@ -75,8 +75,7 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
-    baseline-on-migrate: true
-    baseline-version: 1
+    baseline-on-migrate: false
   h2:
     console:
       enabled: false

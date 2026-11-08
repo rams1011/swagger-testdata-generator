@@ -577,9 +577,10 @@ public class TestDataStudioService {
         List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), request.planId(), null);
         String environmentName = requireEnvironmentNameForScopedCases(
                 request.specId(), request.environmentId(), storedCases, "run this plan");
-        List<StudioTestCase> cases = CaseVariables.orderForChain(storedCases);
         String environmentId = request.environmentId();
         RunVariables scope = runVariables(request.specId(), environmentId, request.secrets());
+        List<StudioTestCase> cases = chosenWithPrerequisites(
+                CaseVariables.orderForChain(storedCases), request.caseIds(), scope.names());
         Map<String, String> variables = scope.newScope();
         StudioEnvironmentNetwork network = network(request.specId(), environmentId);
         OutboundUrlPolicy.Scope outboundScope = outboundScope(request.specId(), environmentId);
@@ -615,6 +616,24 @@ public class TestDataStudioService {
                 request.continuesOnFailure(), request.delayMillis(), request.retryCount());
         return new RunPlanResult(request.specId(), request.planId(), outcome.passed(), outcome.failed(),
                 outcome.skipped(), outcome.failed() == 0 && outcome.passed() > 0, outcome.results());
+    }
+
+    /** The chosen cases, plus earlier cases they need extracted values from, in run order. Null means all of them. */
+    private static List<StudioTestCase> chosenWithPrerequisites(List<StudioTestCase> ordered, List<String> caseIds,
+                                                                Set<String> defined) {
+        if (caseIds == null) {
+            return ordered;
+        }
+        Set<String> keep = new HashSet<>();
+        caseIds.stream().filter(StringUtils::isNotBlank).forEach(keep::add);
+        List<StudioTestCase> chosen = ordered.stream().filter(testCase -> keep.contains(testCase.getId())).toList();
+        if (chosen.isEmpty()) {
+            throw new IllegalArgumentException("None of the chosen cases are in this plan");
+        }
+        for (StudioTestCase testCase : chosen) {
+            CaseVariables.prerequisites(ordered, testCase, defined).forEach(prior -> keep.add(prior.getId()));
+        }
+        return ordered.stream().filter(testCase -> keep.contains(testCase.getId())).toList();
     }
 
     public ValidatePlanResult validatePlan(RunPlanRequest request) {

@@ -42,7 +42,7 @@ Studio package layout:
 | Collection formats | `collection/*` (environment, import/export, `StudioVariables`, `StudioEnvironment`) |
 | Persistence | `storage/StudioStorage.java`, `JdbcStudioStorage.java`, `ForwardingStudioStorage`, optional Redis cache |
 | DTOs | `dto/*` |
-| DB | `src/main/resources/db/migration/` (Flyway), `ddl/*.sql` for tests |
+| DB | `src/main/resources/db/migration/` and `db/migration_mysql/` (Flyway); tests use the same migrations (`TestSchema.migrate`) |
 
 Product design doc (cross-repo): `D:\code\testdata-studio-ui\docs\DATA_STUDIO_DESIGN.md`.  
 **Variable user guide:** `D:\code\testdata-studio-ui\docs\VARIABLES.md`.
@@ -81,7 +81,7 @@ Every published state is copied to `td_test_case_version` (`JdbcStudioStorage.sa
 ## Runs and entitlements
 
 - Single case / try: `TestDataStudioService.run(RunTestRequest)`.
-- Plan: `runPlan` with shared variable map across ordered chain (`CaseVariables.orderForChain`). `RunPlanRequest.delayMs` (≤60000) and `retries` (≤5) go to `PlanRun.Options`; a retried case gets an `attempts` check.
+- Plan: `runPlan` with shared variable map across ordered chain (`CaseVariables.orderForChain`). `RunPlanRequest.caseIds` (null = all) runs only those cases plus the earlier cases they need extracted values from (`chosenWithPrerequisites`, using `CaseVariables.prerequisites`); the run is recorded as a plan run of just those cases. `RunPlanRequest.delayMs` (≤60000) and `retries` (≤5) go to `PlanRun.Options`; a retried case gets an `attempts` check.
 - Connection settings: `StudioEnvironment.network` (`collection/StudioEnvironmentNetwork`: followRedirects, verifySsl, caCertificate PEM, proxyUrl, requestTimeoutMs; normalized, null = defaults) on create/update (`SaveEnvironmentRequest.network`, null keeps) and in the environment file. `TestRunService.execute(..., network)`: clients from `NetworkClients` (trust-all or default+extra CA trust manager, proxy; cached), redirects followed by `followRedirects` with an `OutboundUrlPolicy` check per hop (proxy URL checked too), timeout = env timeout or case max + 5 s, capped by `testdata.run.max-request-timeout-ms` (300000, env `TESTDATA_RUN_MAX_REQUEST_TIMEOUT_MS`); response display cut at `testdata.run.max-response-chars` (1,000,000).
 - Outbound policy: `OutboundUrlPolicy` resolves a host once and returns the validated address; `NetworkClients` (Apache HttpClient) connects to it while Host, SNI and the certificate check use the name. Private targets need `testdata.run.private-target-allowlist.<environmentId>` (`host:port`, `cidr:port`) or the deprecated `allow-private-networks`; metadata, link-local, the server's own ports and `blocked-infrastructure-ports` can't be allowed. `PrivateTargetAllowlistAuditor` audits config changes at startup (`td_private_target_allowlist`, Flyway **V15**). Spec import (`SpecCatalogService.readAllowedLocation`) is pinned the same way, under `Scope.SPEC_IMPORT`: no environment's allowlist applies, so a private spec URL still needs the deprecated flag. `OpenApiSpecLoader.rejectExternalReferences` scans JSON/YAML tokens for external `$ref`s and discriminator mappings, because the parser would fetch them. `CiResponseChecks.schema` validates with no URI loaders, so a response schema can only reference itself.
 - OAuth: `OAuthTokenCache` (in memory, SHA-256 key incl. secrets and `RunAuth.scope`, `expires_in` − 30 s, default 5 min); a 401 invalidates.
@@ -94,7 +94,7 @@ Every published state is copied to `td_test_case_version` (`JdbcStudioStorage.sa
 
 ## Storage migrations
 
-When adding tables/columns, update **both** Flyway `db/migration` and `db/migration_mysql` if applicable, plus `ddl/h2.sql`, `ddl/schema.sql`, `ddl/postgresql.sql`, `ddl/sqlserver.sql` for embedded/test DDL.
+The migrations are the only schema definition (fresh `V1__studio.sql` baseline, 2026-11-07; `R__default_workspaces.sql` seeds the Local and SaaS workspaces). To change it: add the next `V2__…` to **both** `db/migration` (PostgreSQL/H2) and `db/migration_mysql` (MySQL types: `LONGTEXT`, `DATETIME(3)`, `LONGBLOB`), then update `src/test/resources/schema-snapshot.txt` (`SchemaSnapshotTest` writes the H2 result to `target/schema-snapshot.h2.txt`; the `-Pintegration` job holds PostgreSQL and MySQL to the same file). Never edit an applied migration. Tests build their database with `TestSchema.migrate(dataSource)`. `baseline-on-migrate` is off. Avoid MySQL reserved words as column names (`td_usage_month.usage_month`, not `year_month`).
 
 ## Coding conventions
 

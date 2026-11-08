@@ -1,24 +1,20 @@
 package com.tx.api.test.generator.studio.collection;
 
+import com.tx.api.test.generator.studio.TestSchema;
+import java.nio.charset.StandardCharsets;
 import com.tx.api.test.generator.studio.config.H2Database;
 import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.dto.EnvironmentSummary;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.storage.JdbcStudioStorage;
-import org.h2.tools.RunScript;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
 
@@ -40,11 +36,7 @@ class EnvironmentImportTest {
                 "");
         h2.setDriverClassName(H2Database.DRIVER);
         dataSource = h2;
-        try (Connection connection = dataSource.getConnection();
-             Reader schema = new InputStreamReader(
-                     new ClassPathResource("ddl/schema.sql").getInputStream(), StandardCharsets.UTF_8)) {
-            RunScript.execute(connection, schema);
-        }
+        TestSchema.migrate(dataSource);
         storage = new JdbcStudioStorage(new JdbcTemplate(dataSource));
         storage.saveSpec(localSpec());
     }

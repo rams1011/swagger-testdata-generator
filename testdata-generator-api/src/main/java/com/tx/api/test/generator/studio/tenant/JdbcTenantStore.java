@@ -308,13 +308,13 @@ public class JdbcTenantStore implements TenantStore {
         int updated = jdbcTemplate.update("""
                         UPDATE td_usage_month
                            SET run_count = run_count + 1
-                         WHERE org_id = ? AND year_month = ?
+                         WHERE org_id = ? AND usage_month = ?
                         """,
                 orgId, yearMonth);
         if (updated == 0) {
             try {
                 jdbcTemplate.update("""
-                                INSERT INTO td_usage_month (org_id, year_month, run_count)
+                                INSERT INTO td_usage_month (org_id, usage_month, run_count)
                                 VALUES (?, ?, 1)
                                 """,
                         orgId, yearMonth);
@@ -322,7 +322,7 @@ public class JdbcTenantStore implements TenantStore {
                 jdbcTemplate.update("""
                                 UPDATE td_usage_month
                                    SET run_count = run_count + 1
-                                 WHERE org_id = ? AND year_month = ?
+                                 WHERE org_id = ? AND usage_month = ?
                                 """,
                         orgId, yearMonth);
             }
@@ -333,7 +333,7 @@ public class JdbcTenantStore implements TenantStore {
     @Override
     public int runCount(String orgId, String yearMonth) {
         List<Integer> counts = jdbcTemplate.query(
-                "SELECT run_count FROM td_usage_month WHERE org_id = ? AND year_month = ?",
+                "SELECT run_count FROM td_usage_month WHERE org_id = ? AND usage_month = ?",
                 (rs, rowNum) -> rs.getInt("run_count"),
                 orgId, yearMonth);
         return counts.isEmpty() ? 0 : counts.get(0);

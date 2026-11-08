@@ -1,1 +1,0 @@
-ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS case_auth TEXT;

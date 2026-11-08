@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.service;
 
+import com.tx.api.test.generator.studio.TestSchema;
 import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.studio.config.H2Database;
 import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
@@ -7,19 +8,13 @@ import com.tx.api.test.generator.studio.dto.ManualOperationRequest;
 import com.tx.api.test.generator.studio.dto.SpecSummary;
 import com.tx.api.test.generator.studio.storage.JdbcStudioStorage;
 import com.tx.api.test.generator.studio.tenant.TenantContext;
-import org.h2.tools.RunScript;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
 import javax.sql.DataSource;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -39,11 +34,7 @@ class SpecCatalogServiceManualTest {
                 "");
         h2.setDriverClassName(H2Database.DRIVER);
         dataSource = h2;
-        try (Connection connection = dataSource.getConnection();
-             Reader schema = new InputStreamReader(
-                     new ClassPathResource("ddl/schema.sql").getInputStream(), StandardCharsets.UTF_8)) {
-            RunScript.execute(connection, schema);
-        }
+        TestSchema.migrate(dataSource);
         catalog = new SpecCatalogService(new JdbcStudioStorage(new JdbcTemplate(dataSource)));
         TenantContext.setSaasEnabled(false);
     }

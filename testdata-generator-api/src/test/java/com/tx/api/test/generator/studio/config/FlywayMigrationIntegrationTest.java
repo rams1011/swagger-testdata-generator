@@ -11,51 +11,49 @@ import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Verifies Flyway migrations against real database engines (CI integration job).
+ * Migrates real PostgreSQL and MySQL databases (CI integration job, needs Docker) and holds both to
+ * schema-snapshot.txt, the file SchemaSnapshotTest holds H2 to. So all three databases get the same tables,
+ * columns, indexes and foreign keys, and the same default workspaces.
  */
 @Testcontainers(parallel = false)
 class FlywayMigrationIntegrationTest {
 
     @Test
-    void postgresMigrationsApply() throws Exception {
+    void postgresMatchesTheSnapshot() throws Exception {
         try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")) {
             postgres.start();
-            migrate(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-            assertTableExists(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(), "td_spec");
+            check("PostgreSQL", postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(),
+                    "classpath:db/migration");
         }
     }
 
     @Test
-    void mysqlMigrationsApply() throws Exception {
+    void mysqlMatchesTheSnapshot() throws Exception {
         try (MySQLContainer<?> mysql = new MySQLContainer<>("mysql:8.4")) {
             mysql.start();
-            migrate(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword());
-            assertTableExists(mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword(), "td_spec");
+            check("MySQL", mysql.getJdbcUrl(), mysql.getUsername(), mysql.getPassword(),
+                    "classpath:db/migration_mysql");
         }
     }
 
-    private static void migrate(String jdbcUrl, String username, String password) {
-        String locations = jdbcUrl.startsWith("jdbc:mysql:") || jdbcUrl.startsWith("jdbc:mariadb:")
-                ? "classpath:db/migration_mysql"
-                : "classpath:db/migration";
-        Flyway flyway = Flyway.configure()
-                .dataSource(jdbcUrl, username, password)
-                .locations(locations)
-                .baselineOnMigrate(true)
-                .baselineVersion("1")
-                .load();
-        flyway.migrate();
-    }
-
-    private static void assertTableExists(String jdbcUrl, String username, String password, String table)
+    private static void check(String database, String jdbcUrl, String username, String password, String location)
             throws Exception {
-        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password);
-                Statement statement = connection.createStatement();
-                ResultSet rows = statement.executeQuery("SELECT COUNT(*) FROM " + table)) {
-            assertTrue(rows.next());
+        Flyway.configure().dataSource(jdbcUrl, username, password).locations(location).load().migrate();
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, username, password)) {
+            SchemaSnapshotTest.assertMatchesSnapshot(database, SchemaSnapshot.describe(connection));
+            try (Statement statement = connection.createStatement();
+                 ResultSet rows = statement.executeQuery(
+                         "SELECT COUNT(*) FROM td_tenant t JOIN td_subscription s ON s.org_id = t.org_id"
+                                 + " WHERE t.slug IN ('local', 'saas-platform') AND t.ready = TRUE")) {
+                assertTrue(rows.next());
+                assertEquals(2, rows.getInt(1), database + ": the default workspaces are seeded");
+            }
         }
+        // Running again changes nothing: the seed file only inserts what's missing.
+        Flyway.configure().dataSource(jdbcUrl, username, password).locations(location).load().migrate();
     }
 }

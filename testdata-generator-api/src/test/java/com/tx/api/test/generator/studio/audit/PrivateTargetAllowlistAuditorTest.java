@@ -1,23 +1,18 @@
 package com.tx.api.test.generator.studio.audit;
 
+import com.tx.api.test.generator.studio.TestSchema;
 import com.tx.api.test.generator.studio.config.H2Database;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.storage.JdbcStudioStorage;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 import com.tx.api.test.generator.studio.tenant.TenantContext;
-import org.h2.tools.RunScript;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -50,11 +45,7 @@ class PrivateTargetAllowlistAuditorTest {
         DriverManagerDataSource h2 = new DriverManagerDataSource(
                 H2Database.memoryJdbcUrl("allowlist_" + System.nanoTime()), "sa", "");
         h2.setDriverClassName(H2Database.DRIVER);
-        try (Connection connection = h2.getConnection();
-             Reader schema = new InputStreamReader(
-                     new ClassPathResource("ddl/schema.sql").getInputStream(), StandardCharsets.UTF_8)) {
-            RunScript.execute(connection, schema);
-        }
+        TestSchema.migrate(h2);
         storage = spy(new JdbcStudioStorage(new JdbcTemplate(h2)));
         doReturn(Optional.of(new StudioStorage.EnvironmentOwner(TENANT_ID, "Staging")))
                 .when(storage).findEnvironmentOwner(ENVIRONMENT_ID);
