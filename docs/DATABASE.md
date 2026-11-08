@@ -83,6 +83,10 @@ The migrations are the only definition of the schema. There are no separate DDL 
 - **Keeping them in step:** `SchemaSnapshotTest` migrates H2 and compares it with `src/test/resources/schema-snapshot.txt` (tables, columns and nullability, named indexes, foreign keys). The CI integration job (`-Pintegration`, `FlywayMigrationIntegrationTest`) holds PostgreSQL 16 and MySQL 8.4 to the same file. On a mismatch, what was found is written to `target/schema-snapshot.<database>.txt`.
 - **`baseline-on-migrate` is off:** a database with tables but no Flyway history is refused, rather than assumed to be current.
 
+### Integrity rules
+
+`V2__integrity.sql` and the Java migration `V3__environment_links` add: case environments as links by ID (`td_test_case_environment`), required plans and collection names, foreign keys from run history (cleared when a plan or environment is deleted), `revision` columns for conflict checks, an audit sequence, Enabled as a boolean, and checks on lifecycle, run trigger, outcome and roles. Checks are written with `CASE`, not `IN (...)`, because of an H2 2.4 bug: see the API's `CLAUDE.md`. The API runs in UTC.
+
 ### Changing the schema
 
 1. Add the next version, such as `V2__case_revision.sql`, to **both** folders, in each database's types.

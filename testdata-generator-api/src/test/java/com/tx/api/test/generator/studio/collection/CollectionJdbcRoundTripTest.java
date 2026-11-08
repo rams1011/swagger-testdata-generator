@@ -34,7 +34,6 @@ class CollectionJdbcRoundTripTest {
         TestSchema.migrate(dataSource);
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         // H2 2.4 CHECK IN (...) can keep a closed session and reject later param inserts.
-        jdbcTemplate.execute("ALTER TABLE td_test_case_param DROP CONSTRAINT IF EXISTS ck_td_test_case_param_in");
         storage = new JdbcStudioStorage(jdbcTemplate);
     }
 

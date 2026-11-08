@@ -109,8 +109,8 @@ public final class CaseVersionDocument {
      * Publishes the document's content over the case. Saving treats a missing response match, ignore fields or auth
      * as "leave it", so these say "none" when the version had none.
      */
-    static SaveTestDataRequest toRequest(Map<String, Object> document, StudioTestCase current, String expectedUpdatedAt,
-                                         String expectedDraftUpdatedAt, boolean force) {
+    static SaveTestDataRequest toRequest(Map<String, Object> document, StudioTestCase current, Long expectedRevision,
+                                         Long expectedDraftRevision, boolean force) {
         RunAuth auth = auth(document);
         return new SaveTestDataRequest(
                 current.getSpecId(),
@@ -138,9 +138,9 @@ public final class CaseVersionDocument {
                 text(document, "contentType"),
                 null,
                 current.getEnvironments(),
-                expectedUpdatedAt,
+                expectedRevision,
                 force,
-                expectedDraftUpdatedAt,
+                expectedDraftRevision,
                 null);
     }
 

@@ -8,7 +8,7 @@ public record LoadSpecRequest(
         String name,
         String label,
         Boolean manual,
-        String expectedUpdatedAt,
+        Long expectedRevision,
         Boolean forceOverwrite
 ) {
 }

@@ -19,6 +19,7 @@ td_audit_event
   column actor_label null
   column detail null
   column occurred_at not null
+  column event_seq not null
   index ix_td_audit_tenant_resource_time (tenant_id, resource_type, resource_id, occurred_at)
   index ix_td_audit_tenant_spec_time (tenant_id, spec_id, occurred_at)
 td_environment
@@ -35,6 +36,7 @@ td_global_variables
   column tenant_id not null
   column document_json not null
   column updated_at not null
+  foreign key fk_td_global_variables_tenant (tenant_id) -> td_tenant on delete cascade
 td_login_guard
   column subject not null
   column attempt_count not null
@@ -95,6 +97,8 @@ td_run
   column environment_id null
   index ix_td_run_spec (spec_id, started_at)
   index ix_td_run_spec_plan_env (spec_id, plan_id, environment_id, started_at)
+  foreign key fk_td_run_environment (environment_id) -> td_environment on delete set null
+  foreign key fk_td_run_plan (plan_id) -> td_test_plan on delete set null
   foreign key fk_td_run_spec (spec_id) -> td_spec on delete cascade
 td_run_result
   column result_id not null
@@ -128,6 +132,7 @@ td_run_result
   index ix_td_run_result_run (run_id)
   index ix_td_run_result_spec (spec_id, created_at)
   foreign key fk_td_run_result_case (case_id) -> td_test_case on delete set null
+  foreign key fk_td_run_result_plan (plan_id) -> td_test_plan on delete set null
   foreign key fk_td_run_result_run (run_id) -> td_run on delete cascade
   foreign key fk_td_run_result_spec (spec_id) -> td_spec on delete cascade
 td_session
@@ -142,9 +147,9 @@ td_session
   foreign key fk_td_session_tenant (tenant_id) -> td_tenant on delete cascade
 td_spec
   column spec_id not null
-  column tenant_id null
-  column name null
-  column label null
+  column tenant_id not null
+  column name not null
+  column label not null
   column title not null
   column version null
   column description null
@@ -154,6 +159,7 @@ td_spec
   column operation_count not null
   column created_at not null
   column updated_at not null
+  column revision not null
   index ix_td_spec_tenant (tenant_id)
   unique index ux_td_spec_tenant_name (tenant_id, name)
   foreign key fk_td_spec_tenant (tenant_id) -> td_tenant on delete no action
@@ -184,7 +190,7 @@ td_tenant
 td_test_case
   column test_case_id not null
   column spec_id not null
-  column plan_id null
+  column plan_id not null
   column operation_key not null
   column test_name not null
   column http_method not null
@@ -197,12 +203,10 @@ td_test_case
   column status_code not null
   column response_type null
   column expected_response null
-  column enabled not null
   column test_group null
   column json_path_assertions null
   column extracts null
   column max_response_time_ms null
-  column environment_names null
   column created_at not null
   column updated_at not null
   column created_by_account_id null
@@ -213,17 +217,27 @@ td_test_case
   column response_match null
   column ignore_fields null
   column case_auth null
+  column revision not null
+  column enabled not null
   index ix_td_test_case_operation (spec_id, operation_key)
   index ix_td_test_case_plan (plan_id)
   index ix_td_test_case_spec (spec_id)
+  foreign key fk_td_test_case_plan (plan_id) -> td_test_plan on delete cascade
   foreign key fk_td_test_case_spec (spec_id) -> td_spec on delete cascade
 td_test_case_draft
   column test_case_id not null
   column document_json not null
-  column base_updated_at null
   column updated_at not null
   column updated_by_label null
+  column revision not null
+  column base_revision null
   foreign key fk_td_test_case_draft_case (test_case_id) -> td_test_case on delete cascade
+td_test_case_environment
+  column test_case_id not null
+  column environment_id not null
+  index ix_td_test_case_environment_env (environment_id)
+  foreign key fk_td_tce_case (test_case_id) -> td_test_case on delete cascade
+  foreign key fk_td_tce_environment (environment_id) -> td_environment on delete cascade
 td_test_case_param
   column test_case_id not null
   column param_in not null

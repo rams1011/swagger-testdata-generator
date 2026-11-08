@@ -132,13 +132,13 @@ class CaseVersionRestoreTest {
         String oldVersion = studio.caseVersions(first.id()).get(1).id();
 
         assertThrows(ConflictException.class, () -> studio.restoreCaseVersion(first.id(), oldVersion,
-                new RestoreCaseVersionRequest(second.updatedAt().toString(), null, environmentId)),
+                new RestoreCaseVersionRequest(second.revision(), null, environmentId)),
                 "these draft changes haven't been seen");
         assertEquals("Second", studio.get(first.id(), environmentId).testName());
         assertTrue(studio.get(first.id(), environmentId).hasDraft());
 
         Thread.sleep(5);
-        TestCaseView restored = restore(drafted, oldVersion, drafted.draft().updatedAt().toString());
+        TestCaseView restored = restore(drafted, oldVersion, drafted.draft().revision());
 
         assertEquals("First", restored.testName());
         assertFalse(restored.hasDraft());
@@ -195,9 +195,9 @@ class CaseVersionRestoreTest {
         assertThrows(NoSuchElementException.class, () -> restore(draft, "no-such-version", null));
     }
 
-    private TestCaseView restore(TestCaseView current, String versionId, String expectedDraft) {
+    private TestCaseView restore(TestCaseView current, String versionId, Long expectedDraft) {
         return studio.restoreCaseVersion(current.id(), versionId,
-                new RestoreCaseVersionRequest(current.updatedAt() == null ? null : current.updatedAt().toString(),
+                new RestoreCaseVersionRequest(current.revision(),
                         expectedDraft, environmentId));
     }
 

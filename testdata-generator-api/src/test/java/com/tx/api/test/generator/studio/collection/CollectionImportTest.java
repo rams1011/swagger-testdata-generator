@@ -41,7 +41,6 @@ class CollectionImportTest {
         dataSource = h2;
         TestSchema.migrate(dataSource);
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
-        jdbcTemplate.execute("ALTER TABLE td_test_case_param DROP CONSTRAINT IF EXISTS ck_td_test_case_param_in");
         storage = new JdbcStudioStorage(jdbcTemplate);
     }
 

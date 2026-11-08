@@ -122,7 +122,7 @@ class PublishedCaseDraftTest {
         TestCaseView saved = saveDraft(published, "Draft name", 500, null);
 
         TestCaseView after = studio.update(published.id(),
-                request("Draft name", 500, "READY", saved.draft().updatedAt().toString(), null, null));
+                request("Draft name", 500, "READY", saved.draft().revision(), null, null));
 
         assertEquals("Draft name", after.testName());
         assertFalse(after.hasDraft());
@@ -175,7 +175,7 @@ class PublishedCaseDraftTest {
         assertEquals("N", toggled.draft().enabled(), "the draft doesn't hold its own copy of the setting");
 
         TestCaseView after = studio.update(published.id(),
-                request("Draft name", 200, "READY", saved.draft().updatedAt().toString(), null, null));
+                request("Draft name", 200, "READY", saved.draft().revision(), null, null));
         assertEquals("Draft name", after.testName());
     }
 
@@ -191,10 +191,10 @@ class PublishedCaseDraftTest {
                 "publishing would throw away changes they haven't seen");
 
         Thread.sleep(5);
-        TestCaseView second = saveDraft(published, "Second", 200, first.draft().updatedAt().toString());
+        TestCaseView second = saveDraft(published, "Second", 200, first.draft().revision());
         assertEquals("Second", second.draft().testName());
         assertThrows(ConflictException.class,
-                () -> saveDraft(published, "Third", 200, first.draft().updatedAt().toString()), "out of date");
+                () -> saveDraft(published, "Third", 200, first.draft().revision()), "out of date");
 
         TestCaseView forced = studio.update(published.id(), request("Forced", 200, "READY", null, true, null));
         assertEquals("Forced", forced.testName());
@@ -210,7 +210,7 @@ class PublishedCaseDraftTest {
         studio.update(published.id(), request("Changed underneath", 200, "", null, null, null));
 
         ConflictException conflict = assertThrows(ConflictException.class, () -> studio.update(published.id(),
-                request("Draft name", 200, "READY", saved.draft().updatedAt().toString(), null, null)));
+                request("Draft name", 200, "READY", saved.draft().revision(), null, null)));
         assertTrue(conflict.getMessage().contains("published version changed"));
         assertEquals("Changed underneath", studio.get(published.id(), environmentId).testName());
     }
@@ -231,7 +231,7 @@ class PublishedCaseDraftTest {
         assertEquals(0, export().fileCount(), "a draft's file stays out of the export");
 
         studio.update(published.id(), withBody(
-                request("Published name", 200, "READY", saved.draft().updatedAt().toString(), null, null), bodyWithFile));
+                request("Published name", 200, "READY", saved.draft().revision(), null, null), bodyWithFile));
         assertEquals(1, export().fileCount());
     }
 
@@ -279,7 +279,7 @@ class PublishedCaseDraftTest {
         TestCaseView saved = saveDraft(published, "Version two", 200, null);
         assertEquals(1, versions(published.id()), "saving a draft publishes nothing");
 
-        studio.update(published.id(), request("Version two", 200, "READY", saved.draft().updatedAt().toString(), null, null));
+        studio.update(published.id(), request("Version two", 200, "READY", saved.draft().revision(), null, null));
         assertEquals(2, versions(published.id()));
         String latest = jdbc.queryForObject("""
                 SELECT document_json FROM td_test_case_version WHERE test_case_id = ?
@@ -323,7 +323,7 @@ class PublishedCaseDraftTest {
         assertTrue(blocked.error().startsWith("Unresolved variable {{draftOnly}}"), blocked.error());
 
         studio.update(producer.id(), withExpectedDraft(
-                chained("Producer", "READY", "draftOnly=$.id", null, null), saved.draft().updatedAt().toString()));
+                chained("Producer", "READY", "draftOnly=$.id", null, null), saved.draft().revision()));
         assertTrue(studio.run(new RunTestRequest(usesDraft.id(), null, null, environmentId, null)).passed(),
                 "published, the new extract is available");
         assertFalse(studio.run(new RunTestRequest(usesPublished.id(), null, null, environmentId, null)).passed(),
@@ -369,11 +369,11 @@ class PublishedCaseDraftTest {
         return studio.create(request(name, status, "READY", null, null, null));
     }
 
-    private TestCaseView saveDraft(TestCaseView published, String name, int status, String expectedDraft) {
+    private TestCaseView saveDraft(TestCaseView published, String name, int status, Long expectedDraft) {
         return studio.update(published.id(), request(name, status, "DRAFT", expectedDraft, null, null));
     }
 
-    private SaveTestDataRequest request(String name, int status, String lifecycle, String expectedDraft, Boolean force,
+    private SaveTestDataRequest request(String name, int status, String lifecycle, Long expectedDraft, Boolean force,
                                         Boolean keepDraft) {
         return new SaveTestDataRequest(specId, planId, "ok", name, "{{baseUrl}}", Map.of(), Map.of(), Map.of(), Map.of(),
                 Map.of("a", 1), status, "JSON", null, null, null, null, "Y", lifecycle, null, null, null, 5000L,
@@ -381,20 +381,20 @@ class PublishedCaseDraftTest {
     }
 
     private SaveTestDataRequest chained(String name, String lifecycle, String extracts, String headerValue,
-                                        String expectedDraft) {
+                                        Long expectedDraft) {
         Map<String, String> headers = headerValue == null ? Map.of() : Map.of("X-User", headerValue);
         return new SaveTestDataRequest(specId, planId, "ok", name, "{{baseUrl}}", Map.of(), Map.of(), headers, Map.of(),
                 new HashMap<>(Map.of("a", 1)), 200, "JSON", null, null, null, null, "Y", lifecycle, null, null, extracts,
                 5000L, "application/json", environmentId, null, null, null, expectedDraft, null);
     }
 
-    private static SaveTestDataRequest withExpectedDraft(SaveTestDataRequest source, String expectedDraft) {
+    private static SaveTestDataRequest withExpectedDraft(SaveTestDataRequest source, Long expectedDraft) {
         return new SaveTestDataRequest(source.specId(), source.planId(), source.operationKey(), source.testName(),
                 source.baseUrl(), source.pathParams(), source.queryParams(), source.headers(), source.cookieParams(),
                 source.requestBody(), source.statusCode(), source.responseType(), source.expectedResponse(),
                 source.responseMatch(), source.ignoreFields(), source.auth(), source.enabled(), source.lifecycle(),
                 source.testGroup(), source.jsonPathAssertions(), source.extracts(), source.maxResponseTimeMs(),
-                source.contentType(), source.environmentId(), source.environments(), source.expectedUpdatedAt(),
+                source.contentType(), source.environmentId(), source.environments(), source.expectedRevision(),
                 source.forceOverwrite(), expectedDraft, source.keepDraft());
     }
 
@@ -415,7 +415,7 @@ class PublishedCaseDraftTest {
                 source.statusCode(), source.responseType(), source.expectedResponse(), source.responseMatch(),
                 source.ignoreFields(), source.auth(), source.enabled(), source.lifecycle(), source.testGroup(),
                 source.jsonPathAssertions(), source.extracts(), source.maxResponseTimeMs(), "MULTIPART",
-                source.environmentId(), source.environments(), source.expectedUpdatedAt(), source.forceOverwrite(),
-                source.expectedDraftUpdatedAt(), source.keepDraft());
+                source.environmentId(), source.environments(), source.expectedRevision(), source.forceOverwrite(),
+                source.expectedDraftRevision(), source.keepDraft());
     }
 }

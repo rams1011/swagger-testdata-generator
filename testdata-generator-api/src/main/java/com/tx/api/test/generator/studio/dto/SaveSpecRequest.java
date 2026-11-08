@@ -4,7 +4,7 @@ public record SaveSpecRequest(
         String name,
         String label,
         String baseUrl,
-        String expectedUpdatedAt,
+        Long expectedRevision,
         Boolean forceOverwrite
 ) {
 }
