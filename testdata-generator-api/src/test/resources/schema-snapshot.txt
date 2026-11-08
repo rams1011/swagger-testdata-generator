@@ -22,6 +22,11 @@ td_audit_event
   column event_seq not null
   index ix_td_audit_tenant_resource_time (tenant_id, resource_type, resource_id, occurred_at)
   index ix_td_audit_tenant_spec_time (tenant_id, spec_id, occurred_at)
+td_collection_variables
+  column spec_id not null
+  column document_json not null
+  column updated_at not null
+  foreign key fk_td_collection_variables_spec (spec_id) -> td_spec on delete cascade
 td_environment
   column environment_id not null
   column spec_id not null

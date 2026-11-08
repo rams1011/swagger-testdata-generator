@@ -170,6 +170,40 @@ class CollectionImportTest {
         assertTrue(error.getMessage().contains("Load spec 'employee-service'"));
     }
 
+    @Test
+    void collectionVariablesTravelWithTheCollectionAndSecretsStayPlaceholders() throws Exception {
+        storage.saveSpec(localSpec());
+        CollectionImporter.importInto(storage, goldenBytes(), "collection.json", "spec-local");
+        storage.saveCollectionVariables("spec-local", StudioVariables.toDocument(java.util.List.of(
+                new StudioVariable("tenant", "acme", false), new StudioVariable("apiKey", null, true))));
+
+        StudioCollection exported = CollectionMapper.readFrom(storage, "spec-local", "plan-default");
+        assertEquals(java.util.List.of(new StudioVariable("tenant", "acme", false),
+                new StudioVariable("apiKey", "${STUDIO_VAR_APIKEY}", true)), exported.variables());
+
+        storage.saveCollectionVariables("spec-local", StudioVariables.toDocument(java.util.List.of(
+                new StudioVariable("tenant", "local", false), new StudioVariable("kept", "yes", false))));
+        CollectionImporter.importInto(storage, exported, Map.of(), "spec-local");
+
+        assertEquals(java.util.List.of(new StudioVariable("tenant", "acme", false),
+                        new StudioVariable("kept", "yes", false), new StudioVariable("apiKey", null, true)),
+                StudioVariables.fromDocument(storage.findCollectionVariables("spec-local").orElseThrow()),
+                "the file's rows replace the same names, others stay, and no secret value is stored");
+    }
+
+    @Test
+    void importRefusesARawSecretCollectionVariableBeforeWritingAnything() throws Exception {
+        storage.saveSpec(localSpec());
+        StudioCollection golden = CollectionDocuments.parseCollection(readGolden());
+        StudioCollection leaking = new StudioCollection(golden.format(), golden.version(), golden.spec(),
+                golden.plan(), golden.cases(), java.util.List.of(new StudioVariable("apiKey", "real-key", true)));
+
+        CollectionFormatException refused = assertThrows(CollectionFormatException.class,
+                () -> CollectionImporter.importInto(storage, leaking, Map.of(), "spec-local"));
+        assertTrue(refused.getMessage().contains("apiKey"), refused.getMessage());
+        assertTrue(storage.listTestCases("spec-local", null, null).isEmpty());
+    }
+
     private static StoredSpec localSpec() {
         StoredSpec spec = new StoredSpec();
         spec.setSpecId("spec-local");

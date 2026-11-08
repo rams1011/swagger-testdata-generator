@@ -17,10 +17,12 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Variables a run starts with, layered lowest to highest: environment values, global variables, environment
- * variables. Secret variables take their value from the caller for this run only; results never echo it.
- * Each layer is also reachable directly as {@code global:name} or {@code env:name} (environment values such as
- * baseUrl count as {@code env:}), so a case can read a lower layer that a higher one overrides.
+ * Variables a run starts with, layered lowest to highest: environment values, global variables, collection
+ * variables, environment variables. (Data variables, one row per iteration of a data-driven run, will sit above
+ * environment variables.) Secret variables take their value from the caller for this run only; results never
+ * echo it. Each layer is also reachable directly as {@code global:name}, {@code collection:name} or
+ * {@code env:name} (environment values such as baseUrl count as {@code env:}), so a case can read a lower layer
+ * that a higher one overrides.
  */
 public final class RunVariables {
 
@@ -40,6 +42,12 @@ public final class RunVariables {
 
     public static RunVariables of(Map<String, String> environmentValues, List<StudioVariable> globals,
                                   List<StudioVariable> environmentVariables, Map<String, String> secrets) {
+        return of(environmentValues, globals, null, environmentVariables, secrets);
+    }
+
+    public static RunVariables of(Map<String, String> environmentValues, List<StudioVariable> globals,
+                                  List<StudioVariable> collectionVariables,
+                                  List<StudioVariable> environmentVariables, Map<String, String> secrets) {
         Map<String, String> values = new LinkedHashMap<>();
         Map<String, String> environmentScoped = new LinkedHashMap<>();
         if (environmentValues != null) {
@@ -52,9 +60,12 @@ public final class RunVariables {
         }
         Set<String> secretValues = new LinkedHashSet<>();
         Map<String, String> globalScoped = new LinkedHashMap<>();
+        Map<String, String> collectionScoped = new LinkedHashMap<>();
         layer(values, globalScoped, secretValues, globals, secrets);
+        layer(values, collectionScoped, secretValues, collectionVariables, secrets);
         layer(values, environmentScoped, secretValues, environmentVariables, secrets);
         globalScoped.forEach((key, value) -> values.put(CaseVariables.GLOBAL_PREFIX + key, value));
+        collectionScoped.forEach((key, value) -> values.put(CaseVariables.COLLECTION_PREFIX + key, value));
         environmentScoped.forEach((key, value) -> values.put(CaseVariables.ENV_PREFIX + key, value));
         List<String> masked = new ArrayList<>();
         for (String secret : secretValues) {

@@ -22,6 +22,7 @@ import com.tx.api.test.generator.studio.collection.StudioEnvironment;
 import com.tx.api.test.generator.studio.collection.StudioEnvironmentCaseOverlay;
 import com.tx.api.test.generator.studio.collection.StudioVariable;
 import com.tx.api.test.generator.studio.collection.StudioVariables;
+import com.tx.api.test.generator.studio.dto.CollectionVariables;
 import com.tx.api.test.generator.studio.dto.GlobalVariables;
 import com.tx.api.test.generator.studio.dto.CollectionExport;
 import com.tx.api.test.generator.studio.dto.CollectionImportResult;
@@ -1280,6 +1281,27 @@ public class TestDataStudioService {
         return new GlobalVariables(variables);
     }
 
+    public CollectionVariables getCollectionVariables(String specId) {
+        specCatalogService.requireSpec(specId);
+        return new CollectionVariables(new ArrayList<>(loadCollectionVariables(specId)));
+    }
+
+    public CollectionVariables saveCollectionVariables(String specId, CollectionVariables request) {
+        specCatalogService.requireSpec(specId);
+        List<StudioVariable> variables = StudioVariables.normalize(
+                request == null ? null : request.variables(), "Collection");
+        studioStorage.saveCollectionVariables(specId, StudioVariables.toDocument(variables));
+        log.info("Saved {} collection variables for spec {}", variables.size(), specId);
+        return new CollectionVariables(variables);
+    }
+
+    private List<StudioVariable> loadCollectionVariables(String specId) {
+        if (StringUtils.isBlank(specId)) {
+            return List.of();
+        }
+        return studioStorage.findCollectionVariables(specId).map(StudioVariables::fromDocument).orElse(List.of());
+    }
+
     private List<StudioVariable> loadGlobalVariables() {
         return studioStorage.findGlobalVariables()
                 .filter(StringUtils::isNotBlank)
@@ -1293,6 +1315,7 @@ public class TestDataStudioService {
         return RunVariables.of(
                 withSpecBaseUrl(specId, environment == null ? null : environment.values()),
                 loadGlobalVariables(),
+                loadCollectionVariables(specId),
                 environment == null ? null : environment.variableList(),
                 secrets);
     }
@@ -1322,6 +1345,10 @@ public class TestDataStudioService {
         for (String key : StudioVariables.secretKeys(loadGlobalVariables())) {
             names.add(key);
             names.add(CaseVariables.GLOBAL_PREFIX + key);
+        }
+        for (String key : StudioVariables.secretKeys(loadCollectionVariables(specId))) {
+            names.add(key);
+            names.add(CaseVariables.COLLECTION_PREFIX + key);
         }
         StudioEnvironment environment = loadEnvironment(specId, environmentId);
         if (environment != null) {

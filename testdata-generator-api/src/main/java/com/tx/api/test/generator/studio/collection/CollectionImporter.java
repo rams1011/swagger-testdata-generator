@@ -53,6 +53,7 @@ public final class CollectionImporter {
                                                     Map<String, byte[]> files, String targetSpecId,
                                                     String environmentName, boolean publishReady) {
         CollectionMapper.validate(collection);
+        List<StudioVariable> variables = StudioVariables.normalize(collection.variables(), "Collection");
         StoredSpec spec = resolveSpec(storage, collection, targetSpecId);
         PlanResolution plan = resolvePlan(storage, spec, collection.plan());
         CollectionSnapshot snapshot = CollectionMapper.toSnapshot(collection);
@@ -85,6 +86,14 @@ public final class CollectionImporter {
             FileCounts fileCounts = importFiles(storage, item, binaries);
             importedFiles += fileCounts.imported();
             skippedFiles += fileCounts.skipped();
+        }
+        if (!variables.isEmpty()) {
+            List<StudioVariable> current = storage.findCollectionVariables(spec.getSpecId())
+                    .map(StudioVariables::fromDocument)
+                    .orElse(List.of());
+            storage.saveCollectionVariables(spec.getSpecId(),
+                    StudioVariables.toDocument(StudioVariables.normalize(
+                            StudioVariables.merge(current, variables), "Collection")));
         }
         return new CollectionImportResult(
                 spec.getSpecId(),

@@ -484,6 +484,32 @@ public class JdbcStudioStorage implements StudioStorage {
     }
 
     @Override
+    public Optional<String> findCollectionVariables(String specId) {
+        List<String> documents = jdbcTemplate.query("""
+                SELECT v.document_json FROM td_collection_variables v
+                  JOIN td_spec s ON s.spec_id = v.spec_id
+                 WHERE v.spec_id = ? AND s.tenant_id = ?
+                """, (rs, rowNum) -> rs.getString(1), specId, tenantId());
+        return documents.stream().findFirst();
+    }
+
+    @Override
+    public void saveCollectionVariables(String specId, String documentJson) {
+        requireOwnedSpec(specId);
+        Timestamp now = Timestamp.from(Instant.now());
+        synchronized (environmentSaveLocks.computeIfAbsent(specId + ":collection-variables", ignored -> new Object())) {
+            int rows = jdbcTemplate.update(
+                    "UPDATE td_collection_variables SET document_json = ?, updated_at = ? WHERE spec_id = ?",
+                    documentJson, now, specId);
+            if (rows == 0) {
+                jdbcTemplate.update(
+                        "INSERT INTO td_collection_variables (spec_id, document_json, updated_at) VALUES (?, ?, ?)",
+                        specId, documentJson, now);
+            }
+        }
+    }
+
+    @Override
     public void saveTestCase(StudioTestCase testCase) {
         writeTestCase(testCase);
         if (!com.tx.api.test.generator.studio.model.CaseLifecycle.isDraft(testCase)) {

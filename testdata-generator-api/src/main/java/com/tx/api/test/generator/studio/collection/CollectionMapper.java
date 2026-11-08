@@ -28,6 +28,12 @@ public final class CollectionMapper {
 
     public static StudioCollection fromPlan(StoredSpec spec, StudioTestPlan plan, List<StudioTestCase> cases,
                                             Map<String, List<StudioRequestFile>> filesByCaseId) {
+        return fromPlan(spec, plan, cases, filesByCaseId, List.of());
+    }
+
+    public static StudioCollection fromPlan(StoredSpec spec, StudioTestPlan plan, List<StudioTestCase> cases,
+                                            Map<String, List<StudioRequestFile>> filesByCaseId,
+                                            List<StudioVariable> variables) {
         if (spec == null) {
             throw new CollectionFormatException("spec is required");
         }
@@ -44,7 +50,8 @@ public final class CollectionMapper {
                 CollectionFormat.VERSION,
                 toCollectionSpec(spec),
                 toCollectionPlan(plan),
-                List.copyOf(mapped)
+                List.copyOf(mapped),
+                variables == null || variables.isEmpty() ? null : StudioVariables.forExport(variables)
         );
     }
 
@@ -80,7 +87,10 @@ public final class CollectionMapper {
                 filesByCaseId.put(testCase.getId(), files);
             }
         }
-        return fromPlan(spec, plan, cases, filesByCaseId);
+        List<StudioVariable> variables = storage.findCollectionVariables(specId)
+                .map(StudioVariables::fromDocument)
+                .orElse(List.of());
+        return fromPlan(spec, plan, cases, filesByCaseId, variables);
     }
 
     private static List<StudioRequestFile> withoutDraftOnlyFiles(StudioStorage storage, StudioTestCase testCase) {

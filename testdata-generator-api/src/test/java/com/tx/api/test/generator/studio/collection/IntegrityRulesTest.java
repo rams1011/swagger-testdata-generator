@@ -147,6 +147,24 @@ class IntegrityRulesTest {
     }
 
     @Test
+    void collectionVariablesBelongToOneCollectionAndLeaveItsRevisionAlone() {
+        long revision = catalog.getSummary(specId).revision();
+        studio.saveCollectionVariables(specId, new com.tx.api.test.generator.studio.dto.CollectionVariables(List.of(
+                new StudioVariable(" tenant ", "acme", false), new StudioVariable("apiKey", "", true))));
+
+        assertEquals(List.of(new StudioVariable("tenant", "acme", false), new StudioVariable("apiKey", null, true)),
+                studio.getCollectionVariables(specId).variables());
+        assertEquals(revision, catalog.getSummary(specId).revision());
+        String other = catalog.load(new LoadSpecRequest(null, DEFINITION, null, "http://127.0.0.1:1",
+                "Other " + UUID.randomUUID(), null, null, null, null)).specId();
+        assertTrue(studio.getCollectionVariables(other).variables().isEmpty());
+
+        catalog.delete(specId);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM td_collection_variables WHERE spec_id = ?",
+                Integer.class, specId));
+    }
+
+    @Test
     void enabledIsStoredAsABoolean() {
         TestCaseView disabled = studio.create(save("Off", null, null, "N"));
 

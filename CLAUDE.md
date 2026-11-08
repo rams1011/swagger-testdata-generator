@@ -47,18 +47,19 @@ Studio package layout:
 Product design doc (cross-repo): `D:\code\testdata-studio-ui\docs\DATA_STUDIO_DESIGN.md`.  
 **Variable user guide:** `D:\code\testdata-studio-ui\docs\VARIABLES.md`.
 
-## Global and environment variables
+## Global, collection and environment variables
 
 - **Environment variables** live in the environment JSON document (`StudioEnvironment.variables`).
-- **Global variables** are tenant-scoped JSON in table `td_global_variables` (Flyway **V11** + DDL scripts).
+- **Global variables** are tenant-scoped JSON in table `td_global_variables`.
+- **Collection variables** are one JSON document per collection in `td_collection_variables` (migration **V4**, cascade-deleted with the spec; kept out of `td_spec` so saving them doesn't bump the collection revision). `StudioVariables.fromDocument` / `toDocument` read and write `{"variables": [...]}`. Collection export writes them as the optional top-level `variables` array of `StudioCollection` (secrets → `${STUDIO_VAR_*}`); import normalizes them before writing anything (a raw secret value is refused) and merges them by name (`StudioVariables.merge`). Data variables (per-row values of data-driven runs) are planned above environment variables.
 - Model: `collection/StudioVariable` (key, value, secret). Normalize via `StudioVariables.normalize(list, scope)`.
 - **Secrets:** stored with `value = null`; import rejects raw secret values; export uses `${STUDIO_VAR_<KEY_UPPER>}` via `StudioVariables.forExport`.
-- **Run scope:** `RunVariables.of(envValues, globals, envVars, request.secrets)` — precedence: env `values` (incl. baseUrl) → globals → env vars → request secrets (non-blank, declared secret keys only) → extracts mutate the per-run map.
+- **Run scope:** `RunVariables.of(envValues, globals, collectionVars, envVars, request.secrets)` — precedence: env `values` (incl. baseUrl) → globals → collection vars → env vars → request secrets (non-blank, declared secret keys only) → extracts mutate the per-run map.
 - **Substitution:** `CaseVariables.substitute` resolves `{{name}}`; names starting with `$` use `DynamicVariables` (fresh per occurrence).
-- **Scope qualifiers:** `{{global:x}}`, `{{env:x}}`, `{{extract:x}}` read one layer. `RunVariables.of` also stores `global:`/`env:` keys (env values such as baseUrl count as `env:`); `CaseVariables.putExtracted` writes `x` and `extract:x`; chain order and prerequisites use `CaseVariables.producedNames`. Environment export (`EnvironmentExporter.export(spec, stored, globals)`) adds an optional top-level `globals` array for CI; import ignores it.
+- **Scope qualifiers:** `{{global:x}}`, `{{collection:x}}`, `{{env:x}}`, `{{extract:x}}` read one layer. `RunVariables.of` also stores `global:`/`collection:`/`env:` keys (env values such as baseUrl count as `env:`); `CaseVariables.putExtracted` writes `x` and `extract:x`; chain order and prerequisites use `CaseVariables.producedNames`. Environment export (`EnvironmentExporter.export(spec, stored, globals)`) adds an optional top-level `globals` array for CI; import ignores it.
 - **Masking:** `RunVariables.mask(RunTestResult)` before history/response — secrets never echoed in URL, headers, body, assertions, error, extracted map.
-- **Endpoints:** `GET/PUT /api/variables/globals` (`VariablesController`); runs accept optional `secrets` on `RunTestRequest` / `RunPlanRequest`; saved run endpoint forwards secrets from body.
-- **Validate plan:** seed available names from env + global keys (and declared secret names for warnings).
+- **Endpoints:** `GET/PUT /api/variables/globals` and `GET/PUT /api/variables/collections/{specId}` (`VariablesController`); runs accept optional `secrets` on `RunTestRequest` / `RunPlanRequest`; saved run endpoint forwards secrets from body.
+- **Validate plan:** seed available names from env, collection and global keys (and declared secret names for warnings).
 
 Key tests: `RunVariablesTest`, `EnvironmentImportTest` (variables round-trip), `VariableRequestJsonTest`.
 

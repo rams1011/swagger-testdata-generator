@@ -85,6 +85,10 @@ Deliver in chat for a quick verdict; if the user wants something to share or kee
 
 - **2026-11-07 (implemented):** gap 1 closed for Studio: Run plan takes `caseIds` and adds the cases they need values from; the Cases page has a Group filter and **Run selected** (run a group by filtering it and ticking the header box). Folders are still not a concept.
 
+- **2026-11-07/08 (implemented, robustness, no parity gaps closed):** database stage 1: one fresh Flyway baseline per database type (PostgreSQL/H2 and MySQL), hand-written DDL files removed, tests build their database with the real migrations (`TestSchema`), a schema snapshot checked on H2 in every run and on PostgreSQL and MySQL in the `-Pintegration` job, `baseline-on-migrate` off; MySQL fixes (missing migration, `LONGTEXT`, `DATETIME(3)`, `year_month` renamed `usage_month`). Stage 2 (V2, plus V3 in Java): case environments linked by ID, required plans and collection names, foreign keys from run history, revision numbers for conflict checks, an audit sequence, Enabled as a boolean, value checks (`CASE` form on PostgreSQL/H2 because of an H2 2.4 `IN` bug, `IN` on MySQL), UTC. Fixed along the way: the case editor silently overwrote other people's saves (it now shows the Reload / Overwrite dialog); saving an environment re-saved the collection and showed a false "API definition changed" message; the editor lost unsaved edits when the collection's base URL changed. UI: Request / Expected response / Result tabs in the case editor. Stage 3 (one case document) is next in the database plan and would make data-driven runs (gap 2) cheaper.
+
+- **2026-11-08 (implemented):** gap 6 partly closed: collection variables. One document per collection (`td_collection_variables`, migration V4), edited from Environment → **Collection variables…**, with secrets entered in the browser only; they rank between global and environment variables, `{{collection:x}}` reads them alone, and they are in autocomplete, chips and Validate. Collection export carries them as a top-level `variables` array (secrets as `${STUDIO_VAR_*}`), import merges them by name, and api-automation reads them from the collection JSON or over JDBC. Data variables wait for data-driven runs.
+
 - **2026-11-07 (review):** re-verified the open gaps against the code. The baseline below replaces the 2026-11-04 one.
 
 ## Baseline findings (re-verified 2026-11-07 — re-verify each one)
@@ -97,7 +101,7 @@ Deliver in chat for a quick verdict; if the user wants something to share or kee
 3. No Postman v2.1, Insomnia or HAR import (Studio collection format and cURL only).
 4. Auth: no OAuth authorization code / PKCE (`TestRunService` rejects `authorization_code` and `implicit`), Digest, NTLM, AWS SigV4, Hawk or client certificates (mTLS).
 5. No pre-request or test scripting.
-6. Variables have only global and environment scope (no collection or data variables).
+6. Partly closed 2026-11-08: collection variables exist (see change log). Still no data variables; they come with data-driven runs (roadmap 2).
 7. No inheritance between levels: auth is per environment with a per-case override, nothing at collection or folder level.
 8. Partly closed: private targets need a per-environment allowlist on the server; there's no local agent for localhost and internal APIs.
 9. No parallel runs in Studio's Run plan (api-automation has `--threads`).
@@ -105,4 +109,4 @@ Deliver in chat for a quick verdict; if the user wants something to share or kee
 11. No mock servers; no scheduled runs or monitors.
 12. REST only: no GraphQL body type, WebSocket, gRPC or SSE.
 
-**Roadmap (remaining):** (1) ~~run a subset by group or selection~~ done → (2) data-driven iterations → (3) Postman v2.1 import → (4) client certificates and OAuth authorization code with PKCE → (5) collection variables and auth inheritance → (6) parallel Run plan, proxy credentials → (7) local agent for private targets → (8) sandboxed scripting (last, because of server-side sandbox risk) → schedules and mocks as needed.
+**Roadmap (remaining):** (1) ~~run a subset by group or selection~~ done → (2) data-driven iterations → (3) Postman v2.1 import → (4) client certificates and OAuth authorization code with PKCE → (5) ~~collection variables~~ done, auth inheritance → (6) parallel Run plan, proxy credentials → (7) local agent for private targets → (8) sandboxed scripting (last, because of server-side sandbox risk) → schedules and mocks as needed.
