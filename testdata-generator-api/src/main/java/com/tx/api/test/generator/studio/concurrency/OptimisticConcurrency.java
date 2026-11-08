@@ -12,17 +12,6 @@ public final class OptimisticConcurrency {
         return Boolean.TRUE.equals(forceOverwrite);
     }
 
-    public static boolean checkRequired(String expectedUpdatedAt, Boolean forceOverwrite) {
-        return !force(forceOverwrite) && expectedUpdatedAt != null && !expectedUpdatedAt.isBlank();
-    }
-
-    public static Instant parse(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return null;
-        }
-        return toStorageInstant(Instant.parse(raw.trim()));
-    }
-
     /** JDBC timestamps are millisecond-precision; keep reads/writes aligned for optimistic locking. */
     public static Instant toStorageInstant(Instant instant) {
         if (instant == null) {
@@ -38,11 +27,14 @@ public final class OptimisticConcurrency {
         return toStorageInstant(left).toEpochMilli() == toStorageInstant(right).toEpochMilli();
     }
 
-    public static void ensureCurrent(Instant current, String expectedRaw, Boolean forceOverwrite) {
-        if (!checkRequired(expectedRaw, forceOverwrite)) {
-            return;
-        }
-        if (!same(current, parse(expectedRaw))) {
+    /** True when a save must match {@code expectedRevision}: one was given and it isn't a forced overwrite. */
+    public static boolean checkRequired(Long expectedRevision, Boolean forceOverwrite) {
+        return !force(forceOverwrite) && expectedRevision != null;
+    }
+
+    /** Each save adds one to a row's revision, so a save based on an older revision is someone else's lost update. */
+    public static void ensureCurrent(long currentRevision, Long expectedRevision, Boolean forceOverwrite) {
+        if (checkRequired(expectedRevision, forceOverwrite) && currentRevision != expectedRevision) {
             throw new com.tx.api.test.generator.studio.api.ConflictException(
                     "Someone else saved a newer version. Reload their copy or overwrite.");
         }

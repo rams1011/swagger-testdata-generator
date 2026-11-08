@@ -37,6 +37,7 @@ public record TestCaseView(
         Instant updatedAt,
         String createdBy,
         String updatedBy,
+        long revision,
         boolean hasDraft,
         TestCaseView draft
 ) {

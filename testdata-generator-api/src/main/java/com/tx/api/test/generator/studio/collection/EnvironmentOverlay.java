@@ -155,6 +155,7 @@ public final class EnvironmentOverlay {
     private static void copyAuditFields(StudioTestCase source, StudioTestCase copy) {
         copy.setCreatedAt(source.getCreatedAt());
         copy.setUpdatedAt(source.getUpdatedAt());
+        copy.setRevision(source.getRevision());
         copy.setCreatedByAccountId(source.getCreatedByAccountId());
         copy.setCreatedByLabel(source.getCreatedByLabel());
         copy.setUpdatedByAccountId(source.getUpdatedByAccountId());

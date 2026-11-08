@@ -20,7 +20,16 @@ public class TestdataStudioApplication {
     private static final Logger log = LoggerFactory.getLogger(TestdataStudioApplication.class);
 
     public static void main(String[] args) {
+        useUtc();
         SpringApplication.run(TestdataStudioApplication.class, args);
+    }
+
+    /**
+     * Times are stored without a time zone, and JDBC reads and writes them in the JVM's zone. Pinning that to UTC
+     * keeps stored times the same whatever zone a server runs in. Log lines show UTC too.
+     */
+    static void useUtc() {
+        java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone(java.time.ZoneOffset.UTC));
     }
 
     @Bean

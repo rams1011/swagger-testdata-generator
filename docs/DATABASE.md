@@ -75,22 +75,32 @@ The Cloud Run runtime service account needs `roles/alloydb.client` (or equivalen
 
 ## Migrations
 
-- Location: `testdata-generator-api/src/main/resources/db/migration`
-- **PostgreSQL / H2:** `db/migration/` (idempotent upgrade style for existing installs).
-- **MySQL 8.4+:** `db/migration_mysql/` (greenfield DDL; selected automatically when `spring.datasource.url` is `jdbc:mysql:` or `jdbc:mariadb:`). Must not live under `db/migration/` — Flyway scans subfolders and would collide on version `1` with PostgreSQL/H2 scripts.
-- CI runs Flyway against PostgreSQL and MySQL via Testcontainers.
-- Hand-maintained DDL copies: `ddl/schema.sql`, `ddl/postgresql.sql`, `ddl/h2.sql`
+The migrations are the only definition of the schema. There are no separate DDL files, and the tests build their databases with the same migrations.
 
-**Do not edit** an already-released `V__*.sql` file in place — Flyway stores a checksum in `flyway_schema_history`. Change schema with a new `V5__….sql` migration instead.
+- **PostgreSQL / H2:** `testdata-generator-api/src/main/resources/db/migration/`.
+- **MySQL 8.4+:** `db/migration_mysql/`, selected automatically when `spring.datasource.url` is `jdbc:mysql:` or `jdbc:mariadb:`. Same tables, columns, keys and indexes, with MySQL types: `LONGTEXT` (MySQL `TEXT` stops at 64 KB), `DATETIME(3)` and `LONGBLOB`. It must not live under `db/migration/`, or Flyway would see each version twice.
+- **`V1__studio.sql`** in each folder is the baseline, written fresh on 2026-11-07 in place of the V1 to V16 chain from development. **`R__default_workspaces.sql`** seeds the Local and SaaS workspaces; it only inserts what's missing.
+- **Keeping them in step:** `SchemaSnapshotTest` migrates H2 and compares it with `src/test/resources/schema-snapshot.txt` (tables, columns and nullability, named indexes, foreign keys). The CI integration job (`-Pintegration`, `FlywayMigrationIntegrationTest`) holds PostgreSQL 16 and MySQL 8.4 to the same file. On a mismatch, what was found is written to `target/schema-snapshot.<database>.txt`.
+- **`baseline-on-migrate` is off:** a database with tables but no Flyway history is refused, rather than assumed to be current.
 
-### Flyway checksum mismatch (local H2)
+### Integrity rules
 
-If startup fails with `Migration checksum mismatch for migration version 1` after pulling changes that touched an old migration file:
+`V2__integrity.sql` and the Java migration `V3__environment_links` add: case environments as links by ID (`td_test_case_environment`), required plans and collection names, foreign keys from run history (cleared when a plan or environment is deleted), `revision` columns for conflict checks, an audit sequence, Enabled as a boolean, and checks on lifecycle, run trigger, outcome and roles. Checks are written with `CASE`, not `IN (...)`, because of an H2 2.4 bug: see the API's `CLAUDE.md`. The API runs in UTC.
 
-1. **Reset local data** (simplest): stop the API, delete `./studio-output/testdata.mv.db` (and `testdata.trace.db` if present), restart.
-2. **Keep data, fix history**: run Flyway repair against the same JDBC URL as `application-local.yml`, e.g. with the Flyway CLI or `mvn -pl testdata-generator-api flyway:repair` if configured.
+### Changing the schema
 
-Production and shared databases should use **repair** only deliberately, not delete files.
+1. Add the next version, such as `V2__case_revision.sql`, to **both** folders, in each database's types.
+2. Update `schema-snapshot.txt` to match. Run `SchemaSnapshotTest`, and copy `target/schema-snapshot.h2.txt` over it once the change is right.
+3. Never edit a migration that has been applied anywhere: Flyway stores a checksum for each one.
+
+### Databases created before the 2026-11-07 baseline
+
+A database migrated with the old V1 to V16 chain stops at startup with `Migration checksum mismatch for migration version 1`, and nothing in it is changed. Don't run Flyway **repair**, as the message suggests: that would record the old schema as the new baseline. It can't be upgraded in place, so start it fresh:
+
+1. In Studio, export the collections and environments you want to keep.
+2. Stop the API and drop the database. For local H2, delete `./studio-output/testdata.mv.db` (and `testdata.trace.db` if present).
+3. Run `mvn clean` once. Maven doesn't remove deleted files from `target/classes`, so a build that isn't clean still contains the old V2 to V16 migrations and runs them too.
+4. Start the API, which builds the new schema, then import what you exported. Accounts, workspace members and run history aren't in the export and start again.
 
 ## Local H2 overrides
 

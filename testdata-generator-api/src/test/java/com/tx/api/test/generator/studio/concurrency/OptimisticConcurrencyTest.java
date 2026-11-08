@@ -13,29 +13,25 @@ class OptimisticConcurrencyTest {
 
     @Test
     void skipsCheckWhenExpectedMissingOrForceOverwrite() {
-        Instant now = Instant.parse("2024-01-01T00:00:00Z");
-        assertDoesNotThrow(() -> OptimisticConcurrency.ensureCurrent(now, null, false));
-        assertDoesNotThrow(() -> OptimisticConcurrency.ensureCurrent(now, "", false));
-        assertDoesNotThrow(() -> OptimisticConcurrency.ensureCurrent(now, "2024-01-02T00:00:00Z", true));
+        assertDoesNotThrow(() -> OptimisticConcurrency.ensureCurrent(3, null, false));
+        assertDoesNotThrow(() -> OptimisticConcurrency.ensureCurrent(3, 1L, true));
     }
 
     @Test
-    void rejectsStaleRevision() {
-        Instant current = Instant.parse("2024-01-02T00:00:00.001Z");
+    void rejectsAnOlderRevision() {
         ConflictException conflict = assertThrows(ConflictException.class, () ->
-                OptimisticConcurrency.ensureCurrent(current, "2024-01-01T00:00:00Z", false));
+                OptimisticConcurrency.ensureCurrent(3, 2L, false));
         assertTrue(conflict.getMessage().contains("newer version"));
     }
 
     @Test
-    void acceptsMatchingRevisionAtMillisecondPrecision() {
-        Instant current = Instant.parse("2024-01-01T00:00:00.123Z");
-        assertDoesNotThrow(() -> OptimisticConcurrency.ensureCurrent(current, "2024-01-01T00:00:00.123Z", false));
+    void acceptsTheCurrentRevision() {
+        assertDoesNotThrow(() -> OptimisticConcurrency.ensureCurrent(3, 3L, false));
     }
 
     @Test
-    void parseTruncatesSubMillisecondPrecision() {
-        Instant parsed = OptimisticConcurrency.parse("2024-01-01T00:00:00.123456789Z");
-        assertTrue(OptimisticConcurrency.same(parsed, Instant.parse("2024-01-01T00:00:00.123Z")));
+    void sameComparesAtMillisecondPrecision() {
+        assertTrue(OptimisticConcurrency.same(
+                Instant.parse("2024-01-01T00:00:00.123456789Z"), Instant.parse("2024-01-01T00:00:00.123Z")));
     }
 }

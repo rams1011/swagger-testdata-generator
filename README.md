@@ -251,7 +251,7 @@ testdata:
     max-per-spec: 100
 ```
 
-On startup Flyway applies `classpath:db/migration` (`V1__studio.sql`, same as `ddl/schema.sql`). Existing databases are baselined at version 1. Data is stored as `./studio-output/testdata.mv.db`. File H2 is opened with `AUTO_SERVER=TRUE` so api-automation can connect while Studio is running; restart Studio after upgrading for that to take effect. Hand-apply DDL is in `testdata-generator-api/src/main/resources/ddl/h2.sql`. Multipart request files are stored in `td_request_file`. Excel export downloads a zip (`workbook.xlsx` plus `files/<caseId>/`) when cases have uploads — it does not write into an api-automation checkout.
+On startup Flyway applies `classpath:db/migration` (`V1__studio.sql` plus `R__default_workspaces.sql`). A database created before the 2026-11-07 baseline must be exported and started fresh: see [docs/DATABASE.md](docs/DATABASE.md#databases-created-before-the-2026-11-07-baseline). Data is stored as `./studio-output/testdata.mv.db`. File H2 is opened with `AUTO_SERVER=TRUE` so api-automation can connect while Studio is running; restart Studio after upgrading for that to take effect. Multipart request files are stored in `td_request_file`. Excel export downloads a zip (`workbook.xlsx` plus `files/<caseId>/`) when cases have uploads — it does not write into an api-automation checkout.
 
 After each Try / Run / Run plan, the oldest batches for that spec are deleted once the spec has more than `testdata.run-history.max-per-spec` runs (default `100`). Set `0` to keep history unbounded.
 
@@ -279,7 +279,7 @@ SPRING_DATASOURCE_PASSWORD=...
 # SPRING_DATASOURCE_DRIVER_CLASS_NAME=org.postgresql.Driver  # optional when Boot infers from URL
 ```
 
-On startup Flyway applies `classpath:db/migration`. `baseline-on-migrate=true` marks version 1 as applied on an existing schema so V1 is not re-run. Set `SPRING_DATASOURCE_*` in the environment — values are not committed.
+On startup Flyway applies `classpath:db/migration` (`db/migration_mysql` for MySQL) to an empty database. A database that has tables but no Flyway history is refused. Set `SPRING_DATASOURCE_*` in the environment — values are not committed.
 
 **Drivers:** PostgreSQL, MySQL 8, H2, and AlloyDB connector JARs are on the API classpath. **CI** runs unit tests (H2) and Flyway integration tests against PostgreSQL 16 and MySQL 8.4 (Testcontainers).
 

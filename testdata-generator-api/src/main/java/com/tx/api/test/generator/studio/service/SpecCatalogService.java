@@ -191,9 +191,9 @@ public class SpecCatalogService {
         if (updateBaseUrl) {
             stored.setBaseUrl(resolveUpdatedBaseUrl(stored, request.baseUrl()));
         }
-        assertSpecRevision(stored, request == null ? null : request.expectedUpdatedAt(),
+        assertSpecRevision(stored, request == null ? null : request.expectedRevision(),
                 request == null ? null : request.forceOverwrite());
-        applySpecWriteOptions(stored, request == null ? null : request.expectedUpdatedAt(),
+        applySpecWriteOptions(stored, request == null ? null : request.expectedRevision(),
                 request == null ? null : request.forceOverwrite());
         try {
             studioStorage.saveSpec(stored);
@@ -235,7 +235,7 @@ public class SpecCatalogService {
         String location = firstNonBlank(request == null ? null : request.location(), existing.getSourceLocation());
         String content = resolveReloadContent(request, existing, location);
         OpenAPI openApi = parseSpec(content);
-        assertSpecRevision(existing, request == null ? null : request.expectedUpdatedAt(),
+        assertSpecRevision(existing, request == null ? null : request.expectedRevision(),
                 request == null ? null : request.forceOverwrite());
         String baseUrl = firstNonBlank(request == null ? null : request.baseUrl(), existing.getBaseUrl());
         List<OperationPage> operations = TestdataGenerator.inspect(openApi, baseUrl);
@@ -266,10 +266,10 @@ public class SpecCatalogService {
         String label = firstNonBlank(request == null ? null : request.label(), existing.getLabel());
         StoredSpec stored = toStoredSpec(loadedSpec,
                 new LoadSpecRequest(location, content, request == null ? null : request.fileName(), baseUrl, name, label, null,
-                        request == null ? null : request.expectedUpdatedAt(),
+                        request == null ? null : request.expectedRevision(),
                         request == null ? null : request.forceOverwrite()),
                 content, name);
-        applySpecWriteOptions(stored, request == null ? null : request.expectedUpdatedAt(),
+        applySpecWriteOptions(stored, request == null ? null : request.expectedRevision(),
                 request == null ? null : request.forceOverwrite());
         try {
             studioStorage.saveSpec(stored);
@@ -540,7 +540,8 @@ public class SpecCatalogService {
                 SpecLocationGuard.publicLocation(sourceLocation),
                 serversOf(spec),
                 isManualSpec(spec),
-                specUpdatedAt(spec.getSpecId())
+                specUpdatedAt(spec.getSpecId()),
+                studioStorage.findSpec(spec.getSpecId()).map(StoredSpec::getRevision).orElse(1L)
         );
     }
 
@@ -562,7 +563,8 @@ public class SpecCatalogService {
                 SpecLocationGuard.publicLocation(spec.getSourceLocation()),
                 List.of(),
                 ManualSpecDocument.isManualContent(spec.getSourceContent()),
-                spec.getUpdatedAt()
+                spec.getUpdatedAt(),
+                spec.getRevision()
         );
     }
 
@@ -570,18 +572,18 @@ public class SpecCatalogService {
         return studioStorage.findSpec(specId).map(StoredSpec::getUpdatedAt).orElse(null);
     }
 
-    private void assertSpecRevision(StoredSpec stored, String expectedUpdatedAt, Boolean forceOverwrite) {
+    private void assertSpecRevision(StoredSpec stored, Long expectedRevision, Boolean forceOverwrite) {
         try {
-            OptimisticConcurrency.ensureCurrent(stored.getUpdatedAt(), expectedUpdatedAt, forceOverwrite);
+            OptimisticConcurrency.ensureCurrent(stored.getRevision(), expectedRevision, forceOverwrite);
         } catch (ConflictException conflict) {
             throw new ConflictException(conflict.getMessage(), getSummary(stored.getSpecId()));
         }
     }
 
-    private void applySpecWriteOptions(StoredSpec spec, String expectedUpdatedAt, Boolean forceOverwrite) {
+    private void applySpecWriteOptions(StoredSpec spec, Long expectedRevision, Boolean forceOverwrite) {
         spec.setForceOverwrite(OptimisticConcurrency.force(forceOverwrite));
-        if (OptimisticConcurrency.checkRequired(expectedUpdatedAt, forceOverwrite)) {
-            spec.setExpectedUpdatedAt(OptimisticConcurrency.parse(expectedUpdatedAt));
+        if (OptimisticConcurrency.checkRequired(expectedRevision, forceOverwrite)) {
+            spec.setExpectedRevision(expectedRevision);
         }
     }
 

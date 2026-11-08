@@ -18,6 +18,7 @@ public record SpecSummary(
         String sourceLocation,
         List<SpecServer> servers,
         boolean manual,
-        Instant updatedAt
+        Instant updatedAt,
+        long revision
 ) {
 }

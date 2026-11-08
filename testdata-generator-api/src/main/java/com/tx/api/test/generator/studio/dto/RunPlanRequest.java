@@ -1,12 +1,14 @@
 package com.tx.api.test.generator.studio.dto;
 
+import java.util.List;
 import java.util.Map;
 
 /**
  * {@code secrets} holds values for secret variables, entered in the browser and never stored.
  * {@code continueOnFailure} keeps running later cases after a failure (default: stop at the first failure).
  * {@code delayMs} waits between requests (0..60000). {@code retries} re-sends a failed case up to that many times
- * (0..5), waiting {@code delayMs} between attempts.
+ * (0..5), waiting {@code delayMs} between attempts. {@code caseIds} runs only those cases, plus earlier cases they need
+ * extracted values from; null runs the whole plan.
  */
 public record RunPlanRequest(
         String specId,
@@ -16,7 +18,8 @@ public record RunPlanRequest(
         Map<String, String> secrets,
         Boolean continueOnFailure,
         Long delayMs,
-        Integer retries
+        Integer retries,
+        List<String> caseIds
 ) {
     public static final long MAX_DELAY_MS = 60_000L;
     public static final int MAX_RETRIES = 5;
@@ -33,6 +36,11 @@ public record RunPlanRequest(
     public RunPlanRequest(String specId, String planId, RunAuth auth, String environmentId,
                           Map<String, String> secrets, Boolean continueOnFailure) {
         this(specId, planId, auth, environmentId, secrets, continueOnFailure, null, null);
+    }
+
+    public RunPlanRequest(String specId, String planId, RunAuth auth, String environmentId,
+                          Map<String, String> secrets, Boolean continueOnFailure, Long delayMs, Integer retries) {
+        this(specId, planId, auth, environmentId, secrets, continueOnFailure, delayMs, retries, null);
     }
 
     public long delayMillis() {
@@ -53,6 +61,7 @@ public record RunPlanRequest(
                 + ", environmentId=" + environmentId
                 + ", secrets=" + (secrets == null ? 0 : secrets.size())
                 + ", continueOnFailure=" + continuesOnFailure()
-                + ", delayMs=" + delayMillis() + ", retries=" + retryCount() + "]";
+                + ", delayMs=" + delayMillis() + ", retries=" + retryCount()
+                + ", caseIds=" + (caseIds == null ? "all" : caseIds.size()) + "]";
     }
 }

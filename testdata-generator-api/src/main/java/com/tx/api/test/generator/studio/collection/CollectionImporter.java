@@ -74,6 +74,7 @@ public final class CollectionImporter {
             if (!publishReady) {
                 testCase.setLifecycle(CaseLifecycle.DRAFT);
             }
+            ensureEnvironments(storage, spec.getSpecId(), testCase.getEnvironments());
             if (storage.findTestCase(testCase.getId()).isPresent()) {
                 updated++;
             } else {
@@ -190,5 +191,31 @@ public final class CollectionImporter {
     }
 
     private record FileCounts(int imported, int skipped) {
+    }
+    /**
+     * Cases link to environments by ID, so a name the collection uses gets an empty environment of that name if
+     * there isn't one. Importing the environment file afterwards fills it in, matched by name.
+     */
+    static void ensureEnvironments(StudioStorage storage, String specId, List<String> names) {
+        if (names == null || names.isEmpty()) {
+            return;
+        }
+        java.util.Set<String> existing = new java.util.HashSet<>();
+        for (com.tx.api.test.generator.studio.model.StoredEnvironment stored : storage.listEnvironments(specId)) {
+            existing.add(stored.getName().trim().toLowerCase(java.util.Locale.ROOT));
+        }
+        for (String name : names) {
+            if (StringUtils.isBlank(name) || !existing.add(name.trim().toLowerCase(java.util.Locale.ROOT))) {
+                continue;
+            }
+            com.tx.api.test.generator.studio.model.StoredEnvironment created =
+                    new com.tx.api.test.generator.studio.model.StoredEnvironment();
+            created.setId(java.util.UUID.randomUUID().toString());
+            created.setSpecId(specId);
+            created.setName(name.trim());
+            created.setDocumentJson(CollectionDocuments.toJson(
+                    EnvironmentMapper.fromInputs(name.trim(), null, "NONE", List.of())));
+            storage.saveEnvironment(created);
+        }
     }
 }

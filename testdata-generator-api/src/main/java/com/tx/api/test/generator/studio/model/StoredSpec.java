@@ -18,7 +18,8 @@ public class StoredSpec {
     private int operationCount;
     private Instant createdAt;
     private Instant updatedAt;
-    private Instant expectedUpdatedAt;
+    private long revision = 1;
+    private Long expectedRevision;
     private boolean forceOverwrite;
 
     public String getSpecId() {
@@ -117,12 +118,22 @@ public class StoredSpec {
         this.updatedAt = updatedAt;
     }
 
-    public Instant getExpectedUpdatedAt() {
-        return expectedUpdatedAt;
+    /** Increases by one on every save; conflict checks compare it. */
+    public long getRevision() {
+        return revision;
     }
 
-    public void setExpectedUpdatedAt(Instant expectedUpdatedAt) {
-        this.expectedUpdatedAt = expectedUpdatedAt;
+    public void setRevision(long revision) {
+        this.revision = revision;
+    }
+
+    /** The revision this save was based on; the save is refused if the stored one has moved on. */
+    public Long getExpectedRevision() {
+        return expectedRevision;
+    }
+
+    public void setExpectedRevision(Long expectedRevision) {
+        this.expectedRevision = expectedRevision;
     }
 
     public boolean isForceOverwrite() {

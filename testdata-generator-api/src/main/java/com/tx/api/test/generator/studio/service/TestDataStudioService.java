@@ -225,7 +225,9 @@ public class TestDataStudioService {
         StudioCaseDraft draft = new StudioCaseDraft();
         draft.setTestCaseId(base.getId());
         draft.setDocumentJson(CaseDraftDocument.write(request));
-        draft.setBaseUpdatedAt(existing == null ? base.getUpdatedAt() : existing.getBaseUpdatedAt());
+        draft.setBaseRevision(existing == null ? base.getRevision() : existing.getBaseRevision());
+        // New draft content moves the draft's revision on; settling it after an Enabled change doesn't.
+        draft.setRevision(existing == null ? 1 : existing.getRevision() + 1);
         draft.setUpdatedAt(preview.getUpdatedAt());
         draft.setUpdatedByLabel(preview.getUpdatedByLabel());
         studioStorage.saveCaseDraft(draft);
@@ -287,13 +289,13 @@ public class TestDataStudioService {
         if (!storedFileIds(id).containsAll(RequestFileSupport.fileIds(document.get("requestBody")))) {
             throw new IllegalArgumentException("This version uses an uploaded file that is no longer stored, so it can't be restored");
         }
-        String expectedUpdatedAt = request == null ? null : request.expectedUpdatedAt();
-        String expectedDraft = request == null ? null : request.expectedDraftUpdatedAt();
-        SaveTestDataRequest checked = CaseVersionDocument.toRequest(document, base, expectedUpdatedAt, expectedDraft, false);
+        Long expectedRevision = request == null ? null : request.expectedRevision();
+        Long expectedDraft = request == null ? null : request.expectedDraftRevision();
+        SaveTestDataRequest checked = CaseVersionDocument.toRequest(document, base, expectedRevision, expectedDraft, false);
         assertCaseRevision(base, checked, environmentId);
         assertDraftUnchanged(base, studioStorage.findCaseDraft(id).orElse(null), checked, environmentId);
         // Checked just above. A draft's own "published version moved on" check doesn't apply when the draft is being ended.
-        update(id, CaseVersionDocument.toRequest(document, base, expectedUpdatedAt, expectedDraft, true));
+        update(id, CaseVersionDocument.toRequest(document, base, expectedRevision, expectedDraft, true));
         clearOverlay(base.getSpecId(), environmentId, id);
         StudioTestCase persisted = requireCase(id);
         auditService.recordCaseRestored(persisted, version.publishedAt());
@@ -318,7 +320,7 @@ public class TestDataStudioService {
             return;
         }
         // A setting such as Enabled changed, not the content, so the draft still applies.
-        draft.setBaseUpdatedAt(persisted.getUpdatedAt());
+        draft.setBaseRevision(persisted.getRevision());
         studioStorage.saveCaseDraft(draft);
     }
 
@@ -354,8 +356,8 @@ public class TestDataStudioService {
         if (draft == null || OptimisticConcurrency.force(request.forceOverwrite())) {
             return;
         }
-        Instant expected = OptimisticConcurrency.parse(request.expectedDraftUpdatedAt());
-        if (!OptimisticConcurrency.same(draft.getUpdatedAt(), expected)) {
+        Long expected = request.expectedDraftRevision();
+        if (expected == null || draft.getRevision() != expected) {
             throw new ConflictException("Someone else saved draft changes to this case. Reload their copy or overwrite.",
                     toView(base, environmentId));
         }
@@ -366,7 +368,7 @@ public class TestDataStudioService {
         if (draft == null || OptimisticConcurrency.force(request.forceOverwrite())) {
             return;
         }
-        if (!OptimisticConcurrency.same(draft.getBaseUpdatedAt(), base.getUpdatedAt())) {
+        if (draft.getBaseRevision() == null || draft.getBaseRevision() != base.getRevision()) {
             throw new ConflictException("The published version changed after these draft changes were started. "
                     + "Reload to review it, or overwrite it with your changes.", toView(base, environmentId));
         }
@@ -432,7 +434,7 @@ public class TestDataStudioService {
         }
         try {
             OptimisticConcurrency.ensureCurrent(
-                    current.getUpdatedAt(), request.expectedUpdatedAt(), request.forceOverwrite());
+                    current.getRevision(), request.expectedRevision(), request.forceOverwrite());
         } catch (ConflictException conflict) {
             throw new ConflictException(conflict.getMessage(), toView(current, environmentId));
         }
@@ -443,18 +445,22 @@ public class TestDataStudioService {
             return;
         }
         testCase.setForceOverwrite(OptimisticConcurrency.force(request.forceOverwrite()));
-        if (OptimisticConcurrency.checkRequired(request.expectedUpdatedAt(), request.forceOverwrite())) {
-            testCase.setExpectedUpdatedAt(OptimisticConcurrency.parse(request.expectedUpdatedAt()));
+        if (OptimisticConcurrency.checkRequired(request.expectedRevision(), request.forceOverwrite())) {
+            testCase.setExpectedRevision(request.expectedRevision());
         }
     }
 
-    /** Optimistic check runs on the base row in {@link #update}; JDBC update does not re-check {@code updated_at}. */
+    /**
+     * {@link #update} checked the request against the revision it read; the write repeats that check, so a save
+     * that lands in between is refused rather than overwritten.
+     */
     private void applyCaseWriteOptionsForSave(StudioTestCase testCase, SaveTestDataRequest request) {
         if (request == null) {
             return;
         }
-        testCase.setForceOverwrite(OptimisticConcurrency.force(request.forceOverwrite()));
-        testCase.setExpectedUpdatedAt(null);
+        boolean force = OptimisticConcurrency.force(request.forceOverwrite());
+        testCase.setForceOverwrite(force);
+        testCase.setExpectedRevision(force ? null : testCase.getRevision());
     }
 
     private List<String> otherEnvironmentNames(String specId, String exceptName) {
@@ -577,9 +583,10 @@ public class TestDataStudioService {
         List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), request.planId(), null);
         String environmentName = requireEnvironmentNameForScopedCases(
                 request.specId(), request.environmentId(), storedCases, "run this plan");
-        List<StudioTestCase> cases = CaseVariables.orderForChain(storedCases);
         String environmentId = request.environmentId();
         RunVariables scope = runVariables(request.specId(), environmentId, request.secrets());
+        List<StudioTestCase> cases = chosenWithPrerequisites(
+                CaseVariables.orderForChain(storedCases), request.caseIds(), scope.names());
         Map<String, String> variables = scope.newScope();
         StudioEnvironmentNetwork network = network(request.specId(), environmentId);
         OutboundUrlPolicy.Scope outboundScope = outboundScope(request.specId(), environmentId);
@@ -615,6 +622,24 @@ public class TestDataStudioService {
                 request.continuesOnFailure(), request.delayMillis(), request.retryCount());
         return new RunPlanResult(request.specId(), request.planId(), outcome.passed(), outcome.failed(),
                 outcome.skipped(), outcome.failed() == 0 && outcome.passed() > 0, outcome.results());
+    }
+
+    /** The chosen cases, plus earlier cases they need extracted values from, in run order. Null means all of them. */
+    private static List<StudioTestCase> chosenWithPrerequisites(List<StudioTestCase> ordered, List<String> caseIds,
+                                                                Set<String> defined) {
+        if (caseIds == null) {
+            return ordered;
+        }
+        Set<String> keep = new HashSet<>();
+        caseIds.stream().filter(StringUtils::isNotBlank).forEach(keep::add);
+        List<StudioTestCase> chosen = ordered.stream().filter(testCase -> keep.contains(testCase.getId())).toList();
+        if (chosen.isEmpty()) {
+            throw new IllegalArgumentException("None of the chosen cases are in this plan");
+        }
+        for (StudioTestCase testCase : chosen) {
+            CaseVariables.prerequisites(ordered, testCase, defined).forEach(prior -> keep.add(prior.getId()));
+        }
+        return ordered.stream().filter(testCase -> keep.contains(testCase.getId())).toList();
     }
 
     public ValidatePlanResult validatePlan(RunPlanRequest request) {
@@ -808,7 +833,6 @@ public class TestDataStudioService {
         String name = requireEnvironmentName(request == null ? null : request.name());
         rejectDuplicateEnvironmentName(specId, name, environmentId);
         StudioEnvironment existing = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
-        String previousName = StringUtils.defaultIfBlank(existing == null ? null : existing.name(), stored.getName());
         StudioEnvironment merged = EnvironmentMapper.merge(existing, name,
                 request == null ? null : request.baseUrl(),
                 request == null ? null : request.authType(),
@@ -816,8 +840,8 @@ public class TestDataStudioService {
                 request == null ? null : request.network());
         stored.setName(merged.name());
         stored.setDocumentJson(CollectionDocuments.toJson(merged));
+        // Cases link to the environment by ID, so they follow a rename without being saved again.
         studioStorage.saveEnvironment(stored);
-        retargetEnvironmentName(specId, previousName, merged.name());
         log.info("Updated environment {} for spec {}", stored.getName(), specId);
         return EnvironmentMapper.toSummary(stored);
     }
@@ -868,8 +892,8 @@ public class TestDataStudioService {
         }
         StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
         String name = environment == null ? null : environment.name();
-        studioStorage.deleteEnvironment(environmentId);
         if (StringUtils.isBlank(name)) {
+            studioStorage.deleteEnvironment(environmentId);
             return;
         }
         for (StudioTestCase testCase : new ArrayList<>(studioStorage.listTestCases(specId, null, null))) {
@@ -890,6 +914,8 @@ public class TestDataStudioService {
                 studioStorage.saveTestCase(testCase);
             }
         }
+        // Last: the cases above still need this environment's links to know which ones it holds.
+        studioStorage.deleteEnvironment(environmentId);
     }
 
     private StoredEnvironment requireEnvironment(String specId, String environmentId) {
@@ -967,7 +993,7 @@ public class TestDataStudioService {
         studioStorage.saveRequestFile(file);
         if (published) {
             // The file only reaches the case when draft changes referring to it are published.
-            return toFileView(file, testCase.getUpdatedAt());
+            return toFileView(file, testCase.getUpdatedAt(), testCase.getRevision());
         }
         Object body = RequestFileSupport.putFileRef(testCase.getRequestBody(), partName, file);
         testCase.setRequestBody(body);
@@ -978,7 +1004,7 @@ public class TestDataStudioService {
         bindCaseFiles(testCase, body);
         StudioTestCase persisted = requireCase(caseId);
         auditService.recordCaseUpdated(persisted);
-        return toFileView(file, persisted.getUpdatedAt());
+        return toFileView(file, persisted.getUpdatedAt(), persisted.getRevision());
     }
 
     public StudioRequestFile requireRequestFile(String caseId, String fileId) {
@@ -1102,6 +1128,7 @@ public class TestDataStudioService {
             preview.setLifecycle(testCase.getLifecycle());
             preview.setUpdatedAt(draft.getUpdatedAt());
             preview.setUpdatedByLabel(draft.getUpdatedByLabel());
+            preview.setRevision(draft.getRevision());
             return publishedView(preview, null, true, null);
         } catch (IllegalArgumentException | IllegalStateException | NoSuchElementException exception) {
             log.warn("Draft changes to case {} could not be shown: {}", testCase.getId(), exception.getMessage());
@@ -1149,6 +1176,7 @@ public class TestDataStudioService {
                 testCase.getUpdatedAt(),
                 testCase.getCreatedByLabel(),
                 testCase.getUpdatedByLabel(),
+                testCase.getRevision(),
                 hasDraft,
                 draft
         );
@@ -1359,21 +1387,6 @@ public class TestDataStudioService {
         studioStorage.saveEnvironment(stored);
     }
 
-    private void retargetEnvironmentName(String specId, String from, String to) {
-        if (StringUtils.isBlank(specId) || StringUtils.isBlank(from) || StringUtils.isBlank(to)
-                || from.trim().equals(to.trim())) {
-            return;
-        }
-        for (StudioTestCase testCase : studioStorage.listTestCases(specId, null, null)) {
-            List<String> current = EnvironmentScope.normalize(testCase.getEnvironments());
-            List<String> renamed = EnvironmentScope.rename(testCase.getEnvironments(), from, to);
-            if (!java.util.Objects.equals(current, renamed)) {
-                testCase.setEnvironments(renamed);
-                studioStorage.saveTestCase(testCase);
-            }
-        }
-    }
-
     private List<String> membershipFor(String specId, String environmentId, List<String> fallback) {
         StudioEnvironment environment = loadEnvironment(specId, environmentId);
         if (environment != null && StringUtils.isNotBlank(environment.name())) {
@@ -1517,10 +1530,10 @@ public class TestDataStudioService {
     }
 
     private RequestFileView toFileView(StudioRequestFile file) {
-        return toFileView(file, null);
+        return toFileView(file, null, null);
     }
 
-    private RequestFileView toFileView(StudioRequestFile file, Instant caseUpdatedAt) {
+    private RequestFileView toFileView(StudioRequestFile file, Instant caseUpdatedAt, Long caseRevision) {
         return new RequestFileView(
                 file.getFileId(),
                 file.getTestCaseId(),
@@ -1528,7 +1541,8 @@ public class TestDataStudioService {
                 file.getContentType(),
                 file.getSizeBytes(),
                 file.getCreatedAt(),
-                caseUpdatedAt
+                caseUpdatedAt,
+                caseRevision
         );
     }
 

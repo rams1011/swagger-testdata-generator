@@ -1,0 +1,148 @@
+package com.tx.api.test.generator.studio.collection;
+
+import com.tx.api.test.generator.studio.api.ConflictException;
+import com.tx.api.test.generator.studio.dto.EnvironmentSummary;
+import com.tx.api.test.generator.studio.dto.LoadSpecRequest;
+import com.tx.api.test.generator.studio.dto.SaveEnvironmentRequest;
+import com.tx.api.test.generator.studio.dto.SaveTestDataRequest;
+import com.tx.api.test.generator.studio.dto.TestCaseView;
+import com.tx.api.test.generator.studio.service.SpecCatalogService;
+import com.tx.api.test.generator.studio.service.TestDataStudioService;
+import com.tx.api.test.generator.studio.storage.StudioStorage;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.NoSuchElementException;
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/** Environment links by ID, revision-based conflict checks and Enabled as a boolean, through the real service. */
+@SpringBootTest(
+        webEnvironment = SpringBootTest.WebEnvironment.NONE,
+        properties = {
+                "spring.profiles.active=local",
+                "TESTDATA_EDITION=local",
+                "TESTDATA_H2_FILE=target/integrity-rules-test/testdata",
+                "TESTDATA_H2_JDBC_URL=jdbc:h2:mem:integrity_rules;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;"
+                        + "DEFAULT_NULL_ORDERING=HIGH;CASE_INSENSITIVE_IDENTIFIERS=TRUE;DB_CLOSE_DELAY=-1"
+        })
+class IntegrityRulesTest {
+
+    private static final String DEFINITION = """
+            {"openapi":"3.0.3","info":{"title":"T","version":"1"},"paths":{"/ok":{"post":{"operationId":"ok",
+            "requestBody":{"content":{"application/json":{"schema":{"type":"object"}}}},
+            "responses":{"200":{"description":"OK"}}}}}}
+            """;
+
+    @Autowired
+    private TestDataStudioService studio;
+    @Autowired
+    private SpecCatalogService catalog;
+    @Autowired
+    @Qualifier("studioStorage")
+    private StudioStorage storage;
+    @Autowired
+    private JdbcTemplate jdbc;
+
+    private String specId;
+    private String planId;
+    private EnvironmentSummary staging;
+    private EnvironmentSummary production;
+
+    @BeforeEach
+    void newCollection() {
+        specId = catalog.load(new LoadSpecRequest(null, DEFINITION, null, "http://127.0.0.1:1",
+                "Integrity " + UUID.randomUUID(), null, null, null, null)).specId();
+        planId = studio.listPlans(specId).get(0).id();
+        staging = studio.createEnvironment(specId, new SaveEnvironmentRequest("Staging", "http://127.0.0.1:1", "NONE"));
+        production = studio.createEnvironment(specId, new SaveEnvironmentRequest("Production", "http://127.0.0.1:1", "NONE"));
+    }
+
+    @Test
+    void renamingAnEnvironmentKeepsItsCases() {
+        TestCaseView testCase = studio.create(save("Scoped", null, List.of("Staging"), null));
+
+        studio.updateEnvironment(specId, staging.id(), new SaveEnvironmentRequest("Pre-production", null, null));
+
+        assertEquals(List.of("Pre-production"), studio.get(testCase.id(), null).environments());
+        assertEquals(List.of("Scoped"), names(studio.list(specId, planId, null, staging.id())));
+    }
+
+    @Test
+    void deletingAnEnvironmentRemovesCasesOnlyInItAndUnlinksTheRest() {
+        TestCaseView onlyStaging = studio.create(save("Only staging", null, List.of("Staging"), null));
+        TestCaseView both = studio.create(save("Both", null, List.of("Staging", "Production"), null));
+        TestCaseView everywhere = studio.create(save("Everywhere", null, null, null));
+
+        studio.deleteEnvironment(specId, staging.id());
+
+        assertThrows(NoSuchElementException.class, () -> studio.get(onlyStaging.id(), null));
+        assertEquals(List.of("Production"), studio.get(both.id(), null).environments());
+        assertNull(studio.get(everywhere.id(), null).environments(), "still in every environment");
+    }
+
+    @Test
+    void aCaseCannotNameAnEnvironmentThatDoesNotExist() {
+        IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
+                () -> studio.create(save("Lost", null, List.of("Nowhere"), null)));
+        assertTrue(refused.getMessage().contains("Nowhere"), refused.getMessage());
+    }
+
+    @Test
+    void importCreatesTheEnvironmentsACollectionNames() {
+        List<String> before = environmentNames();
+
+        CollectionImporter.ensureEnvironments(storage, specId, List.of("staging", "QA"));
+
+        List<String> expected = new java.util.ArrayList<>(before);
+        expected.add("QA");
+        assertEquals(expected.stream().sorted().toList(), environmentNames(), "staging matched regardless of case");
+    }
+
+    private List<String> environmentNames() {
+        return studio.listEnvironments(specId).stream().map(EnvironmentSummary::name).sorted().toList();
+    }
+
+    @Test
+    void aSaveBasedOnAnOlderRevisionIsRefused() {
+        TestCaseView created = studio.create(save("First", null, null, null));
+        TestCaseView saved = studio.update(created.id(), save("Second", created.revision(), null, null));
+        assertEquals(created.revision() + 1, saved.revision());
+
+        assertThrows(ConflictException.class,
+                () -> studio.update(created.id(), save("Lost update", created.revision(), null, null)),
+                "two saves from the same revision: the second is refused, even within the same millisecond");
+        assertEquals("Second", studio.get(created.id(), null).testName());
+    }
+
+    @Test
+    void enabledIsStoredAsABoolean() {
+        TestCaseView disabled = studio.create(save("Off", null, null, "N"));
+
+        assertEquals("N", studio.get(disabled.id(), null).enabled());
+        assertFalse(jdbc.queryForObject("SELECT enabled FROM td_test_case WHERE test_case_id = ?", Boolean.class,
+                disabled.id()));
+    }
+
+    private static List<String> names(List<TestCaseView> cases) {
+        return cases.stream().map(TestCaseView::testName).toList();
+    }
+
+    private SaveTestDataRequest save(String name, Long expectedRevision, List<String> environments, String enabled) {
+        return new SaveTestDataRequest(specId, planId, "ok", name, "{{baseUrl}}", Map.of(), Map.of(), Map.of(), Map.of(),
+                new HashMap<>(Map.of("a", 1)), 200, "JSON", null, null, null, null, enabled, "READY", null, null, null,
+                5000L, "application/json", null, environments, expectedRevision, null, null, null);
+    }
+}

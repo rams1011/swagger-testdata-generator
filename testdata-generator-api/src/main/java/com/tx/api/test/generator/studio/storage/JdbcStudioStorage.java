@@ -48,19 +48,19 @@ public class JdbcStudioStorage implements StudioStorage {
         spec.setUpdatedAt(com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(now));
         String tenantId = tenantId();
         if (existing.isPresent()) {
-            Instant expected = spec.getExpectedUpdatedAt();
+            Long expected = spec.getExpectedRevision();
             boolean optimistic = expected != null && !spec.isForceOverwrite();
             String sql = """
                             UPDATE td_spec
                                SET name = ?, label = ?, title = ?, version = ?, description = ?, base_url = ?, source_location = ?,
-                                   source_content = ?, operation_count = ?, updated_at = ?
+                                   source_content = ?, operation_count = ?, updated_at = ?, revision = revision + 1
                              WHERE spec_id = ? AND tenant_id = ?
-                            """ + (optimistic ? " AND updated_at = ?" : "");
+                            """ + (optimistic ? " AND revision = ?" : "");
             Object[] args = optimistic
                     ? new Object[]{
                     spec.getName(), defaultLabel(spec.getLabel()), spec.getTitle(), spec.getVersion(), spec.getDescription(),
                     spec.getBaseUrl(), spec.getSourceLocation(), spec.getSourceContent(), spec.getOperationCount(),
-                    Timestamp.from(spec.getUpdatedAt()), spec.getSpecId(), tenantId, Timestamp.from(expected)
+                    Timestamp.from(spec.getUpdatedAt()), spec.getSpecId(), tenantId, expected
             }
                     : new Object[]{
                     spec.getName(), defaultLabel(spec.getLabel()), spec.getTitle(), spec.getVersion(), spec.getDescription(),
@@ -547,18 +547,19 @@ public class JdbcStudioStorage implements StudioStorage {
     @Override
     public void saveCaseDraft(StudioCaseDraft draft) {
         requireOwnedTestCase(draft.getTestCaseId());
-        Timestamp base = draft.getBaseUpdatedAt() == null ? null : Timestamp.from(draft.getBaseUpdatedAt());
         Timestamp updated = Timestamp.from(draft.getUpdatedAt());
         int changed = jdbcTemplate.update("""
                 UPDATE td_test_case_draft
-                   SET document_json = ?, base_updated_at = ?, updated_at = ?, updated_by_label = ?
+                   SET document_json = ?, base_revision = ?, updated_at = ?, updated_by_label = ?, revision = ?
                  WHERE test_case_id = ?
-                """, draft.getDocumentJson(), base, updated, draft.getUpdatedByLabel(), draft.getTestCaseId());
+                """, draft.getDocumentJson(), draft.getBaseRevision(), updated, draft.getUpdatedByLabel(),
+                draft.getRevision(), draft.getTestCaseId());
         if (changed == 0) {
             jdbcTemplate.update("""
-                    INSERT INTO td_test_case_draft (test_case_id, document_json, base_updated_at, updated_at, updated_by_label)
-                    VALUES (?, ?, ?, ?, ?)
-                    """, draft.getTestCaseId(), draft.getDocumentJson(), base, updated, draft.getUpdatedByLabel());
+                    INSERT INTO td_test_case_draft (test_case_id, document_json, base_revision, updated_at, updated_by_label, revision)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """, draft.getTestCaseId(), draft.getDocumentJson(), draft.getBaseRevision(), updated,
+                    draft.getUpdatedByLabel(), draft.getRevision());
         }
     }
 
@@ -573,8 +574,9 @@ public class JdbcStudioStorage implements StudioStorage {
             StudioCaseDraft draft = new StudioCaseDraft();
             draft.setTestCaseId(rs.getString("test_case_id"));
             draft.setDocumentJson(rs.getString("document_json"));
-            Timestamp base = rs.getTimestamp("base_updated_at");
-            draft.setBaseUpdatedAt(base == null ? null : base.toInstant());
+            long baseRevision = rs.getLong("base_revision");
+            draft.setBaseRevision(rs.wasNull() ? null : baseRevision);
+            draft.setRevision(rs.getLong("revision"));
             draft.setUpdatedAt(rs.getTimestamp("updated_at").toInstant());
             draft.setUpdatedByLabel(rs.getString("updated_by_label"));
             return draft;
@@ -590,7 +592,7 @@ public class JdbcStudioStorage implements StudioStorage {
             Timestamp updatedAt = Timestamp.from(
                     com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(
                             testCase.getUpdatedAt()));
-            Instant expected = testCase.getExpectedUpdatedAt();
+            Long expected = testCase.getExpectedRevision();
             boolean optimistic = expected != null && !testCase.isForceOverwrite();
             String sql = """
                             UPDATE td_test_case
@@ -598,10 +600,10 @@ public class JdbcStudioStorage implements StudioStorage {
                                    endpoint = ?, base_url = ?, content_type = ?, request_body_json = ?,
                                    response_schema_json = ?, status_code = ?, response_type = ?, expected_response = ?, response_match = ?, ignore_fields = ?, case_auth = ?,
                                    enabled = ?, lifecycle = ?, test_group = ?, json_path_assertions = ?, extracts = ?, max_response_time_ms = ?,
-                                   environment_names = ?, updated_at = ?, updated_by_account_id = ?, updated_by_label = ?
+                                   updated_at = ?, updated_by_account_id = ?, updated_by_label = ?, revision = revision + 1
                              WHERE test_case_id = ?
                                AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
-                            """ + (optimistic ? " AND updated_at = ?" : "");
+                            """ + (optimistic ? " AND revision = ?" : "");
             List<Object> args = new ArrayList<>();
             args.add(testCase.getSpecId());
             args.add(testCase.getPlanId());
@@ -620,23 +622,20 @@ public class JdbcStudioStorage implements StudioStorage {
             args.add(testCase.getResponseMatch());
             args.add(testCase.getIgnoreFields());
             args.add(com.tx.api.test.generator.studio.service.CaseAuth.toJson(testCase.getAuth()));
-            args.add(testCase.getEnabled());
+            args.add(enabledFlag(testCase.getEnabled()));
             args.add(com.tx.api.test.generator.studio.model.CaseLifecycle.normalizeOr(testCase.getLifecycle(),
                     com.tx.api.test.generator.studio.model.CaseLifecycle.READY));
             args.add(testCase.getTestGroup());
             args.add(testCase.getJsonPathAssertions());
             args.add(testCase.getExtracts());
             args.add(testCase.getMaxResponseTimeMs());
-            args.add(JsonMaps.toJson(testCase.getEnvironments()));
             args.add(updatedAt);
             args.add(testCase.getUpdatedByAccountId());
             args.add(testCase.getUpdatedByLabel());
             args.add(testCase.getId());
             args.add(tenantId());
             if (optimistic) {
-                args.add(Timestamp.from(
-                        com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(
-                                expected)));
+                args.add(expected);
             }
             int rows = jdbcTemplate.update(sql, args.toArray());
             if (rows == 0) {
@@ -663,24 +662,87 @@ public class JdbcStudioStorage implements StudioStorage {
                                 test_case_id, spec_id, plan_id, operation_key, test_name, http_method, raw_path, endpoint,
                                 base_url, content_type, request_body_json, response_schema_json, status_code,
                                 response_type, expected_response, response_match, ignore_fields, case_auth, enabled, lifecycle, test_group, json_path_assertions, extracts,
-                                max_response_time_ms, environment_names, created_at, updated_at,
-                                created_by_account_id, created_by_label, updated_by_account_id, updated_by_label)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                max_response_time_ms, created_at, updated_at,
+                                created_by_account_id, created_by_label, updated_by_account_id, updated_by_label, revision)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                             """,
                     testCase.getId(), testCase.getSpecId(), testCase.getPlanId(), testCase.getOperationKey(),
                     testCase.getTestName(), testCase.getMethod(), testCase.getRawPath(), testCase.getEndpoint(),
                     testCase.getBaseUrl(), testCase.getContentType(), JsonMaps.toJson(testCase.getRequestBody()),
                     JsonMaps.toJson(testCase.getResponseJsonSchema()), testCase.getStatusCode(),
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getResponseMatch(), testCase.getIgnoreFields(),
-                    com.tx.api.test.generator.studio.service.CaseAuth.toJson(testCase.getAuth()), testCase.getEnabled(),
+                    com.tx.api.test.generator.studio.service.CaseAuth.toJson(testCase.getAuth()), enabledFlag(testCase.getEnabled()),
                     com.tx.api.test.generator.studio.model.CaseLifecycle.normalizeOr(testCase.getLifecycle(),
                             com.tx.api.test.generator.studio.model.CaseLifecycle.READY),
                     testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
-                    testCase.getMaxResponseTimeMs(), JsonMaps.toJson(testCase.getEnvironments()),
+                    testCase.getMaxResponseTimeMs(),
                     createdAt, updatedAt, testCase.getCreatedByAccountId(), testCase.getCreatedByLabel(),
                     testCase.getUpdatedByAccountId(), testCase.getUpdatedByLabel());
         }
         insertParams(testCase);
+        saveEnvironmentLinks(testCase);
+    }
+
+    /** "N" is off; anything else, including no value, is on. */
+    private static boolean enabledFlag(String enabled) {
+        return !"N".equalsIgnoreCase(enabled == null ? "" : enabled.trim());
+    }
+
+    /**
+     * Replaces the case's environment links with the environments its names refer to in the same collection.
+     * No names means every environment. A name with no such environment is refused rather than dropped, since
+     * dropping it would make the case visible in every environment.
+     */
+    private void saveEnvironmentLinks(StudioTestCase testCase) {
+        jdbcTemplate.update("DELETE FROM td_test_case_environment WHERE test_case_id = ?", testCase.getId());
+        List<String> names = testCase.getEnvironments();
+        if (names == null || names.isEmpty()) {
+            return;
+        }
+        Map<String, String> idsByName = new LinkedHashMap<>();
+        jdbcTemplate.query("SELECT environment_id, name FROM td_environment WHERE spec_id = ?",
+                (org.springframework.jdbc.core.RowCallbackHandler) rs -> idsByName.put(
+                        rs.getString("name").trim().toLowerCase(java.util.Locale.ROOT), rs.getString("environment_id")),
+                testCase.getSpecId());
+        java.util.Set<String> linked = new java.util.LinkedHashSet<>();
+        for (String name : names) {
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            String id = idsByName.get(name.trim().toLowerCase(java.util.Locale.ROOT));
+            if (id == null) {
+                throw new IllegalArgumentException("Environment '" + name.trim() + "' doesn't exist in this collection");
+            }
+            linked.add(id);
+        }
+        for (String id : linked) {
+            jdbcTemplate.update("INSERT INTO td_test_case_environment (test_case_id, environment_id) VALUES (?, ?)",
+                    testCase.getId(), id);
+        }
+    }
+
+    /** Fills in each case's environment names from its links, sorted; a case with no links gets null (all). */
+    private void attachEnvironments(List<StudioTestCase> cases) {
+        if (cases == null || cases.isEmpty()) {
+            return;
+        }
+        Map<String, List<String>> namesByCase = new LinkedHashMap<>();
+        for (int from = 0; from < cases.size(); from += 500) {
+            List<StudioTestCase> batch = cases.subList(from, Math.min(cases.size(), from + 500));
+            String placeholders = String.join(", ", java.util.Collections.nCopies(batch.size(), "?"));
+            jdbcTemplate.query("""
+                    SELECT l.test_case_id, e.name
+                      FROM td_test_case_environment l
+                      JOIN td_environment e ON e.environment_id = l.environment_id
+                     WHERE l.test_case_id IN (""" + placeholders + ") ORDER BY e.name",
+                    (org.springframework.jdbc.core.RowCallbackHandler) rs -> namesByCase
+                            .computeIfAbsent(rs.getString("test_case_id"), ignored -> new ArrayList<>())
+                            .add(rs.getString("name")),
+                    batch.stream().map(StudioTestCase::getId).toArray());
+        }
+        for (StudioTestCase testCase : cases) {
+            testCase.setEnvironments(namesByCase.get(testCase.getId()));
+        }
     }
 
     @Override
@@ -742,6 +804,7 @@ public class JdbcStudioStorage implements StudioStorage {
         }
         StudioTestCase testCase = cases.get(0);
         attachParams(List.of(testCase));
+        attachEnvironments(List.of(testCase));
         return Optional.of(testCase);
     }
 
@@ -779,6 +842,7 @@ public class JdbcStudioStorage implements StudioStorage {
         sql.append(" ORDER BY c.created_at, c.test_name");
         List<StudioTestCase> cases = jdbcTemplate.query(sql.toString(), caseMapper(), args.toArray());
         attachParams(cases);
+        attachEnvironments(cases);
         return cases;
     }
 
@@ -969,6 +1033,7 @@ public class JdbcStudioStorage implements StudioStorage {
             spec.setOperationCount(rs.getInt("operation_count"));
             spec.setCreatedAt(toInstant(rs, "created_at"));
             spec.setUpdatedAt(toInstant(rs, "updated_at"));
+            spec.setRevision(rs.getLong("revision"));
             return spec;
         };
     }
@@ -994,7 +1059,7 @@ public class JdbcStudioStorage implements StudioStorage {
             testCase.setResponseMatch(rs.getString("response_match"));
             testCase.setIgnoreFields(rs.getString("ignore_fields"));
             testCase.setAuth(com.tx.api.test.generator.studio.service.CaseAuth.fromJson(rs.getString("case_auth")));
-            testCase.setEnabled(rs.getString("enabled"));
+            testCase.setEnabled(rs.getBoolean("enabled") ? "Y" : "N");
             testCase.setLifecycle(com.tx.api.test.generator.studio.model.CaseLifecycle.normalizeOr(
                     rs.getString("lifecycle"), com.tx.api.test.generator.studio.model.CaseLifecycle.READY));
             testCase.setTestGroup(rs.getString("test_group"));
@@ -1002,13 +1067,13 @@ public class JdbcStudioStorage implements StudioStorage {
             testCase.setExtracts(rs.getString("extracts"));
             long maxTime = rs.getLong("max_response_time_ms");
             testCase.setMaxResponseTimeMs(rs.wasNull() ? 3000L : maxTime);
-            testCase.setEnvironments(JsonMaps.toStringList(rs.getString("environment_names")));
             testCase.setCreatedAt(toInstant(rs, "created_at"));
             testCase.setUpdatedAt(toInstant(rs, "updated_at"));
             testCase.setCreatedByAccountId(rs.getString("created_by_account_id"));
             testCase.setCreatedByLabel(rs.getString("created_by_label"));
             testCase.setUpdatedByAccountId(rs.getString("updated_by_account_id"));
             testCase.setUpdatedByLabel(rs.getString("updated_by_label"));
+            testCase.setRevision(rs.getLong("revision"));
             return testCase;
         };
     }
@@ -1363,7 +1428,7 @@ public class JdbcStudioStorage implements StudioStorage {
                          WHERE tenant_id = ?
                            AND resource_type = ?
                            AND resource_id = ?
-                         ORDER BY occurred_at DESC
+                         ORDER BY occurred_at DESC, event_seq DESC
                          LIMIT ?
                         """,
                 auditEventMapper(), tenantId(), resourceType.name(), resourceId, limit);
@@ -1376,7 +1441,7 @@ public class JdbcStudioStorage implements StudioStorage {
                           FROM td_audit_event
                          WHERE tenant_id = ?
                            AND spec_id = ?
-                         ORDER BY occurred_at DESC
+                         ORDER BY occurred_at DESC, event_seq DESC
                          LIMIT ?
                         """,
                 auditEventMapper(), tenantId(), specId, limit);
@@ -1403,7 +1468,7 @@ public class JdbcStudioStorage implements StudioStorage {
                         SELECT event_id, spec_id, resource_type, resource_id, action, actor_label, detail, occurred_at
                           FROM td_audit_event
                          WHERE tenant_id = ?
-                         ORDER BY occurred_at DESC
+                         ORDER BY occurred_at DESC, event_seq DESC
                          LIMIT ?
                         """,
                 auditEventMapper(), tenantId(), limit);

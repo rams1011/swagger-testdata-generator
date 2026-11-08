@@ -7,7 +7,8 @@ public class StudioCaseDraft {
 
     private String testCaseId;
     private String documentJson;
-    private Instant baseUpdatedAt;
+    private Long baseRevision;
+    private long revision = 1;
     private Instant updatedAt;
     private String updatedByLabel;
 
@@ -28,13 +29,22 @@ public class StudioCaseDraft {
         this.documentJson = documentJson;
     }
 
-    /** When the published version these changes started from was saved; publishing checks it hasn't moved on. */
-    public Instant getBaseUpdatedAt() {
-        return baseUpdatedAt;
+    /** The revision of the published version these changes started from; publishing checks it hasn't moved on. */
+    public Long getBaseRevision() {
+        return baseRevision;
     }
 
-    public void setBaseUpdatedAt(Instant baseUpdatedAt) {
-        this.baseUpdatedAt = baseUpdatedAt;
+    public void setBaseRevision(Long baseRevision) {
+        this.baseRevision = baseRevision;
+    }
+
+    /** Increases by one each time these changes are saved. */
+    public long getRevision() {
+        return revision;
+    }
+
+    public void setRevision(long revision) {
+        this.revision = revision;
     }
 
     public Instant getUpdatedAt() {

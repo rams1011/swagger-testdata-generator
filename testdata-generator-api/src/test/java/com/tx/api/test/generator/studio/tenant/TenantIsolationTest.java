@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.tenant;
 
+import com.tx.api.test.generator.studio.TestSchema;
 import com.tx.api.test.generator.studio.api.AuthController;
 import com.tx.api.test.generator.studio.config.H2Database;
 import com.tx.api.test.generator.studio.config.StudioProperties;
@@ -17,13 +18,11 @@ import com.tx.api.test.generator.studio.model.StudioRunResult;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import com.tx.api.test.generator.studio.storage.JdbcStudioStorage;
-import org.h2.tools.RunScript;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.core.io.ClassPathResource;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.mock.web.MockFilterChain;
@@ -31,10 +30,6 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
 import javax.sql.DataSource;
-import java.io.InputStreamReader;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
-import java.sql.Connection;
 import java.time.Instant;
 import java.util.Iterator;
 import java.util.List;
@@ -64,11 +59,7 @@ class TenantIsolationTest {
                 "");
         h2.setDriverClassName(H2Database.DRIVER);
         dataSource = h2;
-        try (Connection connection = dataSource.getConnection();
-             Reader schema = new InputStreamReader(
-                     new ClassPathResource("ddl/schema.sql").getInputStream(), StandardCharsets.UTF_8)) {
-            RunScript.execute(connection, schema);
-        }
+        TestSchema.migrate(dataSource);
         JdbcTemplate jdbcTemplate = new JdbcTemplate(dataSource);
         storage = new JdbcStudioStorage(jdbcTemplate);
         properties = new StudioProperties();
