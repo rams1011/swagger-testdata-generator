@@ -4,6 +4,7 @@
 
 -- ---------- Which environments a case belongs to, by ID ----------
 -- No rows means the case is in every environment.
+-- utf8mb4_bin matches V1. MySQL 8.4's default collation cannot reference those columns.
 CREATE TABLE td_test_case_environment (
     test_case_id    VARCHAR(36)  NOT NULL,
     environment_id  VARCHAR(36)  NOT NULL,
@@ -12,7 +13,7 @@ CREATE TABLE td_test_case_environment (
         REFERENCES td_test_case (test_case_id) ON DELETE CASCADE,
     CONSTRAINT fk_td_tce_environment FOREIGN KEY (environment_id)
         REFERENCES td_environment (environment_id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE INDEX ix_td_test_case_environment_env ON td_test_case_environment (environment_id);
 

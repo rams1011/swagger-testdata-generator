@@ -128,6 +128,25 @@ class IntegrityRulesTest {
     }
 
     @Test
+    void savingAnEnvironmentDoesNotChangeTheCollection() {
+        studio.applyEnvironment(specId, staging.id());
+        long revision = catalog.getSummary(specId).revision();
+
+        studio.updateEnvironment(specId, staging.id(), new SaveEnvironmentRequest("Staging", null, null,
+                List.of(new com.tx.api.test.generator.studio.collection.StudioVariable("token", "abc", false))));
+        studio.applyEnvironment(specId, staging.id());
+        catalog.rename(specId, new com.tx.api.test.generator.studio.dto.SaveSpecRequest(
+                null, null, catalog.getSummary(specId).baseUrl(), null, null));
+
+        assertEquals(revision, catalog.getSummary(specId).revision(),
+                "re-applying the same base URL, or adding a variable, writes nothing to the collection");
+
+        studio.updateEnvironment(specId, staging.id(), new SaveEnvironmentRequest("Staging", "http://127.0.0.1:2", null));
+        studio.applyEnvironment(specId, staging.id());
+        assertEquals(revision + 1, catalog.getSummary(specId).revision(), "a different base URL is a change");
+    }
+
+    @Test
     void enabledIsStoredAsABoolean() {
         TestCaseView disabled = studio.create(save("Off", null, null, "N"));
 
