@@ -178,16 +178,14 @@ public class RedisCachingStudioStorage extends ForwardingStudioStorage {
     @Override
     public void saveEnvironment(StoredEnvironment environment) {
         super.saveEnvironment(environment);
-        if (environment != null && StringUtils.isNotBlank(environment.getSpecId())) {
-            cache.invalidate(StudioRedisCache.NS_ENV, environment.getSpecId());
-        }
+        touchEnvironmentCache(environment == null ? null : environment.getSpecId());
     }
 
     @Override
     public void deleteEnvironment(String environmentId) {
         Optional<StoredEnvironment> existing = super.findEnvironment(environmentId);
         super.deleteEnvironment(environmentId);
-        existing.ifPresent(env -> cache.invalidate(StudioRedisCache.NS_ENV, env.getSpecId()));
+        touchEnvironmentCache(existing.map(StoredEnvironment::getSpecId).orElse(null));
     }
 
     @Override
@@ -312,23 +310,21 @@ public class RedisCachingStudioStorage extends ForwardingStudioStorage {
     @Override
     public void saveRun(StudioRun run) {
         super.saveRun(run);
-        if (run != null && StringUtils.isNotBlank(run.getSpecId())) {
-            cache.invalidate(StudioRedisCache.NS_RUN, run.getSpecId());
-        }
+        touchRunCache(run == null ? null : run.getSpecId());
     }
 
     @Override
     public void deleteRun(String runId) {
         Optional<StudioRun> existing = super.findRun(runId);
         super.deleteRun(runId);
-        existing.ifPresent(run -> cache.invalidate(StudioRedisCache.NS_RUN, run.getSpecId()));
+        touchRunCache(existing.map(StudioRun::getSpecId).orElse(null));
     }
 
     @Override
     public int pruneOldestRuns(String specId, int keep) {
         int pruned = super.pruneOldestRuns(specId, keep);
         if (pruned > 0) {
-            cache.invalidate(StudioRedisCache.NS_RUN, specId);
+            touchRunCache(specId);
         }
         return pruned;
     }
@@ -375,7 +371,7 @@ public class RedisCachingStudioStorage extends ForwardingStudioStorage {
                                  Instant occurredAt) {
         super.appendAuditEvent(eventId, specId, resourceType, resourceId, action, actorAccountId, actorLabel, detail,
                 occurredAt);
-        cache.invalidate(StudioRedisCache.NS_AUDIT);
+        touchAuditCache(specId);
     }
 
     @Override
@@ -406,7 +402,7 @@ public class RedisCachingStudioStorage extends ForwardingStudioStorage {
                                           String detail, Instant occurredAt) {
         super.appendAuditEventForTenant(tenantId, eventId, specId, resourceType, resourceId, action, actorAccountId,
                 actorLabel, detail, occurredAt);
-        cache.invalidate(StudioRedisCache.NS_AUDIT);
+        touchAuditCache(specId);
     }
 
     @Override
@@ -417,6 +413,28 @@ public class RedisCachingStudioStorage extends ForwardingStudioStorage {
                 StorageCacheKeys.auditForTenant(limit),
                 AUDIT_LIST_TYPE,
                 () -> super.listAuditEventsForTenant(limit));
+    }
+
+    private void touchEnvironmentCache(String specId) {
+        if (StringUtils.isNotBlank(specId)) {
+            cache.invalidate(StudioRedisCache.NS_ENV, specId);
+        }
+        // findEnvironment is stored without a spec id. A spec-scoped bump leaves that copy unchanged.
+        cache.invalidate(StudioRedisCache.NS_ENV);
+    }
+
+    private void touchRunCache(String specId) {
+        if (StringUtils.isNotBlank(specId)) {
+            cache.invalidate(StudioRedisCache.NS_RUN, specId);
+        }
+        cache.invalidate(StudioRedisCache.NS_RUN);
+    }
+
+    private void touchAuditCache(String specId) {
+        cache.invalidate(StudioRedisCache.NS_AUDIT);
+        if (StringUtils.isNotBlank(specId)) {
+            cache.invalidate(StudioRedisCache.NS_AUDIT, specId);
+        }
     }
 
     private void touchCaseCache(String specId) {

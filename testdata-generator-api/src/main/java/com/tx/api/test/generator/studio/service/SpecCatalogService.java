@@ -181,6 +181,8 @@ public class SpecCatalogService {
         if (!rename && !updateLabel && !updateBaseUrl) {
             throw new IllegalArgumentException("Name, label, or base URL is required");
         }
+        String originalName = stored.getName();
+        String originalLabel = stored.getLabel();
         if (rename) {
             stored.setName(requireUniqueName(request.name(), specId));
         }
@@ -190,6 +192,13 @@ public class SpecCatalogService {
         String previousBaseUrl = stored.getBaseUrl();
         if (updateBaseUrl) {
             stored.setBaseUrl(resolveUpdatedBaseUrl(stored, request.baseUrl()));
+        }
+        // Applying an environment re-sends its base URL on every save; when nothing differs, nothing is written,
+        // so the collection's revision (which the UI watches for definition changes) stays put.
+        if (java.util.Objects.equals(originalName, stored.getName())
+                && java.util.Objects.equals(originalLabel, stored.getLabel())
+                && java.util.Objects.equals(previousBaseUrl, stored.getBaseUrl())) {
+            return getSummary(specId);
         }
         assertSpecRevision(stored, request == null ? null : request.expectedRevision(),
                 request == null ? null : request.forceOverwrite());
