@@ -89,9 +89,13 @@ The migrations are the only definition of the schema. There are no separate DDL 
 
 `V4__collection_variables.sql` adds `td_collection_variables`: one `{"variables": [...]}` document per collection, deleted with it. Secret rows keep only the name.
 
+`V5__case_data_rows.sql` adds `td_test_case.data_rows`: a case's data rows as a JSON array (null for a case that runs once).
+
+`V6__collection_settings.sql` adds `td_collection_settings`: the auth and headers a collection and its case groups hand down, one JSON document per collection, deleted with it.
+
 ### Changing the schema
 
-1. Add the next version, such as `V5__case_labels.sql`, to **both** folders, in each database's types.
+1. Add the next version, such as `V7__case_labels.sql`, to **both** folders, in each database's types.
 2. Update `schema-snapshot.txt` to match. Run `SchemaSnapshotTest`, and copy `target/schema-snapshot.h2.txt` over it once the change is right.
 3. Never edit a migration that has been applied anywhere: Flyway stores a checksum for each one.
 

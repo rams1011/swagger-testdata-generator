@@ -22,6 +22,11 @@ td_audit_event
   column event_seq not null
   index ix_td_audit_tenant_resource_time (tenant_id, resource_type, resource_id, occurred_at)
   index ix_td_audit_tenant_spec_time (tenant_id, spec_id, occurred_at)
+td_collection_settings
+  column spec_id not null
+  column document_json not null
+  column updated_at not null
+  foreign key fk_td_collection_settings_spec (spec_id) -> td_spec on delete cascade
 td_collection_variables
   column spec_id not null
   column document_json not null
@@ -224,6 +229,7 @@ td_test_case
   column case_auth null
   column revision not null
   column enabled not null
+  column data_rows null
   index ix_td_test_case_operation (spec_id, operation_key)
   index ix_td_test_case_plan (plan_id)
   index ix_td_test_case_spec (spec_id)

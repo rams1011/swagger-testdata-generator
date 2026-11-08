@@ -24,6 +24,8 @@ public record TestCaseView(
         String expectedResponse,
         String responseMatch,
         String ignoreFields,
+        /** Data rows (one run per row), or null for a case that runs once. */
+        java.util.List<Object> dataRows,
         RunAuth auth,
         String enabled,
         String lifecycle,

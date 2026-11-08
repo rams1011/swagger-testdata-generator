@@ -22,6 +22,7 @@ import com.tx.api.test.generator.studio.collection.StudioEnvironment;
 import com.tx.api.test.generator.studio.collection.StudioEnvironmentCaseOverlay;
 import com.tx.api.test.generator.studio.collection.StudioVariable;
 import com.tx.api.test.generator.studio.collection.StudioVariables;
+import com.tx.api.test.generator.studio.collection.SharedSettings;
 import com.tx.api.test.generator.studio.dto.CollectionVariables;
 import com.tx.api.test.generator.studio.dto.GlobalVariables;
 import com.tx.api.test.generator.studio.dto.CollectionExport;
@@ -523,7 +524,7 @@ public class TestDataStudioService {
         } else {
             throw new IllegalArgumentException("caseId or testCase is required");
         }
-        testCase = withLiveResponseSchema(testCase);
+        testCase = withShared(withLiveResponseSchema(testCase));
         String trigger = request.testCase() == null
                 ? RunHistoryService.TRIGGER_CASE
                 : RunHistoryService.TRIGGER_TRY;
@@ -538,11 +539,33 @@ public class TestDataStudioService {
             log.info("Skipped {} for case {} because {} failed", trigger, testCase.getId(), failedPrior.testName());
             return skipped;
         }
-        RunTestResult result = scope.mask(testRunService.execute(testCase, request.auth(), variables, network,
-                outboundScope(testCase.getSpecId(), environmentId)));
+        RunTestResult result = executeCase(testCase, request.auth(), variables, network,
+                outboundScope(testCase.getSpecId(), environmentId), scope, request.dataRow());
         runHistoryService.recordSingle(trigger, environmentId, testCase, result);
         log.info("Finished {} for case {} passed={}", trigger, testCase.getId(), result.passed());
         return result;
+    }
+
+    /**
+     * Sends the case once, or once per data row ({@code onlyRow}, 1-based, sends just that row, as Send does). With
+     * rows the result sums them up and lists each row's result in {@code iterations}.
+     */
+    private RunTestResult executeCase(StudioTestCase testCase, RunAuth auth, Map<String, String> variables,
+                                      StudioEnvironmentNetwork network, OutboundUrlPolicy.Scope outbound,
+                                      RunVariables scope, Integer onlyRow) {
+        List<DataRows.Row> rows = DataRows.parse(testCase.getDataRows());
+        if (rows.isEmpty()) {
+            return scope.mask(testRunService.execute(testCase, auth, variables, network, outbound));
+        }
+        if (onlyRow != null) {
+            if (onlyRow < 1 || onlyRow > rows.size()) {
+                throw new IllegalArgumentException("Data row " + onlyRow + " doesn't exist; this case has "
+                        + rows.size() + " rows");
+            }
+            rows = List.of(rows.get(onlyRow - 1));
+        }
+        return DataRowRun.run(testCase, rows, variables, (row, rowVariables) ->
+                scope.mask(testRunService.execute(row, auth, rowVariables, network, outbound)));
     }
 
     private RunTestResult runPrerequisites(StudioTestCase testCase, RunAuth auth, String trigger,
@@ -556,15 +579,16 @@ public class TestDataStudioService {
         }
         String environmentName = environmentName(testCase.getSpecId(), environmentId);
         List<StudioTestCase> priors = CaseVariables.prerequisites(
-                studioStorage.listTestCases(testCase.getSpecId(), testCase.getPlanId(), null),
+                withShared(testCase.getSpecId(),
+                        studioStorage.listTestCases(testCase.getSpecId(), testCase.getPlanId(), null)),
                 testCase, scope.names());
         for (StudioTestCase prior : priors) {
             if (!EnvironmentScope.visible(prior.getEnvironments(), environmentName)) {
                 continue;
             }
-            RunTestResult priorResult = scope.mask(testRunService.execute(
-                    withLiveResponseSchema(applyOverlay(prior, environmentId)), auth, variables, network,
-                    outboundScope(testCase.getSpecId(), environmentId)));
+            RunTestResult priorResult = executeCase(
+                    withShared(withLiveResponseSchema(applyOverlay(prior, environmentId))), auth, variables, network,
+                    outboundScope(testCase.getSpecId(), environmentId), scope, null);
             runHistoryService.recordSingle(trigger, environmentId, prior, priorResult);
             if (!priorResult.passed()) {
                 return priorResult;
@@ -581,7 +605,8 @@ public class TestDataStudioService {
             throw new IllegalArgumentException("specId and planId are required");
         }
         requirePlan(request.specId(), request.planId());
-        List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), request.planId(), null);
+        List<StudioTestCase> storedCases = withShared(request.specId(),
+                studioStorage.listTestCases(request.specId(), request.planId(), null));
         String environmentName = requireEnvironmentNameForScopedCases(
                 request.specId(), request.environmentId(), storedCases, "run this plan");
         String environmentId = request.environmentId();
@@ -601,9 +626,8 @@ public class TestDataStudioService {
 
             @Override
             public RunTestResult execute(StudioTestCase testCase) {
-                return scope.mask(testRunService.execute(
-                        withLiveResponseSchema(applyOverlay(testCase, environmentId)), request.auth(), variables,
-                        network, outboundScope));
+                return executeCase(withShared(withLiveResponseSchema(applyOverlay(testCase, environmentId))),
+                        request.auth(), variables, network, outboundScope, scope, null);
             }
 
             @Override
@@ -648,7 +672,8 @@ public class TestDataStudioService {
             throw new IllegalArgumentException("specId and planId are required");
         }
         requirePlan(request.specId(), request.planId());
-        List<StudioTestCase> storedCases = studioStorage.listTestCases(request.specId(), request.planId(), null);
+        List<StudioTestCase> storedCases = withShared(request.specId(),
+                studioStorage.listTestCases(request.specId(), request.planId(), null));
         String environmentName = requireEnvironmentNameForScopedCases(
                 request.specId(), request.environmentId(), storedCases, "validate this plan");
         List<StudioTestCase> cases = CaseVariables.orderForChain(storedCases);
@@ -1084,6 +1109,9 @@ public class TestDataStudioService {
         if (creating || request.auth() != null) {
             testCase.setAuth(CaseAuth.normalize(request.auth()));
         }
+        if (creating || request.dataRows() != null) {
+            testCase.setDataRows(DataRows.normalize(request.dataRows()));
+        }
         testCase.setEnabled(StringUtils.defaultIfBlank(request.enabled(), "Y"));
         if (creating) {
             testCase.setLifecycle(CaseLifecycle.normalizeOr(request.lifecycle(), CaseLifecycle.DRAFT));
@@ -1164,6 +1192,7 @@ public class TestDataStudioService {
                 view.getExpectedResponse(),
                 StringUtils.defaultIfBlank(JsonBodyMatcher.normalize(view.getResponseMatch()), JsonBodyMatcher.STRICT),
                 view.getIgnoreFields(),
+                DataRows.toList(view.getDataRows()),
                 view.getAuth(),
                 view.getEnabled(),
                 CaseLifecycle.normalizeOr(view.getLifecycle(), CaseLifecycle.READY),
@@ -1293,6 +1322,37 @@ public class TestDataStudioService {
         studioStorage.saveCollectionVariables(specId, StudioVariables.toDocument(variables));
         log.info("Saved {} collection variables for spec {}", variables.size(), specId);
         return new CollectionVariables(variables);
+    }
+
+    public SharedSettings getSharedSettings(String specId) {
+        specCatalogService.requireSpec(specId);
+        return loadSharedSettings(specId);
+    }
+
+    public SharedSettings saveSharedSettings(String specId, SharedSettings request) {
+        specCatalogService.requireSpec(specId);
+        SharedSettings settings = SharedSettings.normalize(request);
+        studioStorage.saveCollectionSettings(specId, settings.toDocument());
+        log.info("Saved shared settings for spec {} ({} groups)", specId, settings.groupMap().size());
+        return settings;
+    }
+
+    private SharedSettings loadSharedSettings(String specId) {
+        if (StringUtils.isBlank(specId)) {
+            return SharedSettings.empty();
+        }
+        return studioStorage.findCollectionSettings(specId).map(SharedSettings::fromDocument)
+                .orElse(SharedSettings.empty());
+    }
+
+    /** The case with the auth and headers its collection and group hand down (see SharedSettings). */
+    private StudioTestCase withShared(StudioTestCase testCase) {
+        return testCase == null ? null : loadSharedSettings(testCase.getSpecId()).applyTo(testCase);
+    }
+
+    private List<StudioTestCase> withShared(String specId, List<StudioTestCase> cases) {
+        SharedSettings settings = loadSharedSettings(specId);
+        return settings.isEmpty() ? cases : cases.stream().map(settings::applyTo).toList();
     }
 
     private List<StudioVariable> loadCollectionVariables(String specId) {

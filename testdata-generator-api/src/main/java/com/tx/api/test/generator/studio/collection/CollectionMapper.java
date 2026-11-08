@@ -28,12 +28,12 @@ public final class CollectionMapper {
 
     public static StudioCollection fromPlan(StoredSpec spec, StudioTestPlan plan, List<StudioTestCase> cases,
                                             Map<String, List<StudioRequestFile>> filesByCaseId) {
-        return fromPlan(spec, plan, cases, filesByCaseId, List.of());
+        return fromPlan(spec, plan, cases, filesByCaseId, List.of(), null);
     }
 
     public static StudioCollection fromPlan(StoredSpec spec, StudioTestPlan plan, List<StudioTestCase> cases,
                                             Map<String, List<StudioRequestFile>> filesByCaseId,
-                                            List<StudioVariable> variables) {
+                                            List<StudioVariable> variables, SharedSettings settings) {
         if (spec == null) {
             throw new CollectionFormatException("spec is required");
         }
@@ -51,7 +51,8 @@ public final class CollectionMapper {
                 toCollectionSpec(spec),
                 toCollectionPlan(plan),
                 List.copyOf(mapped),
-                variables == null || variables.isEmpty() ? null : StudioVariables.forExport(variables)
+                variables == null || variables.isEmpty() ? null : StudioVariables.forExport(variables),
+                settings == null || settings.isEmpty() ? null : settings
         );
     }
 
@@ -90,7 +91,10 @@ public final class CollectionMapper {
         List<StudioVariable> variables = storage.findCollectionVariables(specId)
                 .map(StudioVariables::fromDocument)
                 .orElse(List.of());
-        return fromPlan(spec, plan, cases, filesByCaseId, variables);
+        SharedSettings settings = storage.findCollectionSettings(specId)
+                .map(SharedSettings::fromDocument)
+                .orElse(null);
+        return fromPlan(spec, plan, cases, filesByCaseId, variables, settings);
     }
 
     private static List<StudioRequestFile> withoutDraftOnlyFiles(StudioStorage storage, StudioTestCase testCase) {
@@ -230,7 +234,8 @@ public final class CollectionMapper {
                 testCase.getExtracts(),
                 testCase.getMaxResponseTimeMs(),
                 toCollectionFiles(testCase.getId(), files),
-                EnvironmentScope.normalize(testCase.getEnvironments())
+                EnvironmentScope.normalize(testCase.getEnvironments()),
+                testCase.getDataRows() == null ? null : com.google.gson.JsonParser.parseString(testCase.getDataRows())
         );
     }
 
@@ -299,6 +304,7 @@ public final class CollectionMapper {
         testCase.setIgnoreFields(JsonBodyMatcher.normalizeIgnoreFields(item.ignoreFields()));
         try {
             testCase.setAuth(CaseAuth.normalize(item.auth()));
+            testCase.setDataRows(com.tx.api.test.generator.studio.service.DataRows.normalize(item.data()));
         } catch (IllegalArgumentException exception) {
             throw new CollectionFormatException("Case '" + item.testName() + "': " + exception.getMessage());
         }

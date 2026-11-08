@@ -237,7 +237,8 @@ public class RunHistoryService {
         if (result.passed()) {
             return "passed";
         }
-        if (StringUtils.isNotBlank(result.error())) {
+        // A data-driven case's error only sums up its failed rows: that's a failure, not a request error.
+        if (StringUtils.isNotBlank(result.error()) && result.iterations() == null) {
             return "error";
         }
         return "failed";

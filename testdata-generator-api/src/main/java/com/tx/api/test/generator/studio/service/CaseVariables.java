@@ -41,10 +41,10 @@ public final class CaseVariables {
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
 
     private static final Pattern PLACEHOLDER = Pattern.compile(
-            "\\{\\{((?:(?:global|collection|env|extract):)?[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)}}");
+            "\\{\\{((?:(?:global|collection|env|data|extract):)?[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)}}");
 
     private static final Pattern QUOTED_PLACEHOLDER = Pattern.compile(
-            "([\"'])\\{\\{((?:extract:)?[A-Za-z_][A-Za-z0-9_]*)}}\\1");
+            "([\"'])\\{\\{((?:extract:|data:)?[A-Za-z_][A-Za-z0-9_]*)}}\\1");
 
     private CaseVariables() {
     }
@@ -146,6 +146,8 @@ public final class CaseVariables {
                 return text;
             });
         }
+        DataRows.patchTexts(testCase.getDataRows()).forEach(text -> collectNames(text, names));
+        names.removeAll(DataRows.columns(testCase.getDataRows()));
         return names;
     }
 
@@ -291,6 +293,10 @@ public final class CaseVariables {
         if (name.startsWith(ENV_PREFIX)) {
             return "Unresolved variable {{" + name + "}}. Define " + name.substring(ENV_PREFIX.length())
                     + " in the selected environment's variables (or enter its secret value).";
+        }
+        if (name.startsWith(DataRows.DATA_PREFIX)) {
+            return "Unresolved variable {{" + name + "}}. Add a " + name.substring(DataRows.DATA_PREFIX.length())
+                    + " column to this case's data rows.";
         }
         if (name.startsWith(EXTRACT_PREFIX)) {
             return "Unresolved variable {{" + name + "}}. Run a prior case in this plan that extracts "
@@ -625,6 +631,7 @@ public final class CaseVariables {
         copy.setExpectedResponse(source.getExpectedResponse());
         copy.setResponseMatch(source.getResponseMatch());
         copy.setIgnoreFields(source.getIgnoreFields());
+        copy.setDataRows(source.getDataRows());
         copy.setAuth(source.getAuth());
         copy.setEnabled(source.getEnabled());
         copy.setLifecycle(source.getLifecycle());

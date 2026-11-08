@@ -101,6 +101,15 @@ public interface StudioStorage {
         throw new IllegalStateException("Collection variables need H2 or database storage");
     }
 
+    /** Shared auth and headers of one collection and its groups, as JSON. */
+    default Optional<String> findCollectionSettings(String specId) {
+        return Optional.empty();
+    }
+
+    default void saveCollectionSettings(String specId, String documentJson) {
+        throw new IllegalStateException("Collection settings need H2 or database storage");
+    }
+
     void saveTestCase(StudioTestCase testCase);
 
     /**

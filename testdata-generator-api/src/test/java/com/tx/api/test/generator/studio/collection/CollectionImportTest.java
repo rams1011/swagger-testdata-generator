@@ -192,6 +192,28 @@ class CollectionImportTest {
     }
 
     @Test
+    void dataRowsTravelWithTheirCase() throws Exception {
+        storage.saveSpec(localSpec());
+        CollectionImporter.importInto(storage, goldenBytes(), "collection.json", "spec-local");
+        var stored = storage.findTestCase("case-create-role").orElseThrow();
+        stored.setDataRows(com.tx.api.test.generator.studio.service.DataRows.normalize(
+                "[{\"$name\":\"Admin\",\"role\":\"ADMIN\",\"limit\":5}]"));
+        storage.saveTestCase(stored);
+
+        StudioCollection exported = CollectionMapper.readFrom(storage, "spec-local", "plan-default");
+        String json = CollectionDocuments.toJson(exported);
+        assertTrue(json.contains("\"limit\": 5"), "numbers stay numbers in the file");
+        storage.findTestCase("case-create-role").ifPresent(testCase -> {
+            testCase.setDataRows(null);
+            storage.saveTestCase(testCase);
+        });
+        CollectionImporter.importInto(storage, CollectionDocuments.parseCollection(json), Map.of(), "spec-local");
+
+        assertEquals("[{\"$name\":\"Admin\",\"role\":\"ADMIN\",\"limit\":5}]",
+                storage.findTestCase("case-create-role").orElseThrow().getDataRows());
+    }
+
+    @Test
     void importRefusesARawSecretCollectionVariableBeforeWritingAnything() throws Exception {
         storage.saveSpec(localSpec());
         StudioCollection golden = CollectionDocuments.parseCollection(readGolden());

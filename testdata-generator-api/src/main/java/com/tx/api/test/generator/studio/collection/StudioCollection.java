@@ -8,12 +8,19 @@ public record StudioCollection(
         StudioCollectionSpec spec,
         StudioCollectionPlan plan,
         List<StudioCollectionCase> cases,
-        List<StudioVariable> variables
+        List<StudioVariable> variables,
+        /** Auth and headers the collection and its groups hand down to cases; null when there are none. */
+        SharedSettings settings
 ) {
 
     public StudioCollection(String format, int version, StudioCollectionSpec spec, StudioCollectionPlan plan,
                             List<StudioCollectionCase> cases) {
-        this(format, version, spec, plan, cases, null);
+        this(format, version, spec, plan, cases, null, null);
+    }
+
+    public StudioCollection(String format, int version, StudioCollectionSpec spec, StudioCollectionPlan plan,
+                            List<StudioCollectionCase> cases, List<StudioVariable> variables) {
+        this(format, version, spec, plan, cases, variables, null);
     }
 
     /** Collection variables; secrets carry {@code ${STUDIO_VAR_NAME}}. Null in files exported before they existed. */

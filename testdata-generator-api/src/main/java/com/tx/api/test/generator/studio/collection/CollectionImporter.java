@@ -54,6 +54,7 @@ public final class CollectionImporter {
                                                     String environmentName, boolean publishReady) {
         CollectionMapper.validate(collection);
         List<StudioVariable> variables = StudioVariables.normalize(collection.variables(), "Collection");
+        SharedSettings settings = collection.settings() == null ? null : SharedSettings.normalize(collection.settings());
         StoredSpec spec = resolveSpec(storage, collection, targetSpecId);
         PlanResolution plan = resolvePlan(storage, spec, collection.plan());
         CollectionSnapshot snapshot = CollectionMapper.toSnapshot(collection);
@@ -94,6 +95,13 @@ public final class CollectionImporter {
             storage.saveCollectionVariables(spec.getSpecId(),
                     StudioVariables.toDocument(StudioVariables.normalize(
                             StudioVariables.merge(current, variables), "Collection")));
+        }
+        if (settings != null && !settings.isEmpty()) {
+            SharedSettings current = storage.findCollectionSettings(spec.getSpecId())
+                    .map(SharedSettings::fromDocument)
+                    .orElse(SharedSettings.empty());
+            storage.saveCollectionSettings(spec.getSpecId(),
+                    SharedSettings.normalize(SharedSettings.merge(current, settings)).toDocument());
         }
         return new CollectionImportResult(
                 spec.getSpecId(),
