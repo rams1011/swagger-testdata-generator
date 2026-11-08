@@ -8,10 +8,17 @@ public record RunTestRequest(
         SaveTestDataRequest testCase,
         RunAuth auth,
         String environmentId,
-        Map<String, String> secrets
+        Map<String, String> secrets,
+        /** For a case with data rows: run only this row (1-based), as Send does; null runs every row. */
+        Integer dataRow
 ) {
     public RunTestRequest(String caseId, SaveTestDataRequest testCase, RunAuth auth, String environmentId) {
-        this(caseId, testCase, auth, environmentId, null);
+        this(caseId, testCase, auth, environmentId, null, null);
+    }
+
+    public RunTestRequest(String caseId, SaveTestDataRequest testCase, RunAuth auth, String environmentId,
+                          Map<String, String> secrets) {
+        this(caseId, testCase, auth, environmentId, secrets, null);
     }
 
     @Override

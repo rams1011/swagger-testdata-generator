@@ -45,6 +45,7 @@ public final class CaseVersionDocument {
         document.put("expectedResponse", testCase.getExpectedResponse());
         document.put("responseMatch", testCase.getResponseMatch());
         document.put("ignoreFields", testCase.getIgnoreFields());
+        document.put("dataRows", testCase.getDataRows());
         document.put("auth", CaseAuth.toJson(testCase.getAuth()));
         document.put("enabled", testCase.getEnabled());
         document.put("testGroup", testCase.getTestGroup());
@@ -141,7 +142,8 @@ public final class CaseVersionDocument {
                 expectedRevision,
                 force,
                 expectedDraftRevision,
-                null);
+                null,
+                document.get("dataRows") == null ? List.of() : document.get("dataRows"));
     }
 
     private static RunAuth auth(Map<String, Object> document) {

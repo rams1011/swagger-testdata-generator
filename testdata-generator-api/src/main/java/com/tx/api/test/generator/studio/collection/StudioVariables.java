@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.collection;
 
+import com.google.gson.Gson;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
@@ -19,7 +20,39 @@ public final class StudioVariables {
     private static final Pattern KEY = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final Pattern ENV_PLACEHOLDER = Pattern.compile("^\\$\\{[A-Za-z_][A-Za-z0-9_]*}$");
 
+    private static final Gson GSON = new Gson();
+
+    private record Document(List<StudioVariable> variables) {
+    }
+
     private StudioVariables() {
+    }
+
+    /** Reads a stored {@code {"variables": [...]}} document (global or collection variables). */
+    public static List<StudioVariable> fromDocument(String json) {
+        if (StringUtils.isBlank(json)) {
+            return List.of();
+        }
+        Document document = GSON.fromJson(json, Document.class);
+        return document == null || document.variables() == null ? List.of() : document.variables();
+    }
+
+    public static String toDocument(List<StudioVariable> variables) {
+        return GSON.toJson(new Document(variables == null ? List.of() : variables));
+    }
+
+    /** {@code base} with each of {@code incoming} added, or replacing the row with the same key in place. */
+    public static List<StudioVariable> merge(List<StudioVariable> base, List<StudioVariable> incoming) {
+        Map<String, StudioVariable> byKey = new LinkedHashMap<>();
+        for (List<StudioVariable> rows : List.of(base == null ? List.<StudioVariable>of() : base,
+                incoming == null ? List.<StudioVariable>of() : incoming)) {
+            for (StudioVariable variable : rows) {
+                if (variable != null && StringUtils.isNotBlank(variable.key())) {
+                    byKey.put(variable.key(), variable);
+                }
+            }
+        }
+        return new ArrayList<>(byKey.values());
     }
 
     /**

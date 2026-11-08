@@ -43,6 +43,28 @@ class RunVariablesTest {
     }
 
     @Test
+    void collectionVariablesSitBetweenGlobalsAndTheEnvironmentAndHaveTheirOwnQualifier() {
+        RunVariables scope = RunVariables.of(null,
+                List.of(new StudioVariable("tenant", "global", false), new StudioVariable("region", "eu", false)),
+                List.of(new StudioVariable("tenant", "collection", false), new StudioVariable("region", "us", false),
+                        new StudioVariable("token", null, true)),
+                List.of(new StudioVariable("tenant", "environment", false)),
+                Map.of("token", "t-1"));
+
+        Map<String, String> values = scope.newScope();
+        assertEquals("environment", values.get("tenant"));
+        assertEquals("us", values.get("region"), "collection overrides global");
+        assertEquals("collection", values.get("collection:tenant"));
+        assertEquals("global", values.get("global:tenant"));
+        assertEquals("t-1", values.get("collection:token"));
+        assertEquals("collection-us", CaseVariables.substitute("{{collection:tenant}}-{{region}}", values));
+
+        IllegalArgumentException missing = assertThrows(IllegalArgumentException.class,
+                () -> CaseVariables.substitute("{{collection:nothing}}", values));
+        assertTrue(missing.getMessage().contains("Collection variables"), missing.getMessage());
+    }
+
+    @Test
     void maskHidesSecretValuesInEveryResultField() {
         RunVariables scope = RunVariables.of(null, List.of(new StudioVariable("apiKey", null, true)), null,
                 Map.of("apiKey", "s3cr3t value"));
@@ -79,7 +101,7 @@ class RunVariablesTest {
         assertTrue(unknown.getMessage().contains("Unknown dynamic variable"));
         IllegalArgumentException unresolved = assertThrows(IllegalArgumentException.class,
                 () -> CaseVariables.substitute("{{missing}}", Map.of()));
-        assertTrue(unresolved.getMessage().contains("environment or global variables"));
+        assertTrue(unresolved.getMessage().contains("environment, collection or global variables"));
     }
 
     @Test

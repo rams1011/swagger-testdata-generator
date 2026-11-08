@@ -29,6 +29,8 @@ public class StudioTestCase {
     private String responseMatch;
     /** JSONPaths (one per line) removed from both bodies before the expected body is compared. */
     private String ignoreFields;
+    /** Data rows as a normalized JSON array of objects ({@code DataRows}); null runs the case once. */
+    private String dataRows;
     /** The case's own auth instead of the run's; null inherits. Secret fields hold only {{variables}}. */
     private com.tx.api.test.generator.studio.dto.RunAuth auth;
     private String enabled;
@@ -222,6 +224,14 @@ public class StudioTestCase {
 
     public void setIgnoreFields(String ignoreFields) {
         this.ignoreFields = ignoreFields;
+    }
+
+    public String getDataRows() {
+        return dataRows;
+    }
+
+    public void setDataRows(String dataRows) {
+        this.dataRows = dataRows;
     }
 
     public String getResponseMatch() {

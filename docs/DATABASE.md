@@ -85,11 +85,17 @@ The migrations are the only definition of the schema. There are no separate DDL 
 
 ### Integrity rules
 
-`V2__integrity.sql` and the Java migration `V3__environment_links` add: case environments as links by ID (`td_test_case_environment`), required plans and collection names, foreign keys from run history (cleared when a plan or environment is deleted), `revision` columns for conflict checks, an audit sequence, Enabled as a boolean, and checks on lifecycle, run trigger, outcome and roles. Checks are written with `CASE`, not `IN (...)`, because of an H2 2.4 bug: see the API's `CLAUDE.md`. The API runs in UTC.
+`V2__integrity.sql` and the Java migration `V3__environment_links` add: case environments as links by ID (`td_test_case_environment`), required plans and collection names, foreign keys from run history (cleared when a plan or environment is deleted), `revision` columns for conflict checks, an audit sequence, Enabled as a boolean, and checks on lifecycle, run trigger, outcome and roles. Checks are written with `CASE` for PostgreSQL/H2, because of an H2 2.4 bug with `IN (...)`, and with `IN (...)` for MySQL, which rejects the `CASE` form: see the API's `CLAUDE.md`. The API runs in UTC.
+
+`V4__collection_variables.sql` adds `td_collection_variables`: one `{"variables": [...]}` document per collection, deleted with it. Secret rows keep only the name.
+
+`V5__case_data_rows.sql` adds `td_test_case.data_rows`: a case's data rows as a JSON array (null for a case that runs once).
+
+`V6__collection_settings.sql` adds `td_collection_settings`: the auth and headers a collection and its case groups hand down, one JSON document per collection, deleted with it.
 
 ### Changing the schema
 
-1. Add the next version, such as `V2__case_revision.sql`, to **both** folders, in each database's types.
+1. Add the next version, such as `V7__case_labels.sql`, to **both** folders, in each database's types.
 2. Update `schema-snapshot.txt` to match. Run `SchemaSnapshotTest`, and copy `target/schema-snapshot.h2.txt` over it once the change is right.
 3. Never edit a migration that has been applied anywhere: Flyway stores a checksum for each one.
 

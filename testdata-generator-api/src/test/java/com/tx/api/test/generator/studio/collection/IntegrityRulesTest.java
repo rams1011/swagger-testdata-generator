@@ -55,6 +55,8 @@ class IntegrityRulesTest {
     private StudioStorage storage;
     @Autowired
     private JdbcTemplate jdbc;
+    @Autowired
+    private com.tx.api.test.generator.studio.service.RunHistoryService runHistory;
 
     private String specId;
     private String planId;
@@ -144,6 +146,90 @@ class IntegrityRulesTest {
         studio.updateEnvironment(specId, staging.id(), new SaveEnvironmentRequest("Staging", "http://127.0.0.1:2", null));
         studio.applyEnvironment(specId, staging.id());
         assertEquals(revision + 1, catalog.getSummary(specId).revision(), "a different base URL is a change");
+    }
+
+    @Test
+    void collectionVariablesBelongToOneCollectionAndLeaveItsRevisionAlone() {
+        long revision = catalog.getSummary(specId).revision();
+        studio.saveCollectionVariables(specId, new com.tx.api.test.generator.studio.dto.CollectionVariables(List.of(
+                new StudioVariable(" tenant ", "acme", false), new StudioVariable("apiKey", "", true))));
+
+        assertEquals(List.of(new StudioVariable("tenant", "acme", false), new StudioVariable("apiKey", null, true)),
+                studio.getCollectionVariables(specId).variables());
+        assertEquals(revision, catalog.getSummary(specId).revision());
+        String other = catalog.load(new LoadSpecRequest(null, DEFINITION, null, "http://127.0.0.1:1",
+                "Other " + UUID.randomUUID(), null, null, null, null)).specId();
+        assertTrue(studio.getCollectionVariables(other).variables().isEmpty());
+
+        catalog.delete(specId);
+        assertEquals(0, jdbc.queryForObject("SELECT COUNT(*) FROM td_collection_variables WHERE spec_id = ?",
+                Integer.class, specId));
+    }
+
+    @Test
+    void aCaseWithDataRowsRunsOncePerRowAndSendCanRunOneRow() {
+        SaveTestDataRequest base = save("Rows", null, null, null);
+        SaveTestDataRequest withRows = new SaveTestDataRequest(base.specId(), base.planId(), base.operationKey(),
+                base.testName(), base.baseUrl(), base.pathParams(), Map.of("tier", "{{tier}}"), base.headers(),
+                base.cookieParams(), base.requestBody(), base.statusCode(), base.responseType(), base.expectedResponse(),
+                base.responseMatch(), base.ignoreFields(), base.auth(), base.enabled(), base.lifecycle(),
+                base.testGroup(), base.jsonPathAssertions(), base.extracts(), base.maxResponseTimeMs(),
+                base.contentType(), base.environmentId(), base.environments(), null, null, null, null,
+                List.of(Map.of("$name", "Gold", "tier", "GOLD"), Map.of("tier", "SILVER")));
+        TestCaseView created = studio.create(withRows);
+        assertEquals(2, created.dataRows().size());
+
+        var all = studio.run(new com.tx.api.test.generator.studio.dto.RunTestRequest(created.id(), null, null, null));
+        assertEquals(List.of("Gold", "Row 2"), all.iterations().stream()
+                .map(com.tx.api.test.generator.studio.dto.RunTestResult::rowLabel).toList());
+        assertTrue(all.iterations().get(0).url().contains("tier=GOLD"), all.iterations().get(0).url());
+        assertTrue(all.iterations().get(1).url().contains("tier=SILVER"), all.iterations().get(1).url());
+        String runId = runHistory.list(specId, null, null, created.id(), null, null, 1).get(0).runId();
+        assertEquals("failed", runHistory.get(runId).results().get(0).outcome(),
+                "rows that fail make the case failed in history, not an error");
+
+        var one = studio.run(new com.tx.api.test.generator.studio.dto.RunTestRequest(created.id(), null, null, null,
+                null, 2));
+        assertEquals(1, one.iterations().size());
+        assertEquals("Row 2", one.iterations().get(0).rowLabel());
+
+        IllegalArgumentException refused = assertThrows(IllegalArgumentException.class, () -> studio.update(created.id(),
+                new SaveTestDataRequest(base.specId(), base.planId(), base.operationKey(), base.testName(),
+                        base.baseUrl(), base.pathParams(), base.queryParams(), base.headers(), base.cookieParams(),
+                        base.requestBody(), base.statusCode(), base.responseType(), base.expectedResponse(),
+                        base.responseMatch(), base.ignoreFields(), base.auth(), base.enabled(), "READY",
+                        base.testGroup(), base.jsonPathAssertions(), base.extracts(), base.maxResponseTimeMs(),
+                        base.contentType(), null, null, studio.get(created.id(), null).revision(), null, null, null,
+                        List.of(Map.of("$status", 42)))));
+        assertTrue(refused.getMessage().contains("100 to 599"), refused.getMessage());
+    }
+
+    @Test
+    void groupAuthAndCollectionHeadersReachTheRequestAndTheExport() {
+        studio.updateEnvironment(specId, staging.id(), new SaveEnvironmentRequest("Staging", null, null,
+                List.of(new StudioVariable("adminToken", "t-admin", false))));
+        studio.saveSharedSettings(specId, new SharedSettings(null, Map.of("X-Tenant", "acme"), Map.of("Admin",
+                new SharedSettings.Level(new com.tx.api.test.generator.studio.dto.RunAuth("BEARER", null, null,
+                        "{{adminToken}}", null, null, null, null, null, null, null, null), null))));
+        long revision = catalog.getSummary(specId).revision();
+        SaveTestDataRequest base = save("Admin call", null, null, null);
+        TestCaseView created = studio.create(new SaveTestDataRequest(base.specId(), base.planId(), base.operationKey(),
+                base.testName(), base.baseUrl(), base.pathParams(), base.queryParams(), Map.of("Accept", "text/plain"),
+                base.cookieParams(), base.requestBody(), base.statusCode(), base.responseType(), base.expectedResponse(),
+                base.responseMatch(), base.ignoreFields(), base.auth(), base.enabled(), base.lifecycle(), "Admin",
+                base.jsonPathAssertions(), base.extracts(), base.maxResponseTimeMs(), base.contentType(), null, null,
+                null, null, null, null));
+
+        var result = studio.run(new com.tx.api.test.generator.studio.dto.RunTestRequest(created.id(), null, null,
+                staging.id()));
+
+        assertTrue(String.valueOf(result.requestHeaders().get("Authorization")).startsWith("Bearer "),
+                "the group's bearer token is sent (results mask its value): " + result.requestHeaders());
+        assertEquals("acme", result.requestHeaders().get("X-Tenant"));
+        assertEquals("text/plain", result.requestHeaders().get("Accept"));
+        assertEquals(null, studio.get(created.id(), null).auth(), "the case still has no auth of its own");
+        assertEquals(revision, catalog.getSummary(specId).revision(), "saving shared settings leaves the collection alone");
+        assertEquals("acme", CollectionMapper.readFrom(storage, specId, planId).settings().headerMap().get("X-Tenant"));
     }
 
     @Test

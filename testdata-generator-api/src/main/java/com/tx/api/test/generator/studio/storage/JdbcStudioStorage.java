@@ -484,6 +484,58 @@ public class JdbcStudioStorage implements StudioStorage {
     }
 
     @Override
+    public Optional<String> findCollectionVariables(String specId) {
+        List<String> documents = jdbcTemplate.query("""
+                SELECT v.document_json FROM td_collection_variables v
+                  JOIN td_spec s ON s.spec_id = v.spec_id
+                 WHERE v.spec_id = ? AND s.tenant_id = ?
+                """, (rs, rowNum) -> rs.getString(1), specId, tenantId());
+        return documents.stream().findFirst();
+    }
+
+    @Override
+    public void saveCollectionVariables(String specId, String documentJson) {
+        requireOwnedSpec(specId);
+        Timestamp now = Timestamp.from(Instant.now());
+        synchronized (environmentSaveLocks.computeIfAbsent(specId + ":collection-variables", ignored -> new Object())) {
+            int rows = jdbcTemplate.update(
+                    "UPDATE td_collection_variables SET document_json = ?, updated_at = ? WHERE spec_id = ?",
+                    documentJson, now, specId);
+            if (rows == 0) {
+                jdbcTemplate.update(
+                        "INSERT INTO td_collection_variables (spec_id, document_json, updated_at) VALUES (?, ?, ?)",
+                        specId, documentJson, now);
+            }
+        }
+    }
+
+    @Override
+    public Optional<String> findCollectionSettings(String specId) {
+        List<String> documents = jdbcTemplate.query("""
+                SELECT v.document_json FROM td_collection_settings v
+                  JOIN td_spec s ON s.spec_id = v.spec_id
+                 WHERE v.spec_id = ? AND s.tenant_id = ?
+                """, (rs, rowNum) -> rs.getString(1), specId, tenantId());
+        return documents.stream().findFirst();
+    }
+
+    @Override
+    public void saveCollectionSettings(String specId, String documentJson) {
+        requireOwnedSpec(specId);
+        Timestamp now = Timestamp.from(Instant.now());
+        synchronized (environmentSaveLocks.computeIfAbsent(specId + ":collection-settings", ignored -> new Object())) {
+            int rows = jdbcTemplate.update(
+                    "UPDATE td_collection_settings SET document_json = ?, updated_at = ? WHERE spec_id = ?",
+                    documentJson, now, specId);
+            if (rows == 0) {
+                jdbcTemplate.update(
+                        "INSERT INTO td_collection_settings (spec_id, document_json, updated_at) VALUES (?, ?, ?)",
+                        specId, documentJson, now);
+            }
+        }
+    }
+
+    @Override
     public void saveTestCase(StudioTestCase testCase) {
         writeTestCase(testCase);
         if (!com.tx.api.test.generator.studio.model.CaseLifecycle.isDraft(testCase)) {
@@ -599,7 +651,7 @@ public class JdbcStudioStorage implements StudioStorage {
                                SET spec_id = ?, plan_id = ?, operation_key = ?, test_name = ?, http_method = ?, raw_path = ?,
                                    endpoint = ?, base_url = ?, content_type = ?, request_body_json = ?,
                                    response_schema_json = ?, status_code = ?, response_type = ?, expected_response = ?, response_match = ?, ignore_fields = ?, case_auth = ?,
-                                   enabled = ?, lifecycle = ?, test_group = ?, json_path_assertions = ?, extracts = ?, max_response_time_ms = ?,
+                                   data_rows = ?, enabled = ?, lifecycle = ?, test_group = ?, json_path_assertions = ?, extracts = ?, max_response_time_ms = ?,
                                    updated_at = ?, updated_by_account_id = ?, updated_by_label = ?, revision = revision + 1
                              WHERE test_case_id = ?
                                AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
@@ -622,6 +674,7 @@ public class JdbcStudioStorage implements StudioStorage {
             args.add(testCase.getResponseMatch());
             args.add(testCase.getIgnoreFields());
             args.add(com.tx.api.test.generator.studio.service.CaseAuth.toJson(testCase.getAuth()));
+            args.add(testCase.getDataRows());
             args.add(enabledFlag(testCase.getEnabled()));
             args.add(com.tx.api.test.generator.studio.model.CaseLifecycle.normalizeOr(testCase.getLifecycle(),
                     com.tx.api.test.generator.studio.model.CaseLifecycle.READY));
@@ -661,17 +714,18 @@ public class JdbcStudioStorage implements StudioStorage {
                             INSERT INTO td_test_case (
                                 test_case_id, spec_id, plan_id, operation_key, test_name, http_method, raw_path, endpoint,
                                 base_url, content_type, request_body_json, response_schema_json, status_code,
-                                response_type, expected_response, response_match, ignore_fields, case_auth, enabled, lifecycle, test_group, json_path_assertions, extracts,
+                                response_type, expected_response, response_match, ignore_fields, case_auth, data_rows, enabled, lifecycle, test_group, json_path_assertions, extracts,
                                 max_response_time_ms, created_at, updated_at,
                                 created_by_account_id, created_by_label, updated_by_account_id, updated_by_label, revision)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                             """,
                     testCase.getId(), testCase.getSpecId(), testCase.getPlanId(), testCase.getOperationKey(),
                     testCase.getTestName(), testCase.getMethod(), testCase.getRawPath(), testCase.getEndpoint(),
                     testCase.getBaseUrl(), testCase.getContentType(), JsonMaps.toJson(testCase.getRequestBody()),
                     JsonMaps.toJson(testCase.getResponseJsonSchema()), testCase.getStatusCode(),
                     testCase.getResponseType(), testCase.getExpectedResponse(), testCase.getResponseMatch(), testCase.getIgnoreFields(),
-                    com.tx.api.test.generator.studio.service.CaseAuth.toJson(testCase.getAuth()), enabledFlag(testCase.getEnabled()),
+                    com.tx.api.test.generator.studio.service.CaseAuth.toJson(testCase.getAuth()), testCase.getDataRows(),
+                    enabledFlag(testCase.getEnabled()),
                     com.tx.api.test.generator.studio.model.CaseLifecycle.normalizeOr(testCase.getLifecycle(),
                             com.tx.api.test.generator.studio.model.CaseLifecycle.READY),
                     testCase.getTestGroup(), testCase.getJsonPathAssertions(), testCase.getExtracts(),
@@ -1058,6 +1112,7 @@ public class JdbcStudioStorage implements StudioStorage {
             testCase.setExpectedResponse(rs.getString("expected_response"));
             testCase.setResponseMatch(rs.getString("response_match"));
             testCase.setIgnoreFields(rs.getString("ignore_fields"));
+            testCase.setDataRows(rs.getString("data_rows"));
             testCase.setAuth(com.tx.api.test.generator.studio.service.CaseAuth.fromJson(rs.getString("case_auth")));
             testCase.setEnabled(rs.getBoolean("enabled") ? "Y" : "N");
             testCase.setLifecycle(com.tx.api.test.generator.studio.model.CaseLifecycle.normalizeOr(

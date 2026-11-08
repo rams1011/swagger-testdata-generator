@@ -47,18 +47,19 @@ Studio package layout:
 Product design doc (cross-repo): `D:\code\testdata-studio-ui\docs\DATA_STUDIO_DESIGN.md`.  
 **Variable user guide:** `D:\code\testdata-studio-ui\docs\VARIABLES.md`.
 
-## Global and environment variables
+## Global, collection and environment variables
 
 - **Environment variables** live in the environment JSON document (`StudioEnvironment.variables`).
-- **Global variables** are tenant-scoped JSON in table `td_global_variables` (Flyway **V11** + DDL scripts).
+- **Global variables** are tenant-scoped JSON in table `td_global_variables`.
+- **Collection variables** are one JSON document per collection in `td_collection_variables` (migration **V4**, cascade-deleted with the spec; kept out of `td_spec` so saving them doesn't bump the collection revision). `StudioVariables.fromDocument` / `toDocument` read and write `{"variables": [...]}`. Collection export writes them as the optional top-level `variables` array of `StudioCollection` (secrets → `${STUDIO_VAR_*}`); import normalizes them before writing anything (a raw secret value is refused) and merges them by name (`StudioVariables.merge`). Data rows (below) rank above environment variables.
 - Model: `collection/StudioVariable` (key, value, secret). Normalize via `StudioVariables.normalize(list, scope)`.
 - **Secrets:** stored with `value = null`; import rejects raw secret values; export uses `${STUDIO_VAR_<KEY_UPPER>}` via `StudioVariables.forExport`.
-- **Run scope:** `RunVariables.of(envValues, globals, envVars, request.secrets)` — precedence: env `values` (incl. baseUrl) → globals → env vars → request secrets (non-blank, declared secret keys only) → extracts mutate the per-run map.
+- **Run scope:** `RunVariables.of(envValues, globals, collectionVars, envVars, request.secrets)` — precedence: env `values` (incl. baseUrl) → globals → collection vars → env vars → request secrets (non-blank, declared secret keys only) → extracts mutate the per-run map.
 - **Substitution:** `CaseVariables.substitute` resolves `{{name}}`; names starting with `$` use `DynamicVariables` (fresh per occurrence).
-- **Scope qualifiers:** `{{global:x}}`, `{{env:x}}`, `{{extract:x}}` read one layer. `RunVariables.of` also stores `global:`/`env:` keys (env values such as baseUrl count as `env:`); `CaseVariables.putExtracted` writes `x` and `extract:x`; chain order and prerequisites use `CaseVariables.producedNames`. Environment export (`EnvironmentExporter.export(spec, stored, globals)`) adds an optional top-level `globals` array for CI; import ignores it.
+- **Scope qualifiers:** `{{global:x}}`, `{{collection:x}}`, `{{env:x}}`, `{{data:x}}`, `{{extract:x}}` read one layer. `RunVariables.of` also stores `global:`/`collection:`/`env:` keys (env values such as baseUrl count as `env:`); `CaseVariables.putExtracted` writes `x` and `extract:x`; chain order and prerequisites use `CaseVariables.producedNames`. Environment export (`EnvironmentExporter.export(spec, stored, globals)`) adds an optional top-level `globals` array for CI; import ignores it.
 - **Masking:** `RunVariables.mask(RunTestResult)` before history/response — secrets never echoed in URL, headers, body, assertions, error, extracted map.
-- **Endpoints:** `GET/PUT /api/variables/globals` (`VariablesController`); runs accept optional `secrets` on `RunTestRequest` / `RunPlanRequest`; saved run endpoint forwards secrets from body.
-- **Validate plan:** seed available names from env + global keys (and declared secret names for warnings).
+- **Endpoints:** `GET/PUT /api/variables/globals` and `GET/PUT /api/variables/collections/{specId}` (`VariablesController`); runs accept optional `secrets` on `RunTestRequest` / `RunPlanRequest`; saved run endpoint forwards secrets from body.
+- **Validate plan:** seed available names from env, collection and global keys (and declared secret names for warnings).
 
 Key tests: `RunVariablesTest`, `EnvironmentImportTest` (variables round-trip), `VariableRequestJsonTest`.
 
@@ -83,9 +84,22 @@ Every published state is copied to `td_test_case_version` (`JdbcStudioStorage.sa
 - **Revisions:** `td_spec`, `td_test_case` and `td_test_case_draft` have a `revision` that each save increases by one. Requests send `expectedRevision` (cases, collections, Restore) and `expectedDraftRevision`; `OptimisticConcurrency.ensureCurrent(current, expected, force)` answers 409 on a mismatch, and the case `UPDATE` repeats the check (`AND revision = ?`), so a save landing in between is refused too. Views carry `revision`; `updated_at` is for display only. Settling a draft after an Enabled change keeps its revision.
 - **Environment membership:** `td_test_case_environment (test_case_id, environment_id)`; no rows means every environment. The model keeps names (`StudioTestCase.environments`): `JdbcStudioStorage` resolves them to IDs on save (an unknown name is refused) and back on read, so a rename needs no case writes. Deleting an environment fixes its cases first, then deletes the row. Collection import creates missing environments, empty, by name (`CollectionImporter.ensureEnvironments`). V3 (Java, `db.migration` / `db.migration_mysql`) moved the old `environment_names` JSON into links.
 - **Keys and required columns:** a case needs a plan of its collection (deleting the plan deletes its cases); run history keeps rows when a plan or environment goes (reference set to null); `td_spec.tenant_id/name/label` are required. Deliberately not keyed: `td_private_target_allowlist` (configuration can name an environment before it exists) and `td_audit_event` (a log written at startup, too).
-- **Checks:** lifecycle, run trigger, outcome, membership roles, parameter location. Write them as `CASE x WHEN 'a' THEN TRUE ... ELSE FALSE END`, never `IN (...)`: H2 2.4 evaluates an `IN` list with the connection that created the check and fails every insert once that connection closes (`MigrationRulesTest`).
+- **Checks:** lifecycle, run trigger, outcome, membership roles, parameter location. In `db/migration` (PostgreSQL/H2) write them as `CASE x WHEN 'a' THEN TRUE ... ELSE FALSE END`, never `IN (...)`: H2 2.4 evaluates an `IN` list with the connection that created the check and fails every insert once that connection closes (`MigrationRulesTest`). In `db/migration_mysql` write `x IN (...)`: MySQL rejects the `CASE` form as non-boolean (error 3812).
 - **Enabled** is a boolean column; the model and API keep "Y"/"N" (`JdbcStudioStorage.enabledFlag`). Audit lists order by `occurred_at` then `event_seq`.
 - **UTC:** `TestdataStudioApplication.useUtc()` sets the JVM zone, so times stored without a zone don't depend on the server's.
+
+## Shared auth and headers
+
+- `collection/SharedSettings` (`auth`, `headers`, `groups` of `Level(auth, headers)`): one document per collection in `td_collection_settings` (migration **V6**, cascade-deleted, kept out of `td_spec`). `GET/PUT /api/variables/collections/{specId}/shared-settings` (`VariablesController`). `normalize`: auth through `CaseAuth.normalize` (secrets must be `{{variable}}`), header names checked, duplicates refused, empty groups dropped.
+- `applyTo(case)`: auth is the case's own, else its group's (matched by `testGroup`, any letter case), else the collection's, else the environment run auth; headers stack collection → group → case (case wins, any letter case). `TestDataStudioService.withShared` applies it to the case of a single run (after the environment overlay), to plan cases before `orderForChain` (so shared auth placeholders order the chain), to prerequisites and to Validate.
+- Export writes the optional top-level `settings` of `StudioCollection`; import normalizes first and merges (`SharedSettings.merge`: collection auth / headers when the file has them, groups by name). api-automation applies the same rules (`utils/SharedSettings`, from the collection JSON or `td_collection_settings`).
+
+## Data-driven runs
+
+- A case may hold **data rows** (`StudioTestCase.dataRows`, normalized JSON array text; column `td_test_case.data_rows`, migration **V5**). REST: `SaveTestDataRequest.dataRows` (list of objects; null keeps, empty list removes) and `TestCaseView.dataRows`; drafts, versions (`CaseVersionDocument`), duplicate and the collection case `data` (Gson `JsonElement`, so numbers stay numbers) carry them.
+- `service/DataRows`: `normalize` (≤1000 rows, ≤100 columns, ≤2M chars; column names like variables; special columns `$name` label, `$status` expected status 100–599, `$body` / `$expected` objects of JSONPath → value), `parse`, `variables(row)` (`x` and `data:x`, plus `JSON_TYPE_PREFIX` keys for non-text values so a quoted `"{{x}}"` keeps its type), `apply(case, row)` (Jayway with the Jackson provider: set an existing path or add a child to an existing parent; a missing parent fails the row).
+- `service/DataRowRun` sends each row with the run's variables plus the row's (above environment variables, below extracts). Extracts carry on to later rows and cases; the row's own values don't. The result sums the rows up: one `data row` check per row, `error` "2 of 5 data rows failed: …", and `RunTestResult.iterations` (each with `rowLabel`). `TestDataStudioService.executeCase` uses it for single runs, prerequisites and Run plan (counted once per case; history stores the summary). `RunTestRequest.dataRow` (1-based) runs one row, for Send.
+- `CaseVariables.placeholderNames` leaves out the case's own data columns (and reads placeholders inside `$body` / `$expected`), so chain order, prerequisites and Validate don't look for them elsewhere.
 
 ## Runs and entitlements
 

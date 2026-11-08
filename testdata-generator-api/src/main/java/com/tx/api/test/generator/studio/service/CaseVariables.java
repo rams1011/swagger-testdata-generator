@@ -24,8 +24,9 @@ import java.util.regex.Pattern;
 
 public final class CaseVariables {
 
-    /** Optional scope qualifiers: {@code {{global:x}}}, {@code {{env:x}}}, {@code {{extract:x}}} read only that layer. */
+    /** Optional scope qualifiers: {@code {{global:x}}}, {@code {{collection:x}}}, {@code {{env:x}}}, {@code {{extract:x}}} read only that layer. */
     public static final String GLOBAL_PREFIX = "global:";
+    public static final String COLLECTION_PREFIX = "collection:";
     public static final String ENV_PREFIX = "env:";
     public static final String EXTRACT_PREFIX = "extract:";
 
@@ -40,10 +41,10 @@ public final class CaseVariables {
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
 
     private static final Pattern PLACEHOLDER = Pattern.compile(
-            "\\{\\{((?:(?:global|env|extract):)?[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)}}");
+            "\\{\\{((?:(?:global|collection|env|data|extract):)?[A-Za-z_][A-Za-z0-9_]*|\\$[A-Za-z_][A-Za-z0-9_]*)}}");
 
     private static final Pattern QUOTED_PLACEHOLDER = Pattern.compile(
-            "([\"'])\\{\\{((?:extract:)?[A-Za-z_][A-Za-z0-9_]*)}}\\1");
+            "([\"'])\\{\\{((?:extract:|data:)?[A-Za-z_][A-Za-z0-9_]*)}}\\1");
 
     private CaseVariables() {
     }
@@ -145,6 +146,8 @@ public final class CaseVariables {
                 return text;
             });
         }
+        DataRows.patchTexts(testCase.getDataRows()).forEach(text -> collectNames(text, names));
+        names.removeAll(DataRows.columns(testCase.getDataRows()));
         return names;
     }
 
@@ -283,16 +286,24 @@ public final class CaseVariables {
             return "Unresolved variable {{" + name + "}}. Define " + name.substring(GLOBAL_PREFIX.length())
                     + " in Global variables (or enter its secret value).";
         }
+        if (name.startsWith(COLLECTION_PREFIX)) {
+            return "Unresolved variable {{" + name + "}}. Define " + name.substring(COLLECTION_PREFIX.length())
+                    + " in Collection variables (or enter its secret value).";
+        }
         if (name.startsWith(ENV_PREFIX)) {
             return "Unresolved variable {{" + name + "}}. Define " + name.substring(ENV_PREFIX.length())
                     + " in the selected environment's variables (or enter its secret value).";
+        }
+        if (name.startsWith(DataRows.DATA_PREFIX)) {
+            return "Unresolved variable {{" + name + "}}. Add a " + name.substring(DataRows.DATA_PREFIX.length())
+                    + " column to this case's data rows.";
         }
         if (name.startsWith(EXTRACT_PREFIX)) {
             return "Unresolved variable {{" + name + "}}. Run a prior case in this plan that extracts "
                     + name.substring(EXTRACT_PREFIX.length()) + ".";
         }
         return "Unresolved variable {{" + name
-                + "}}. Define it in the environment or global variables, enter its secret value, "
+                + "}}. Define it in the environment, collection or global variables, enter its secret value, "
                 + "or run a prior case in this plan that extracts " + name + ".";
     }
 
@@ -620,6 +631,7 @@ public final class CaseVariables {
         copy.setExpectedResponse(source.getExpectedResponse());
         copy.setResponseMatch(source.getResponseMatch());
         copy.setIgnoreFields(source.getIgnoreFields());
+        copy.setDataRows(source.getDataRows());
         copy.setAuth(source.getAuth());
         copy.setEnabled(source.getEnabled());
         copy.setLifecycle(source.getLifecycle());
