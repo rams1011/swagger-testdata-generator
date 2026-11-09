@@ -105,11 +105,11 @@ Workflow: [`.github/workflows/deploy-gcp.yml`](../.github/workflows/deploy-gcp.y
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | WIF provider resource |
 | `GCP_SERVICE_ACCOUNT` | Deploy service account |
 | `TESTDATA_SAAS_CORS_ORIGINS` | Studio UI origin patterns, e.g. `https://*.run.app,http://localhost:[*],http://127.0.0.1:[*]` |
-| `STUDIO_API_URL` | Public API Cloud Run URL (no trailing slash) |
-| `STUDIO_UI_URL` | Public UI Cloud Run URL (no trailing slash) |
+| `STUDIO_API_URL` | Public API Cloud Run URL (no trailing slash); available in the deploy workflow (same value as the UI repo uses). Not used to build OIDC redirect URLs. |
+| `STUDIO_UI_URL` | Public UI Cloud Run URL (no trailing slash); used for `TESTDATA_AUTH_OIDC_UI_BASE` when that variable is unset |
 | `TESTDATA_AUTH_OIDC_ENABLED` | `true` to enable Google sign-in |
 | `TESTDATA_AUTH_OIDC_ISSUER` | Optional; default `https://accounts.google.com` |
-| `TESTDATA_AUTH_OIDC_REDIRECT_URI` | Optional if `STUDIO_API_URL` is set — defaults to `{STUDIO_API_URL}/api/auth/oidc/callback` |
+| `TESTDATA_AUTH_OIDC_REDIRECT_URI` | Required when OIDC is enabled — full OAuth redirect URL (must match Google Console) |
 | `TESTDATA_AUTH_OIDC_UI_BASE` | Optional if `STUDIO_UI_URL` is set |
 | `TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION` | Optional; default `true` for SaaS |
 

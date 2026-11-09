@@ -116,7 +116,7 @@ jobs:
             fi
             redirect="${TESTDATA_AUTH_OIDC_REDIRECT_URI}"
             if [ -z "$redirect" ] && [ -n "${STUDIO_API_URL}" ]; then
-              redirect="${STUDIO_API_URL%/}/api/auth/oidc/callback"
+              redirect="${STUDIO_API_URL%/}"
             fi
             ui_base="${TESTDATA_AUTH_OIDC_UI_BASE}"
             if [ -z "$ui_base" ] && [ -n "${STUDIO_UI_URL}" ]; then
@@ -175,7 +175,7 @@ jobs:
               echo "TESTDATA_AUTH_OIDC_CLIENT_SECRET=${TESTDATA_AUTH_OIDC_CLIENT_SECRET}"
               redirect="${TESTDATA_AUTH_OIDC_REDIRECT_URI}"
               if [ -z "$redirect" ] && [ -n "${STUDIO_API_URL}" ]; then
-                redirect="${STUDIO_API_URL%/}/api/auth/oidc/callback"
+                redirect="${STUDIO_API_URL%/}"
               fi
               echo "TESTDATA_AUTH_OIDC_REDIRECT_URI=${redirect}"
               ui_base="${TESTDATA_AUTH_OIDC_UI_BASE}"
