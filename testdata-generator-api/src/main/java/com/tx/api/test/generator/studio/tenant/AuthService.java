@@ -12,12 +12,17 @@ import com.tx.api.test.generator.studio.dto.GrantWorkspaceAccessRequest;
 import com.tx.api.test.generator.studio.dto.LoginRequest;
 import com.tx.api.test.generator.studio.dto.MemberView;
 import com.tx.api.test.generator.studio.dto.OrganizationView;
+import com.tx.api.test.generator.studio.dto.OidcExchangeRequest;
+import com.tx.api.test.generator.studio.dto.OidcExchangeView;
+import com.tx.api.test.generator.studio.dto.OidcRegisterRequest;
 import com.tx.api.test.generator.studio.dto.RegisterRequest;
 import com.tx.api.test.generator.studio.dto.SubscriptionView;
 import com.tx.api.test.generator.studio.dto.TenantView;
 import com.tx.api.test.generator.studio.dto.UpdateMemberRequest;
 import com.tx.api.test.generator.studio.dto.UpdateSubscriptionRequest;
 import com.tx.api.test.generator.studio.dto.WorkspaceAccessRequestView;
+import com.tx.api.test.generator.studio.tenant.oidc.OidcAuthService;
+import com.tx.api.test.generator.studio.tenant.oidc.OidcExchangeRecord;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -49,22 +54,141 @@ public class AuthService {
     private final ObjectProvider<TenantStore> tenantStores;
     private final ObjectProvider<EntitlementService> entitlements;
     private final ObjectProvider<LdapAuthenticator> ldapAuthenticators;
+    private final OidcAuthService oidcAuthService;
     private final StudioAuditService auditService;
 
     public AuthService(StudioProperties properties, ObjectProvider<TenantStore> tenantStores,
                        ObjectProvider<EntitlementService> entitlements,
                        ObjectProvider<LdapAuthenticator> ldapAuthenticators,
+                       OidcAuthService oidcAuthService,
                        StudioAuditService auditService) {
         this.properties = properties;
         this.tenantStores = tenantStores;
         this.entitlements = entitlements;
         this.ldapAuthenticators = ldapAuthenticators;
+        this.oidcAuthService = oidcAuthService;
         this.auditService = auditService;
     }
 
     public AuthSessionView localSession() {
         return AuthSessionView.local(new TenantView(
                 TenantContext.LOCAL_TENANT_ID, TenantContext.LOCAL_SLUG, "Local", "OWNER", true));
+    }
+
+    public OidcExchangeView exchangeOidc(OidcExchangeRequest request) {
+        if (!oidcAuthService.enabled()) {
+            throw new ForbiddenException("Google sign-in is not enabled");
+        }
+        String exchangeId = request == null ? null : request.exchange();
+        OidcExchangeRecord record = oidcAuthService.peekExchange(exchangeId)
+                .orElseThrow(() -> new UnauthenticatedException("Sign-in expired — try again"));
+        if (record.needsRegistration()) {
+            return new OidcExchangeView(true, record.email(), record.displayName(), null);
+        }
+        oidcAuthService.consumeExchange(exchangeId);
+        Account account = resolveOidcAccount(record);
+        AuthSessionView session = issueSessionForAccount(requireStore(), account,
+                request == null ? null : request.tenantId());
+        audit(() -> auditService.recordLogin(
+                session.tenant() == null ? "" : session.tenant().id(),
+                account.getId(),
+                account.getEmail()));
+        return new OidcExchangeView(false, record.email(), record.displayName(), session);
+    }
+
+    public AuthSessionView registerWithOidc(OidcRegisterRequest request) {
+        if (!oidcAuthService.enabled()) {
+            throw new ForbiddenException("Google sign-in is not enabled");
+        }
+        String exchangeId = request == null ? null : request.exchange();
+        OidcExchangeRecord record = oidcAuthService.consumeExchange(exchangeId)
+                .orElseThrow(() -> new UnauthenticatedException("Sign-in expired — try again"));
+        if (!record.needsRegistration()) {
+            throw new IllegalArgumentException("This Google account is already registered — sign in instead");
+        }
+        TenantStore store = requireStore();
+        if (store.findAccountByOidc(record.oidcIssuer(), record.oidcSubject()).isPresent()
+                || store.findAccountByEmail(record.email()).isPresent()) {
+            throw new IllegalArgumentException("An account with that email already exists");
+        }
+        Instant now = Instant.now();
+        Account account = new Account();
+        account.setId(UUID.randomUUID().toString());
+        account.setEmail(record.email());
+        account.setPasswordHash(OidcAccounts.EXTERNAL_PASSWORD_MARKER);
+        account.setDisplayName(displayName(record.displayName(), record.email()));
+        account.setOidcIssuer(record.oidcIssuer());
+        account.setOidcSubject(record.oidcSubject());
+        account.setCreatedAt(now);
+        account.setPasswordChangedAt(now);
+        account.setPlatformRole("USER");
+        store.saveAccount(account);
+
+        RegisterRequest names = new RegisterRequest(
+                record.email(),
+                null,
+                record.displayName(),
+                request == null ? null : request.organizationName(),
+                request == null ? null : request.workspaceName(),
+                null);
+        ResolvedRegistration resolved = resolveRegistrationNames(names, record.email());
+        Organization organization = newOrganization(store, resolved.organizationName(), record.email(), now);
+        provisionTrial(store, organization, now);
+        Tenant tenant = newWorkspace(store, organization, resolved.workspaceName(), record.email(), now);
+        store.saveOrgMembership(organization.getId(), account.getId(), "OWNER");
+        store.saveMembership(new Membership(tenant.getId(), account.getId(), "OWNER"));
+        AuthSessionView session = issueSession(store, account, tenant, "OWNER");
+        audit(() -> auditService.recordRegistered(tenant.getId(), account.getId(), record.email()));
+        return session;
+    }
+
+    private Account resolveOidcAccount(OidcExchangeRecord record) {
+        TenantStore store = requireStore();
+        Optional<Account> account = store.findAccountByOidc(record.oidcIssuer(), record.oidcSubject());
+        if (account.isPresent()) {
+            return refreshOidcProfile(account.get(), record);
+        }
+        account = store.findAccountByEmail(record.email());
+        if (account.isPresent()) {
+            Account linked = account.get();
+            if (LdapAccounts.isDirectoryManaged(linked.getPasswordHash())) {
+                throw new ForbiddenException("Use your company directory to sign in");
+            }
+            if (OidcAccounts.isOidcManaged(linked.getPasswordHash())
+                    || StringUtils.isNotBlank(linked.getOidcSubject())) {
+                return refreshOidcProfile(linked, record);
+            }
+            linked.setOidcIssuer(record.oidcIssuer());
+            linked.setOidcSubject(record.oidcSubject());
+            linked.setPasswordHash(OidcAccounts.EXTERNAL_PASSWORD_MARKER);
+            store.updateAccountOidc(linked);
+            return refreshOidcProfile(linked, record);
+        }
+        Instant now = Instant.now();
+        Account created = new Account();
+        created.setId(UUID.randomUUID().toString());
+        created.setEmail(record.email());
+        created.setPasswordHash(OidcAccounts.EXTERNAL_PASSWORD_MARKER);
+        created.setDisplayName(displayName(record.displayName(), record.email()));
+        created.setOidcIssuer(record.oidcIssuer());
+        created.setOidcSubject(record.oidcSubject());
+        created.setCreatedAt(now);
+        created.setPasswordChangedAt(now);
+        created.setPlatformRole("USER");
+        store.saveAccount(created);
+        return created;
+    }
+
+    private Account refreshOidcProfile(Account account, OidcExchangeRecord record) {
+        boolean changed = false;
+        if (StringUtils.isNotBlank(record.displayName()) && !record.displayName().equals(account.getDisplayName())) {
+            account.setDisplayName(record.displayName());
+            changed = true;
+        }
+        if (changed) {
+            requireStore().updateAccountOidc(account);
+        }
+        return account;
     }
 
     public AuthSessionView register(RegisterRequest request) {
@@ -1475,8 +1599,8 @@ public class AuthService {
         ResolvedSession resolved = resolve(rawToken)
                 .orElseThrow(() -> new UnauthenticatedException("Sign in to continue"));
         Account account = resolved.account();
-        if (LdapAccounts.isDirectoryManaged(account.getPasswordHash())) {
-            throw new IllegalArgumentException("The company directory owns this password");
+        if (OidcAccounts.isExternalIdentity(account.getPasswordHash())) {
+            throw new IllegalArgumentException("This account signs in with Google or the company directory");
         }
         String current = request == null ? null : request.currentPassword();
         String next = request == null ? null : request.newPassword();
@@ -1494,8 +1618,8 @@ public class AuthService {
         TenantStore store = requireStore();
         Account account = store.findAccount(accountId)
                 .orElseThrow(() -> new NoSuchElementException("Organization member not found"));
-        if (LdapAccounts.isDirectoryManaged(account.getPasswordHash())) {
-            throw new IllegalArgumentException("The company directory owns this password");
+        if (OidcAccounts.isExternalIdentity(account.getPasswordHash())) {
+            throw new IllegalArgumentException("This account signs in with Google or the company directory");
         }
         Organization organization = requireCurrentOrganization(store);
         if (store.findOrgRole(organization.getId(), accountId).isEmpty()) {

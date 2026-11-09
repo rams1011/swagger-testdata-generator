@@ -15,6 +15,21 @@ public class AuthConfigurationValidator {
 
     @PostConstruct
     void validate() {
+        if (properties.isAuthEnabled() && properties.isOidcEnabled()) {
+            StudioProperties.Oidc oidc = properties.getAuth().getOidc();
+            if (StringUtils.isBlank(oidc.getClientId())) {
+                throw new IllegalStateException("testdata.auth.oidc.client-id is required when OIDC is enabled");
+            }
+            if (StringUtils.isBlank(oidc.getClientSecret())) {
+                throw new IllegalStateException("testdata.auth.oidc.client-secret is required when OIDC is enabled");
+            }
+            if (StringUtils.isBlank(oidc.resolvedRedirectUri())) {
+                throw new IllegalStateException("testdata.auth.oidc.redirect-uri is required when OIDC is enabled");
+            }
+            if (StringUtils.isBlank(oidc.resolvedUiBase())) {
+                throw new IllegalStateException("testdata.auth.oidc.ui-base is required when OIDC is enabled");
+            }
+        }
         if (!properties.isAuthEnabled() || !properties.isLdapAuth()) {
             return;
         }

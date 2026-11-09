@@ -1,5 +1,8 @@
 package com.tx.api.test.generator.studio.tenant;
 
+import com.tx.api.test.generator.studio.tenant.oidc.OidcExchangeRecord;
+import com.tx.api.test.generator.studio.tenant.oidc.OidcPendingState;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -78,6 +81,30 @@ public interface TenantStore {
     Optional<Account> findAccount(String accountId);
 
     Optional<Account> findAccountByEmail(String email);
+
+    default Optional<Account> findAccountByOidc(String issuer, String subject) {
+        return Optional.empty();
+    }
+
+    default void updateAccountOidc(Account account) {
+    }
+
+    default void saveOidcState(OidcPendingState state) {
+    }
+
+    default Optional<OidcPendingState> consumeOidcState(String state) {
+        return Optional.empty();
+    }
+
+    default void saveOidcExchange(OidcExchangeRecord exchange) {
+    }
+
+    default Optional<OidcExchangeRecord> findOidcExchange(String exchangeId) {
+        return Optional.empty();
+    }
+
+    default void deleteOidcExchange(String exchangeId) {
+    }
 
     void updatePlatformRole(String accountId, String platformRole);
 

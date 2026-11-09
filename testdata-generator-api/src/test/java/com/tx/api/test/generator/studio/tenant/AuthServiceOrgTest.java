@@ -2,6 +2,7 @@ package com.tx.api.test.generator.studio.tenant;
 
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AddMemberRequest;
+import com.tx.api.test.generator.studio.tenant.oidc.OidcAuthService;
 import com.tx.api.test.generator.studio.dto.UpdateMemberRequest;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -258,7 +259,9 @@ class AuthServiceOrgTest {
         when(entitlements.getIfAvailable()).thenReturn(entitlementService);
         @SuppressWarnings("unchecked")
         ObjectProvider<LdapAuthenticator> ldap = mock(ObjectProvider.class);
-        return new AuthService(properties, tenantStores, entitlements, ldap, null);
+        OidcAuthService oidcAuthService = mock(OidcAuthService.class);
+        when(oidcAuthService.enabled()).thenReturn(false);
+        return new AuthService(properties, tenantStores, entitlements, ldap, oidcAuthService, null);
     }
 
     private static Tenant tenant(String id, String orgId) {

@@ -991,6 +991,8 @@ public class TestDataStudioService {
         config.put("redisCacheStatus", cacheDiagnostics.status().name().toLowerCase(Locale.ROOT));
         config.put("redisCacheDetail", cacheDiagnostics.detail());
         config.put("dynamicVariables", String.join(",", DynamicVariables.NAMES));
+        config.put("oidcEnabled", String.valueOf(properties.isOidcEnabled()));
+        config.put("oidcAllowRegistration", String.valueOf(properties.getAuth().getOidc().isAllowRegistration()));
         return config;
     }
 

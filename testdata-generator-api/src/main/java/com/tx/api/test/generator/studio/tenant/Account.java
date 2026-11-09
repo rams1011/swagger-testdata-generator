@@ -12,6 +12,8 @@ public class Account {
     private Instant passwordChangedAt;
     private boolean mustChangePassword;
     private String platformRole = "USER";
+    private String oidcIssuer;
+    private String oidcSubject;
 
     public String getId() {
         return id;
@@ -75,5 +77,21 @@ public class Account {
 
     public void setPlatformRole(String platformRole) {
         this.platformRole = platformRole;
+    }
+
+    public String getOidcIssuer() {
+        return oidcIssuer;
+    }
+
+    public void setOidcIssuer(String oidcIssuer) {
+        this.oidcIssuer = oidcIssuer;
+    }
+
+    public String getOidcSubject() {
+        return oidcSubject;
+    }
+
+    public void setOidcSubject(String oidcSubject) {
+        this.oidcSubject = oidcSubject;
     }
 }

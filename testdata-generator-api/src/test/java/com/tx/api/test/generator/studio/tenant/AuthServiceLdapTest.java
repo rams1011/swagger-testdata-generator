@@ -2,6 +2,7 @@ package com.tx.api.test.generator.studio.tenant;
 
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AddMemberRequest;
+import com.tx.api.test.generator.studio.tenant.oidc.OidcAuthService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
@@ -48,7 +49,9 @@ class AuthServiceLdapTest {
         @SuppressWarnings("unchecked")
         ObjectProvider<LdapAuthenticator> ldap = mock(ObjectProvider.class);
 
-        AuthService authService = new AuthService(properties, tenantStores, entitlements, ldap, null);
+        OidcAuthService oidcAuthService = mock(OidcAuthService.class);
+        when(oidcAuthService.enabled()).thenReturn(false);
+        AuthService authService = new AuthService(properties, tenantStores, entitlements, ldap, oidcAuthService, null);
         TenantContext.setSaasEnabled(true);
         when(store.findOrgRole("org-1", "admin-1")).thenReturn(Optional.of("OWNER"));
         TenantContext.set(new TenantContext.Scope("tenant-1", "admin-1", "admin@example.com", "OWNER"));

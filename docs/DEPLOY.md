@@ -15,6 +15,7 @@ The API is a Spring Boot JAR (`testdata-generator-api`). Choose a **hosting prof
 | `TESTDATA_SAAS_ADMIN_EMAIL` | When `saas` / Cloud Run | Bootstrap operator |
 | `TESTDATA_SAAS_ADMIN_PASSWORD` | When `saas` / Cloud Run | Bootstrap operator |
 | `TESTDATA_SAAS_CORS_ORIGINS` | Cloud + browser UI | Comma-separated Spring origin patterns. Any port is `:[*]`, for example `https://*.run.app,http://localhost:[*],http://127.0.0.1:[*]` |
+| `TESTDATA_AUTH_OIDC_*` | Optional | Google sign-in alongside local password; see Cloud Run table below |
 
 ## Docker Compose (docker profile)
 
@@ -91,6 +92,8 @@ Workflow: [`.github/workflows/deploy-gcp.yml`](../.github/workflows/deploy-gcp.y
 | `SPRING_DATASOURCE_PASSWORD` | Database password |
 | `TESTDATA_SAAS_ADMIN_EMAIL` | Bootstrap admin email |
 | `TESTDATA_SAAS_ADMIN_PASSWORD` | Bootstrap admin password |
+| `TESTDATA_AUTH_OIDC_CLIENT_ID` | Google OAuth Web client id (when `TESTDATA_AUTH_OIDC_ENABLED=true`) |
+| `TESTDATA_AUTH_OIDC_CLIENT_SECRET` | Google OAuth client secret |
 
 **Repository variables**
 
@@ -102,6 +105,15 @@ Workflow: [`.github/workflows/deploy-gcp.yml`](../.github/workflows/deploy-gcp.y
 | `GCP_WORKLOAD_IDENTITY_PROVIDER` | WIF provider resource |
 | `GCP_SERVICE_ACCOUNT` | Deploy service account |
 | `TESTDATA_SAAS_CORS_ORIGINS` | Studio UI origin patterns, e.g. `https://*.run.app,http://localhost:[*],http://127.0.0.1:[*]` |
+| `STUDIO_API_URL` | Public API Cloud Run URL (no trailing slash) |
+| `STUDIO_UI_URL` | Public UI Cloud Run URL (no trailing slash) |
+| `TESTDATA_AUTH_OIDC_ENABLED` | `true` to enable Google sign-in |
+| `TESTDATA_AUTH_OIDC_ISSUER` | Optional; default `https://accounts.google.com` |
+| `TESTDATA_AUTH_OIDC_REDIRECT_URI` | Optional if `STUDIO_API_URL` is set — defaults to `{STUDIO_API_URL}/api/auth/oidc/callback` |
+| `TESTDATA_AUTH_OIDC_UI_BASE` | Optional if `STUDIO_UI_URL` is set |
+| `TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION` | Optional; default `true` for SaaS |
+
+Register the redirect URI on the Google OAuth client. Match **External** consent screen + test users for non-org Gmail accounts.
 
 ### Runtime on Cloud Run
 
@@ -110,6 +122,7 @@ The deploy workflow sets:
 - `SPRING_PROFILES_ACTIVE=cloud`
 - `TESTDATA_EDITION=saas`
 - `SPRING_DATASOURCE_*` from the secrets above
+- `TESTDATA_AUTH_OIDC_*` when `TESTDATA_AUTH_OIDC_ENABLED=true`
 - `SERVER_PORT=8080`
 
 **AlloyDB:** put the full JDBC URL in `SPRING_DATASOURCE_URL` (public IP or connector URL — examples in [DATABASE.md](DATABASE.md)). Grant the Cloud Run **runtime** service account `roles/alloydb.client` when using the Java connector.
