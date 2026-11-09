@@ -7,7 +7,10 @@ td_account
   column created_at not null
   column password_changed_at null
   column must_change_password not null
+  column oidc_issuer null
+  column oidc_subject null
   unique index ux_td_account_email (email)
+  unique index ux_td_account_oidc (oidc_issuer, oidc_subject)
 td_audit_event
   column event_id not null
   column tenant_id not null
@@ -60,6 +63,22 @@ td_membership
   index ix_td_membership_account (account_id)
   foreign key fk_td_membership_account (account_id) -> td_account on delete cascade
   foreign key fk_td_membership_tenant (tenant_id) -> td_tenant on delete cascade
+td_oidc_exchange
+  column exchange_id not null
+  column intent not null
+  column email not null
+  column display_name not null
+  column oidc_issuer not null
+  column oidc_subject not null
+  column needs_registration not null
+  column expires_at not null
+td_oidc_state
+  column state not null
+  column code_verifier not null
+  column nonce not null
+  column intent not null
+  column return_to null
+  column expires_at not null
 td_org_membership
   column org_id not null
   column account_id not null
