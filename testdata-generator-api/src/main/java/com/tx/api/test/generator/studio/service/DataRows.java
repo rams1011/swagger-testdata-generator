@@ -34,8 +34,9 @@ import java.util.regex.Pattern;
  * the whole value is a quoted placeholder, {@code "{{tier}}"}.
  * <p>
  * Columns starting with {@code $} change the row's case instead: {@code $name} labels the row in results,
- * {@code $status} sets the expected status, and {@code $body} / {@code $expected} map JSONPaths to values set in
- * the request body or expected response, so a large body stays one template and a row holds only what differs.
+ * {@code $status} sets the expected status, {@code $body} / {@code $expected} map JSONPaths to values set in
+ * the request body or expected response, and {@code $remove} lists JSONPaths left out of the request body (a missing
+ * required field, say), so a large body stays one template and a row holds only what differs.
  */
 public final class DataRows {
 
@@ -47,11 +48,13 @@ public final class DataRows {
     public static final String STATUS = "$status";
     public static final String BODY = "$body";
     public static final String EXPECTED = "$expected";
+    public static final String REMOVE = "$remove";
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final Pattern KEY = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
     private static final Pattern DOT_CHILD = Pattern.compile("^(\\$.*)\\.([A-Za-z_$][A-Za-z0-9_$-]*)$");
     private static final Pattern BRACKET_CHILD = Pattern.compile("^(\\$.*)\\[['\"]([^'\"]+)['\"]]$");
+    private static final Pattern INDEX_CHILD = Pattern.compile("^(\\$.*)\\[(\\d+)]$");
     private static final Configuration PATHS = Configuration.builder()
             .jsonProvider(new JacksonJsonNodeJsonProvider(JSON))
             .mappingProvider(new JacksonMappingProvider(JSON))
@@ -59,7 +62,11 @@ public final class DataRows {
 
     /** One row: its 1-based number, label, variable values and patches. */
     public record Row(int number, String label, Map<String, JsonNode> values, Map<String, JsonNode> body,
-                      Map<String, JsonNode> expected, Integer status) {
+                      Map<String, JsonNode> expected, Integer status, List<String> remove) {
+        public Row(int number, String label, Map<String, JsonNode> values, Map<String, JsonNode> body,
+                   Map<String, JsonNode> expected, Integer status) {
+            this(number, label, values, body, expected, status, List.of());
+        }
     }
 
     private DataRows() {
@@ -147,10 +154,30 @@ public final class DataRows {
                 });
                 return patches;
             }
+            case REMOVE -> {
+                JsonNode paths = value != null && value.isTextual() && value.asText().trim().startsWith("[")
+                        ? parseText(where, value.asText()) : value;
+                if (paths == null || !paths.isArray()) {
+                    throw new IllegalArgumentException(where
+                            + " must be a list of JSONPaths, such as [\"$.customer.country\"]");
+                }
+                paths.forEach(path -> {
+                    String text = path.isTextual() ? path.asText().trim() : "";
+                    if (!text.startsWith("$")) {
+                        throw new IllegalArgumentException(where + ": '" + path + "' must be a JSONPath starting with $");
+                    }
+                    try {
+                        JsonPath.compile(text);
+                    } catch (InvalidPathException exception) {
+                        throw new IllegalArgumentException(where + ": '" + text + "' isn't a valid JSONPath");
+                    }
+                });
+                return paths;
+            }
             default -> {
                 if (column.startsWith("$")) {
-                    throw new IllegalArgumentException(where + ": unknown special column. Use $name, $status, $body or "
-                            + "$expected, or a variable name");
+                    throw new IllegalArgumentException(where + ": unknown special column. Use $name, $status, $body, "
+                            + "$expected or $remove, or a variable name");
                 }
                 if (!KEY.matcher(column).matches()) {
                     throw new IllegalArgumentException(where
@@ -207,6 +234,7 @@ public final class DataRows {
             Map<String, JsonNode> expected = new LinkedHashMap<>();
             String label = null;
             Integer status = null;
+            List<String> remove = new ArrayList<>();
             Iterator<Map.Entry<String, JsonNode>> fields = item.fields();
             while (fields.hasNext()) {
                 Map.Entry<String, JsonNode> field = fields.next();
@@ -216,10 +244,11 @@ public final class DataRows {
                     case BODY -> field.getValue().fields().forEachRemaining(e -> body.put(e.getKey().trim(), e.getValue()));
                     case EXPECTED -> field.getValue().fields()
                             .forEachRemaining(e -> expected.put(e.getKey().trim(), e.getValue()));
+                    case REMOVE -> field.getValue().forEach(path -> remove.add(path.asText().trim()));
                     default -> values.put(field.getKey(), field.getValue());
                 }
             }
-            rows.add(new Row(number, label == null ? "Row " + number : label, values, body, expected, status));
+            rows.add(new Row(number, label == null ? "Row " + number : label, values, body, expected, status, remove));
         }
         return rows;
     }
@@ -274,12 +303,12 @@ public final class DataRows {
     public static StudioTestCase apply(StudioTestCase testCase, Row row) {
         StudioTestCase copy = EnvironmentOverlay.copy(testCase);
         copy.setDataRows(null);
-        if (!row.body().isEmpty()) {
+        if (!row.body().isEmpty() || !row.remove().isEmpty()) {
             Object body = testCase.getRequestBody();
             JsonNode tree = body == null ? JsonNodeFactory.instance.objectNode()
                     : body instanceof String text ? readJson(row, "request body", text)
                     : JSON.valueToTree(body);
-            JsonNode patched = patch(row, "$body", tree, row.body());
+            JsonNode patched = remove(row, patch(row, "$body", tree, row.body()));
             copy.setRequestBody(body instanceof String ? patched.toString() : JSON.convertValue(patched, Object.class));
         }
         if (!row.expected().isEmpty()) {
@@ -307,9 +336,15 @@ public final class DataRows {
     private static JsonNode patch(Row row, String column, JsonNode tree, Map<String, JsonNode> patches) {
         DocumentContext document = JsonPath.using(PATHS).parse(tree.deepCopy());
         patches.forEach((path, value) -> {
+            if (appended(document, path, value)) {
+                return;
+            }
             try {
                 document.read(path);
                 document.set(path, value);
+            } catch (IndexOutOfBoundsException pastTheEnd) {
+                throw new IllegalArgumentException(row.label() + ": " + column + " path " + path
+                        + " is past the end of the list; the next index adds an item");
             } catch (PathNotFoundException missing) {
                 Matcher dot = DOT_CHILD.matcher(path);
                 Matcher bracket = BRACKET_CHILD.matcher(path);
@@ -326,6 +361,41 @@ public final class DataRows {
                 }
             }
         });
+        return document.json();
+    }
+
+    /** {@code $.items[2]} on a list of two adds a third item: the next index appends, like a new key on an object. */
+    private static boolean appended(DocumentContext document, String path, JsonNode value) {
+        Matcher index = INDEX_CHILD.matcher(path);
+        if (!index.matches()) {
+            return false;
+        }
+        try {
+            Object parent = document.read(index.group(1));
+            if (parent instanceof ArrayNode list && list.size() == Integer.parseInt(index.group(2))) {
+                document.add(index.group(1), value);
+                return true;
+            }
+        } catch (PathNotFoundException | NumberFormatException ignored) {
+            return false;
+        }
+        return false;
+    }
+
+    private static JsonNode remove(Row row, JsonNode tree) {
+        if (row.remove().isEmpty()) {
+            return tree;
+        }
+        DocumentContext document = JsonPath.using(PATHS).parse(tree.deepCopy());
+        for (String path : row.remove()) {
+            try {
+                document.read(path);
+                document.delete(path);
+            } catch (PathNotFoundException missing) {
+                throw new IllegalArgumentException(row.label() + ": $remove path " + path
+                        + " doesn't exist in the request body");
+            }
+        }
         return document.json();
     }
 

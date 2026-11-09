@@ -30,6 +30,18 @@ class CiResponseChecksTest {
     }
 
     @Test
+    void aSchemaReadBackWithDecimalCountsStillValidates() {
+        Map<String, Object> schema = Map.of(
+                "type", "object",
+                "properties", Map.of("phones", Map.of("type", "array", "minItems", 1.0, "maxItems", 3.0),
+                        "name", Map.of("type", "string", "maxLength", 10.0)));
+
+        assertTrue(CiResponseChecks.schema(schema, "{\"phones\":[1],\"name\":\"Mira\"}").passed(),
+                "minItems 1.0 is read as 1, not refused as an invalid schema");
+        assertFalse(CiResponseChecks.schema(schema, "{\"phones\":[]}").passed());
+    }
+
+    @Test
     void downloadComparesBytesAndRejectsAnEmptyFile() throws Exception {
         Path expected = temp.resolve("expected.bin");
         Path saved = temp.resolve("saved.bin");

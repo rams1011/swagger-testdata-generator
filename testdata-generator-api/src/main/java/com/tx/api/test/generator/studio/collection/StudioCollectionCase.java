@@ -16,7 +16,7 @@ public record StudioCollectionCase(
         Map<String, String> queryParams,
         Map<String, String> headers,
         Map<String, String> cookies,
-        Object body,
+        @com.google.gson.annotations.JsonAdapter(KeepNullsJson.class) Object body,
         Map<String, Object> responseJsonSchema,
         int statusCode,
         String responseType,

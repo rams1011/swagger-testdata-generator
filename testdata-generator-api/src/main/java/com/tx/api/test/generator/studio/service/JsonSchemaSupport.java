@@ -29,8 +29,41 @@ final class JsonSchemaSupport {
         } catch (RuntimeException exception) {
             return schemaJson;
         }
+        root = wholeNumbers(root);
         adapt(root);
         return JSON.toJson(root);
+    }
+
+    /**
+     * A schema stored on a case is read back with every number as a decimal ({@code minItems: 1.0}), and draft-04
+     * refuses a decimal where it wants an integer, so whole numbers go back to integers.
+     */
+    private static JsonElement wholeNumbers(JsonElement element) {
+        if (element == null || element.isJsonNull()) {
+            return element;
+        }
+        if (element.isJsonPrimitive() && element.getAsJsonPrimitive().isNumber()) {
+            java.math.BigDecimal value = element.getAsBigDecimal();
+            if (value.signum() == 0 || value.stripTrailingZeros().scale() <= 0) {
+                try {
+                    return new JsonPrimitive(value.longValueExact());
+                } catch (ArithmeticException tooLarge) {
+                    return element;
+                }
+            }
+            return element;
+        }
+        if (element.isJsonArray()) {
+            JsonArray copy = new JsonArray();
+            element.getAsJsonArray().forEach(item -> copy.add(wholeNumbers(item)));
+            return copy;
+        }
+        if (element.isJsonObject()) {
+            JsonObject copy = new JsonObject();
+            element.getAsJsonObject().entrySet().forEach(entry -> copy.add(entry.getKey(), wholeNumbers(entry.getValue())));
+            return copy;
+        }
+        return element;
     }
 
     private static void adapt(JsonElement element) {

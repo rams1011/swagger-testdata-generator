@@ -391,10 +391,14 @@ public class SpecCatalogService {
         try {
             for (StudioTestCase testCase : studioStorage.listTestCases(spec.getSpecId(), null, null)) {
                 ResponseSchemaOracle.LiveSchema live = ResponseSchemaOracle.lookup(spec, testCase.getOperationKey());
-                if (ResponseSchemaOracle.unchanged(testCase.getResponseJsonSchema(), live)) {
+                if (!live.known()) {
                     continue;
                 }
-                studioStorage.updateResponseSchema(testCase.getId(), live.schema());
+                Map<String, Object> schema = ResponseSchemaOracle.schemaFor(testCase.getStatusCode(), live);
+                if (ResponseSchemaOracle.same(testCase.getResponseJsonSchema(), schema)) {
+                    continue;
+                }
+                studioStorage.updateResponseSchema(testCase.getId(), schema);
             }
         } catch (RuntimeException exception) {
             log.warn("Could not store response schemas from spec {}: {}", spec.getSpecId(), exception.getMessage());
