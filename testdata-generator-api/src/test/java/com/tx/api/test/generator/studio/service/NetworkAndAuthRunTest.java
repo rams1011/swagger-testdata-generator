@@ -328,6 +328,72 @@ class NetworkAndAuthRunTest {
                 TestRunService.sendFailure(new IllegalStateException("odd"), "https://h/a", null));
     }
 
+    @Test
+    void blankQueryHeadersAndCookiesAreLeftOutLikeUnsetOptionalParameters() {
+        List<String> received = Collections.synchronizedList(new ArrayList<>());
+        servers.get(0).createContext("/inspect", exchange -> {
+            var headers = exchange.getRequestHeaders();
+            received.add("query=" + exchange.getRequestURI().getRawQuery()
+                    + " blank=" + headers.containsKey("X-Blank")
+                    + " filled=" + headers.getFirst("X-Filled")
+                    + " cookie=" + headers.getFirst("Cookie"));
+            respond(exchange, 200, "{}");
+        });
+        StudioTestCase testCase = get("/inspect", 200);
+        testCase.setQueryParams(new LinkedHashMap<>(Map.of("level", "", "app", "{{app}}")));
+        testCase.setHeaders(new LinkedHashMap<>(Map.of("X-Blank", " ", "X-Filled", "yes")));
+        testCase.setCookieParams(new LinkedHashMap<>(Map.of("session", "s1", "empty", "{{none}}")));
+
+        RunTestResult result = service.execute(testCase, null, new LinkedHashMap<>(Map.of("app", "web", "none", "")));
+
+        assertTrue(result.passed(), result.error());
+        assertEquals(List.of("query=app=web blank=false filled=yes cookie=session=s1"), received);
+    }
+
+    @Test
+    void eachPathValueIsEncodedOnItsOwnAndAMissingOneIsNamed() {
+        List<String> received = Collections.synchronizedList(new ArrayList<>());
+        servers.get(0).createContext("/paths", exchange -> {
+            received.add(exchange.getRequestURI().getRawPath());
+            respond(exchange, 200, "{}");
+        });
+        StudioTestCase testCase = get("/paths", 200);
+        testCase.setRawPath("/paths/{id}/notes/{note}");
+        testCase.setPathParams(new LinkedHashMap<>(Map.of("id", "{{itemId}}", "note", "a/b c?#%2F")));
+
+        RunTestResult result = service.execute(testCase, null, new LinkedHashMap<>(Map.of("itemId", "café 1")));
+
+        assertTrue(result.passed(), result.error());
+        // the same bytes api-automation sends: a "/" "?" "#" or space stays in its segment, an %2F isn't doubled
+        assertEquals(List.of("/paths/caf%C3%A9%201/notes/a%2Fb%20c%3F%23%2F"), received);
+
+        StudioTestCase missing = get("/paths", 200);
+        missing.setRawPath("/paths/{id}");
+        missing.setPathParams(new LinkedHashMap<>(Map.of("id", " ")));
+        RunTestResult missingResult = service.execute(missing, null, new LinkedHashMap<>());
+        assertFalse(missingResult.passed());
+        assertTrue(missingResult.error().startsWith("Path parameter 'id' has no value"), missingResult.error());
+    }
+
+    @Test
+    void aHeaderTheClientSetsOrAMissingCredentialFailsTheCaseInsteadOfThrowing() {
+        StudioTestCase host = get("/echo", 200);
+        host.setHeaders(new LinkedHashMap<>(Map.of("Host", "other.example.com")));
+        RunTestResult hostResult = service.execute(host, null, new LinkedHashMap<>());
+        assertFalse(hostResult.passed());
+        assertTrue(hostResult.error().startsWith("Header 'Host' can't be set by a test"), hostResult.error());
+
+        StudioTestCase badName = get("/echo", 200);
+        badName.setHeaders(new LinkedHashMap<>(Map.of("Bad Name", "x")));
+        assertTrue(service.execute(badName, null, new LinkedHashMap<>()).error().contains("isn't a valid header name"));
+
+        RunAuth noKey = new RunAuth("API_KEY", null, null, null, null, null, null, null, null, null, null);
+        RunTestResult keyResult = service.execute(get("/echo", 200), noKey, new LinkedHashMap<>());
+        assertFalse(keyResult.passed());
+        assertEquals("API key is required", keyResult.error());
+        assertTrue(seen.isEmpty(), "nothing is sent: " + seen);
+    }
+
     private StudioTestCase get(String path, int status) {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setTestName("case " + path);

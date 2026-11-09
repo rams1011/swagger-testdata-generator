@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonParser;
 import com.tx.api.test.generator.studio.audit.StudioAuditService;
+import com.tx.api.test.generator.studio.collection.HeaderRules;
 import com.tx.api.test.generator.studio.collection.StudioEnvironmentNetwork;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AssertionCheck;
@@ -102,11 +103,22 @@ public class TestRunService {
         } catch (IllegalArgumentException exception) {
             return failed(testCase, "", Map.of(), 0, false, List.of(), exception.getMessage());
         }
-        Map<String, String> headers = copyMap(bound.getHeaders());
+        // A blank header or cookie is an optional one left unset, as a blank query value is (HttpPayloadSupport).
+        Map<String, String> headers = filled(bound.getHeaders());
         Map<String, String> query = copyMap(bound.getQueryParams());
-        Map<String, String> cookies = copyMap(bound.getCookieParams());
+        Map<String, String> cookies = filled(bound.getCookieParams());
         RunAuth effectiveAuth = bound.getAuth() != null ? bound.getAuth() : auth;
-        RunAuth oauthUsed = applyAuth(headers, query, cookies, effectiveAuth, scope);
+        RunAuth oauthUsed;
+        try {
+            oauthUsed = applyAuth(headers, query, cookies, effectiveAuth, scope);
+            String problem = HeaderRules.firstProblem(headers);
+            if (problem != null) {
+                throw new IllegalArgumentException(StringUtils.capitalize(problem));
+            }
+        } catch (IllegalArgumentException exception) {
+            // One case's bad header or missing credential fails that case, not the whole plan.
+            return failed(bound, "", headers, 0, false, List.of(), exception.getMessage());
+        }
         String cookieHeader = HttpPayloadSupport.cookieHeader(cookies);
         if (StringUtils.isNotBlank(cookieHeader)) {
             HttpPayloadSupport.putHeader(headers, "Cookie", cookieHeader);
@@ -807,6 +819,18 @@ public class TestRunService {
 
     private static Map<String, String> copyMap(Map<String, String> source) {
         return source == null ? new LinkedHashMap<>() : new LinkedHashMap<>(source);
+    }
+
+    private static Map<String, String> filled(Map<String, String> source) {
+        Map<String, String> copy = new LinkedHashMap<>();
+        if (source != null) {
+            source.forEach((name, value) -> {
+                if (StringUtils.isNotBlank(name) && StringUtils.isNotBlank(value)) {
+                    copy.put(name, value);
+                }
+            });
+        }
+        return copy;
     }
 
     private static Map<String, String> flattenHeaders(Map<String, List<String>> headers) {

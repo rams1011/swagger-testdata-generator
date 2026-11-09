@@ -10,6 +10,7 @@ import com.tx.api.test.generator.catalog.OperationPage;
 import com.tx.api.test.generator.studio.dto.SpecActivityView;
 import com.tx.api.test.generator.studio.dto.RunView;
 import com.tx.api.test.generator.studio.collection.CollectionDocuments;
+import com.tx.api.test.generator.studio.collection.HeaderRules;
 import com.tx.api.test.generator.studio.collection.CollectionFormat;
 import com.tx.api.test.generator.studio.collection.CollectionExporter;
 import com.tx.api.test.generator.studio.collection.CollectionImporter;
@@ -1053,6 +1054,10 @@ public class TestDataStudioService {
         Map<String, String> queryParams = copyMap(request.queryParams());
         Map<String, String> headers = copyMap(request.headers());
         Map<String, String> cookieParams = copyMap(request.cookieParams());
+        String headerProblem = HeaderRules.firstProblem(headers);
+        if (headerProblem != null) {
+            throw new IllegalArgumentException(StringUtils.capitalize(headerProblem));
+        }
 
         testCase.setSpecId(request.specId());
         testCase.setPlanId(resolvePlanId(request.specId(), request.planId()));

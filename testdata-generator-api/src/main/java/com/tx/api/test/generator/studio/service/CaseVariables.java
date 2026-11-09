@@ -38,6 +38,9 @@ public final class CaseVariables {
      */
     static final String JSON_TYPE_PREFIX = "\u0000json:";
 
+    /** An OpenAPI path template such as {@code {id}} (not a {@code {{variable}}}). */
+    private static final Pattern PATH_TEMPLATE = Pattern.compile("(?<!\\{)\\{([^{}/]+)}(?!})");
+
     private static final Gson JSON = new GsonBuilder().disableHtmlEscaping().serializeNulls().create();
 
     private static final Pattern PLACEHOLDER = Pattern.compile(
@@ -372,15 +375,32 @@ public final class CaseVariables {
         }
     }
 
+    /**
+     * The path with each path parameter's value (variables already filled in) encoded as one segment, so a value
+     * holding a space, {@code /}, {@code ?} or {@code #} can't change which URL is called. A {@code {name}} left
+     * without a value fails the case by name instead of making the URL invalid.
+     */
     private static String endpoint(String rawPath, Map<String, String> pathParams, String fallback,
                                    UnaryOperator<String> resolve) {
-        String endpoint = StringUtils.defaultIfBlank(rawPath, fallback);
+        if (StringUtils.isBlank(rawPath)) {
+            return resolve.apply(fallback);
+        }
+        String endpoint = rawPath;
         if (pathParams != null) {
             for (Map.Entry<String, String> entry : pathParams.entrySet()) {
-                endpoint = endpoint.replace("{" + entry.getKey() + "}", StringUtils.defaultString(entry.getValue()));
+                if (StringUtils.isNotBlank(entry.getKey()) && StringUtils.isNotBlank(entry.getValue())) {
+                    endpoint = endpoint.replace("{" + entry.getKey() + "}",
+                            HttpPayloadSupport.encodePathValue(entry.getValue()));
+                }
             }
         }
-        return resolve.apply(StringUtils.defaultIfBlank(endpoint, fallback));
+        endpoint = resolve.apply(endpoint);
+        Matcher unfilled = PATH_TEMPLATE.matcher(endpoint);
+        if (unfilled.find()) {
+            throw new IllegalArgumentException("Path parameter '" + unfilled.group(1)
+                    + "' has no value. Fill it in under Params on the case.");
+        }
+        return endpoint;
     }
 
     private static Map<String, String> substituteMap(Map<String, String> source, UnaryOperator<String> resolve) {
