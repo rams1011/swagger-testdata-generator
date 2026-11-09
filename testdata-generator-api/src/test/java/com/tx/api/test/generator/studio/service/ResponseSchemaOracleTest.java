@@ -49,6 +49,21 @@ class ResponseSchemaOracleTest {
         assertTrue(ResponseSchemaOracle.same(null, Map.of()));
     }
 
+    @Test
+    void aCaseExpectingAnotherStatusIsNotHeldToTheDocumentedResponseSchema() {
+        LoadedSpec spec = spec("getPet", Map.of("type", "object", "required", List.of("id")));
+        StudioTestCase missing = testCase("getPet", null);
+        missing.setStatusCode(404);
+        StudioTestCase found = testCase("getPet", null);
+        found.setStatusCode(200);
+
+        ResponseSchemaOracle.apply(missing, spec);
+        ResponseSchemaOracle.apply(found, spec);
+
+        assertNull(missing.getResponseJsonSchema(), "the 200 schema says nothing about a 404 body");
+        assertEquals(List.of("id"), found.getResponseJsonSchema().get("required"));
+    }
+
     private static StudioTestCase testCase(String operationKey, Map<String, Object> schema) {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setSpecId("spec");

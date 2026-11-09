@@ -8,9 +8,11 @@ import com.google.gson.JsonSyntaxException;
 
 public final class CollectionDocuments {
 
+    /** Whole numbers in bodies and schemas stay whole ({@code 3}, not {@code 3.0}) when a collection is imported. */
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
             .disableHtmlEscaping()
+            .setObjectToNumberStrategy(com.google.gson.ToNumberPolicy.LONG_OR_DOUBLE)
             .create();
 
     private CollectionDocuments() {

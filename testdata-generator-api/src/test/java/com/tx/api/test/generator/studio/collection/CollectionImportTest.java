@@ -214,6 +214,31 @@ class CollectionImportTest {
     }
 
     @Test
+    void aNullInTheRequestBodySurvivesExportAndImport() throws Exception {
+        storage.saveSpec(localSpec());
+        CollectionImporter.importInto(storage, goldenBytes(), "collection.json", "spec-local");
+        var stored = storage.findTestCase("case-create-role").orElseThrow();
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("code", "ADMIN");
+        body.put("middleName", null);
+        body.put("points", 1250);
+        stored.setRequestBody(body);
+        storage.saveTestCase(stored);
+
+        String json = CollectionDocuments.toJson(CollectionMapper.readFrom(storage, "spec-local", "plan-default"));
+        assertTrue(json.contains("\"middleName\": null"), "the body keeps its null in the file");
+        assertTrue(json.contains("\"points\": 1250") && !json.contains("1250.0"), "whole numbers stay whole");
+        assertFalse(json.contains("\"responseJsonSchema\": null"), "other empty fields are still left out");
+
+        CollectionImporter.importInto(storage, CollectionDocuments.parseCollection(json), Map.of(), "spec-local");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> reimported = (Map<String, Object>) storage.findTestCase("case-create-role").orElseThrow()
+                .getRequestBody();
+        assertTrue(reimported.containsKey("middleName") && reimported.get("middleName") == null);
+        assertEquals(1250L, reimported.get("points"));
+    }
+
+    @Test
     void importRefusesARawSecretCollectionVariableBeforeWritingAnything() throws Exception {
         storage.saveSpec(localSpec());
         StudioCollection golden = CollectionDocuments.parseCollection(readGolden());

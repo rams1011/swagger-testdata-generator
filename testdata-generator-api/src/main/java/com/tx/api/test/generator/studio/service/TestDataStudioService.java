@@ -1084,9 +1084,11 @@ public class TestDataStudioService {
         testCase.setHeaders(headers);
         testCase.setCookieParams(cookieParams);
         if (operation.response() != null) {
-            testCase.setResponseJsonSchema(operation.response().jsonSchema());
             testCase.setResponseType(StringUtils.defaultIfBlank(request.responseType(), operation.response().responseType()));
             testCase.setStatusCode(request.statusCode() == null ? operation.response().statusCode() : request.statusCode());
+            // The documented schema is for its own status; a case expecting another (such as a 404) keeps none.
+            testCase.setResponseJsonSchema(testCase.getStatusCode() == operation.response().statusCode()
+                    ? operation.response().jsonSchema() : null);
             testCase.setJsonPathAssertions(StringUtils.defaultIfBlank(request.jsonPathAssertions(), NA));
         } else if (creating) {
             testCase.setStatusCode(request.statusCode() == null ? 200 : request.statusCode());

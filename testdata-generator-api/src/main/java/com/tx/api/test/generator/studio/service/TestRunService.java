@@ -45,7 +45,8 @@ public class TestRunService {
     private static final long MIN_TIMEOUT_MS = 10_000L;
     private static final long DEFAULT_MAX_TIMEOUT_MS = 300_000L;
     static final int MAX_REDIRECTS = 10;
-    private static final Gson JSON = new Gson();
+    /** Keeps a {@code null} the body sends on purpose, such as {@code "middleName": null}. */
+    private static final Gson JSON = new com.google.gson.GsonBuilder().serializeNulls().create();
 
     private static final Pattern FILENAME = Pattern.compile("filename\\*?=(?:UTF-8''|\"?)([^\";]+)", Pattern.CASE_INSENSITIVE);
 

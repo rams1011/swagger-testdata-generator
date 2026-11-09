@@ -12,7 +12,14 @@ import java.util.Map;
 
 final class JsonMaps {
 
-    private static final Gson GSON = new GsonBuilder().create();
+    /**
+     * Whole numbers read back as whole numbers (Gson's default reads every number as a double, so {@code 3} became
+     * {@code 3.0} in sent bodies and {@code minItems: 1.0} in schemas), and a JSON {@code null} in a body is kept.
+     */
+    private static final Gson GSON = new GsonBuilder()
+            .serializeNulls()
+            .setObjectToNumberStrategy(com.google.gson.ToNumberPolicy.LONG_OR_DOUBLE)
+            .create();
     private static final Type STRING_MAP = new TypeToken<LinkedHashMap<String, String>>() { }.getType();
     private static final Type OBJECT_MAP = new TypeToken<LinkedHashMap<String, Object>>() { }.getType();
     private static final Type STRING_LIST = new TypeToken<ArrayList<String>>() { }.getType();

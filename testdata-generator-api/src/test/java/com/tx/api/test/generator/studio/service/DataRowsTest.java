@@ -85,6 +85,43 @@ class DataRowsTest {
     }
 
     @Test
+    void removeLeavesFieldsOutOfTheRequestBody() {
+        DataRows.Row row = DataRows.parse(DataRows.normalize(
+                "[{\"$name\":\"No country\",\"$remove\":[\"$.customer.country\"],\"$body\":{\"$.customer.vip\":true}}]")).get(0);
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> customer = (Map<String, Object>) ((Map<String, Object>) DataRows.apply(template(), row)
+                .getRequestBody()).get("customer");
+
+        assertFalse(customer.containsKey("country"));
+        assertEquals(true, customer.get("vip"));
+        IllegalArgumentException missing = assertThrows(IllegalArgumentException.class, () -> DataRows.apply(template(),
+                DataRows.parse(DataRows.normalize("[{\"$name\":\"Typo\",\"$remove\":[\"$.customer.contry\"]}]")).get(0)));
+        assertTrue(missing.getMessage().startsWith("Typo: $remove path"), missing.getMessage());
+        assertRefused("[{\"$remove\":\"$.a\"}]", "list of JSONPaths");
+        assertRefused("[{\"$remove\":[\"a\"]}]", "starting with $");
+    }
+
+    @Test
+    void theNextIndexAddsAListItemButAGapIsRefused() {
+        StudioTestCase testCase = template();
+        testCase.setRequestBody(new LinkedHashMap<>(Map.of("addresses", List.of(Map.of("type", "home"), Map.of("type", "mailing")))));
+        DataRows.Row add = DataRows.parse(DataRows.normalize(
+                "[{\"$body\":{\"$.addresses[2]\":{\"type\":\"work\"},\"$.addresses[0].city\":\"Accra\"}}]")).get(0);
+
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> addresses = (List<Map<String, Object>>) ((Map<String, Object>) DataRows.apply(testCase, add)
+                .getRequestBody()).get("addresses");
+
+        assertEquals(List.of("home", "mailing", "work"), addresses.stream().map(item -> item.get("type")).toList());
+        assertEquals("Accra", addresses.get(0).get("city"));
+        DataRows.Row gap = DataRows.parse(DataRows.normalize(
+                "[{\"$name\":\"Gap\",\"$body\":{\"$.addresses[5]\":{}}}]")).get(0);
+        IllegalArgumentException refused = assertThrows(IllegalArgumentException.class, () -> DataRows.apply(testCase, gap));
+        assertTrue(refused.getMessage().startsWith("Gap:"), refused.getMessage());
+    }
+
+    @Test
     void aPatchOnAPathWithNoParentNamesTheRow() {
         StudioTestCase testCase = template();
         DataRows.Row row = DataRows.parse(DataRows.normalize("[{\"$name\":\"Lost\",\"$body\":{\"$.nowhere.x\":1}}]")).get(0);
