@@ -99,9 +99,10 @@ class OutboundUrlPolicyTest {
                 "OAUTH2", null, null, null, null, null, null,
                 "client", "secret", "http://169.254.169.254/token", "client_credentials");
 
-        IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
-                () -> service.execute(testCase, auth));
-        assertTrue(exception.getMessage().contains("not allowed"));
+        // the case fails with the reason, and no token request is made
+        RunTestResult result = service.execute(testCase, auth);
+        assertFalse(result.passed());
+        assertTrue(result.error().contains("not allowed"), result.error());
     }
 
     private static void assertNotAllowed(String url) {

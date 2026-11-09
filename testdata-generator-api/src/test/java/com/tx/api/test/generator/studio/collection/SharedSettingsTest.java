@@ -73,6 +73,12 @@ class SharedSettingsTest {
                 new SharedSettings(null, Map.of("Bad Header", "x"), null)));
         assertThrows(CollectionFormatException.class, () -> SharedSettings.normalize(
                 new SharedSettings(null, Map.of("X-A", "1", "x-a", "2"), null)));
+        // a header the HTTP client writes itself would fail every run that inherits it
+        CollectionFormatException host = assertThrows(CollectionFormatException.class, () -> SharedSettings.normalize(
+                new SharedSettings(null, Map.of("host", "api.example.com"), null)));
+        assertTrue(host.getMessage().contains("the HTTP client sets it"), host.getMessage());
+        assertThrows(CollectionFormatException.class, () -> SharedSettings.normalize(
+                new SharedSettings(null, Map.of("X-Line", "a\nb"), null)));
     }
 
     @Test

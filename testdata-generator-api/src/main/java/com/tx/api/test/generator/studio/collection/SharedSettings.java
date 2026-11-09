@@ -10,7 +10,6 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.regex.Pattern;
 
 /**
  * Auth and headers a collection, and each case group in it, hands down to its cases (like Postman collection and
@@ -25,7 +24,6 @@ public record SharedSettings(RunAuth auth, Map<String, String> headers, Map<Stri
     public static final int MAX_VALUE_LENGTH = 10_000;
 
     private static final Gson GSON = new Gson();
-    private static final Pattern HEADER_NAME = Pattern.compile("[!#$%&'*+.^_`|~0-9A-Za-z-]+");
 
     /** One level's settings: a group's. */
     public record Level(RunAuth auth, Map<String, String> headers) {
@@ -97,8 +95,9 @@ public record SharedSettings(RunAuth auth, Map<String, String> headers, Map<Stri
             if (name.isEmpty()) {
                 return;
             }
-            if (!HEADER_NAME.matcher(name).matches()) {
-                throw new CollectionFormatException(where + " header '" + name + "' isn't a valid header name");
+            String problem = HeaderRules.problem(name, rawValue);
+            if (problem != null) {
+                throw new CollectionFormatException(where + " " + problem);
             }
             if (seen.put(name, true) != null) {
                 throw new CollectionFormatException(where + " header '" + name + "' is set more than once");

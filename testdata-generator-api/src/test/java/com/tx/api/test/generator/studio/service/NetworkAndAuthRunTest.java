@@ -328,6 +328,47 @@ class NetworkAndAuthRunTest {
                 TestRunService.sendFailure(new IllegalStateException("odd"), "https://h/a", null));
     }
 
+    @Test
+    void blankQueryHeadersAndCookiesAreLeftOutLikeUnsetOptionalParameters() {
+        List<String> received = Collections.synchronizedList(new ArrayList<>());
+        servers.get(0).createContext("/inspect", exchange -> {
+            var headers = exchange.getRequestHeaders();
+            received.add("query=" + exchange.getRequestURI().getRawQuery()
+                    + " blank=" + headers.containsKey("X-Blank")
+                    + " filled=" + headers.getFirst("X-Filled")
+                    + " cookie=" + headers.getFirst("Cookie"));
+            respond(exchange, 200, "{}");
+        });
+        StudioTestCase testCase = get("/inspect", 200);
+        testCase.setQueryParams(new LinkedHashMap<>(Map.of("level", "", "app", "{{app}}")));
+        testCase.setHeaders(new LinkedHashMap<>(Map.of("X-Blank", " ", "X-Filled", "yes")));
+        testCase.setCookieParams(new LinkedHashMap<>(Map.of("session", "s1", "empty", "{{none}}")));
+
+        RunTestResult result = service.execute(testCase, null, new LinkedHashMap<>(Map.of("app", "web", "none", "")));
+
+        assertTrue(result.passed(), result.error());
+        assertEquals(List.of("query=app=web blank=false filled=yes cookie=session=s1"), received);
+    }
+
+    @Test
+    void aHeaderTheClientSetsOrAMissingCredentialFailsTheCaseInsteadOfThrowing() {
+        StudioTestCase host = get("/echo", 200);
+        host.setHeaders(new LinkedHashMap<>(Map.of("Host", "other.example.com")));
+        RunTestResult hostResult = service.execute(host, null, new LinkedHashMap<>());
+        assertFalse(hostResult.passed());
+        assertTrue(hostResult.error().startsWith("Header 'Host' can't be set by a test"), hostResult.error());
+
+        StudioTestCase badName = get("/echo", 200);
+        badName.setHeaders(new LinkedHashMap<>(Map.of("Bad Name", "x")));
+        assertTrue(service.execute(badName, null, new LinkedHashMap<>()).error().contains("isn't a valid header name"));
+
+        RunAuth noKey = new RunAuth("API_KEY", null, null, null, null, null, null, null, null, null, null);
+        RunTestResult keyResult = service.execute(get("/echo", 200), noKey, new LinkedHashMap<>());
+        assertFalse(keyResult.passed());
+        assertEquals("API key is required", keyResult.error());
+        assertTrue(seen.isEmpty(), "nothing is sent: " + seen);
+    }
+
     private StudioTestCase get(String path, int status) {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setTestName("case " + path);

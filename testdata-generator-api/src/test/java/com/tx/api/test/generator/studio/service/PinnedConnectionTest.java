@@ -276,8 +276,9 @@ class PinnedConnectionTest {
     void aRestrictedHostHeaderIsStillRefused() {
         StudioTestCase testCase = testCase("http://" + HOST + ":" + port, "/hello", 200);
         testCase.setHeaders(new LinkedHashMap<>(Map.of("Host", "attacker.example")));
-        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
-                () -> service.execute(testCase, null, new LinkedHashMap<>(), null, STAGING));
+        RunTestResult result = service.execute(testCase, null, new LinkedHashMap<>(), null, STAGING);
+        assertFalse(result.passed());
+        assertTrue(result.error().startsWith("Header 'Host' can't be set by a test"), result.error());
         assertTrue(hostHeaders.isEmpty());
     }
 
