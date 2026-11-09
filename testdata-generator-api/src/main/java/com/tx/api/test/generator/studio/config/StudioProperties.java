@@ -4,7 +4,7 @@ import com.tx.api.test.generator.studio.tenant.LoginGuard;
 import com.tx.api.test.generator.studio.tenant.PasswordPolicy;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-@ConfigurationProperties(prefix = "testdata")
+@ConfigurationProperties(prefix = "testdata", ignoreUnknownFields = true)
 public class StudioProperties {
 
     private H2 h2 = new H2();
@@ -59,6 +59,47 @@ public class StudioProperties {
 
     public void setAuth(Auth auth) {
         this.auth = auth == null ? new Auth() : auth;
+    }
+
+    /**
+     * Spring maps {@code TESTDATA_OIDC_*} to flat {@code testdata.oidc-*} — deprecated; use {@code TESTDATA_AUTH_OIDC_*}.
+     */
+    public void setOidcEnabled(boolean enabled) {
+        auth.getOidc().setEnabled(enabled);
+    }
+
+    public void setOidcIssuer(String issuer) {
+        if (issuer != null) {
+            auth.getOidc().setIssuer(issuer);
+        }
+    }
+
+    public void setOidcClientId(String clientId) {
+        if (clientId != null) {
+            auth.getOidc().setClientId(clientId);
+        }
+    }
+
+    public void setOidcClientSecret(String clientSecret) {
+        if (clientSecret != null) {
+            auth.getOidc().setClientSecret(clientSecret);
+        }
+    }
+
+    public void setOidcRedirectUri(String redirectUri) {
+        if (redirectUri != null) {
+            auth.getOidc().setRedirectUri(redirectUri);
+        }
+    }
+
+    public void setOidcUiBase(String uiBase) {
+        if (uiBase != null) {
+            auth.getOidc().setUiBase(uiBase);
+        }
+    }
+
+    public void setOidcAllowRegistration(boolean allowRegistration) {
+        auth.getOidc().setAllowRegistration(allowRegistration);
     }
 
     public boolean isLdapAuth() {
@@ -466,6 +507,7 @@ public class StudioProperties {
         private int loginIpWindowSeconds = LoginGuard.DEFAULT_IP_WINDOW_SECONDS;
         private int sessionIdleMinutes = LoginGuard.DEFAULT_IDLE_MINUTES;
         private Ldap ldap = new Ldap();
+        private Oidc oidc = new Oidc();
 
         public String getProvider() {
             return provider;
@@ -584,6 +626,113 @@ public class StudioProperties {
                 return AuthProvider.LOCAL;
             }
             return AuthProvider.from(provider);
+        }
+
+        public Oidc getOidc() {
+            return oidc;
+        }
+
+        public void setOidc(Oidc oidc) {
+            this.oidc = oidc == null ? new Oidc() : oidc;
+        }
+
+        public boolean isOidcConfigured() {
+            return oidc != null && oidc.isConfigured();
+        }
+    }
+
+    public boolean isOidcEnabled() {
+        return isAuthEnabled() && getAuth().isOidcConfigured();
+    }
+
+    public static class Oidc {
+        private boolean enabled = false;
+        private String issuer = "https://accounts.google.com";
+        private String clientId = "";
+        private String clientSecret = "";
+        private String redirectUri = "http://localhost:8083/api/auth/oidc/callback";
+        private String uiBase = "http://localhost:5173";
+        private boolean allowRegistration = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getIssuer() {
+            return issuer;
+        }
+
+        public void setIssuer(String issuer) {
+            this.issuer = issuer;
+        }
+
+        public String resolvedIssuer() {
+            return org.apache.commons.lang3.StringUtils.trimToEmpty(issuer);
+        }
+
+        public String getClientId() {
+            return clientId;
+        }
+
+        public void setClientId(String clientId) {
+            this.clientId = clientId;
+        }
+
+        public String getClientSecret() {
+            return clientSecret;
+        }
+
+        public void setClientSecret(String clientSecret) {
+            this.clientSecret = clientSecret;
+        }
+
+        public String getRedirectUri() {
+            return redirectUri;
+        }
+
+        public void setRedirectUri(String redirectUri) {
+            this.redirectUri = redirectUri;
+        }
+
+        public String resolvedRedirectUri() {
+            return org.apache.commons.lang3.StringUtils.trimToEmpty(redirectUri);
+        }
+
+        public String getUiBase() {
+            return uiBase;
+        }
+
+        public void setUiBase(String uiBase) {
+            this.uiBase = uiBase;
+        }
+
+        public String resolvedUiBase() {
+            String base = org.apache.commons.lang3.StringUtils.trimToEmpty(uiBase);
+            if (base.endsWith("/")) {
+                return base.substring(0, base.length() - 1);
+            }
+            return base;
+        }
+
+        public boolean isAllowRegistration() {
+            return allowRegistration;
+        }
+
+        public void setAllowRegistration(boolean allowRegistration) {
+            this.allowRegistration = allowRegistration;
+        }
+
+        public boolean isConfigured() {
+            return enabled
+                    && org.apache.commons.lang3.StringUtils.isNotBlank(clientId)
+                    && org.apache.commons.lang3.StringUtils.isNotBlank(clientSecret)
+                    && org.apache.commons.lang3.StringUtils.isNotBlank(resolvedRedirectUri())
+                    && org.apache.commons.lang3.StringUtils.isNotBlank(resolvedIssuer())
+                    && org.apache.commons.lang3.StringUtils.isNotBlank(resolvedUiBase());
         }
     }
 

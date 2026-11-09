@@ -151,6 +151,16 @@ testdata:
         admin: ${TESTDATA_LDAP_GROUP_ROLE_ADMIN:}
         member: ${TESTDATA_LDAP_GROUP_ROLE_MEMBER:}
       # GET /api/testdata/config exposes authProvider=ldap and loginHint=you@<domain> (no secrets).
+    # Optional Google / OIDC alongside local password sign-in (provider stays local or ldap).
+    # Env: TESTDATA_AUTH_OIDC_* → testdata.auth.oidc.*
+    oidc:
+      enabled: ${TESTDATA_AUTH_OIDC_ENABLED:false}
+      issuer: ${TESTDATA_AUTH_OIDC_ISSUER:https://accounts.google.com}
+      client-id: ${TESTDATA_AUTH_OIDC_CLIENT_ID:}
+      client-secret: ${TESTDATA_AUTH_OIDC_CLIENT_SECRET:}
+      redirect-uri: ${TESTDATA_AUTH_OIDC_REDIRECT_URI:http://localhost:8083/api/auth/oidc/callback}
+      ui-base: ${TESTDATA_AUTH_OIDC_UI_BASE:http://localhost:5173}
+      allow-registration: ${TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION:true}
   saas:
     # Operator/session settings — not the hosting mode. Use testdata.edition for that.
     session-days: 14

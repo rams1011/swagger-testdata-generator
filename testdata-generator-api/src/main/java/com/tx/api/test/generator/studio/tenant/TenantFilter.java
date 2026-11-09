@@ -140,8 +140,14 @@ public class TenantFilter extends OncePerRequestFilter {
                         || "/api/auth/session".equals(path))) {
             return true;
         }
-        return "POST".equalsIgnoreCase(method)
-                && ("/api/auth/login".equals(path) || "/api/auth/register".equals(path));
+        if ("POST".equalsIgnoreCase(method)
+                && ("/api/auth/login".equals(path) || "/api/auth/register".equals(path))) {
+            return true;
+        }
+        if (path.startsWith("/api/auth/oidc/")) {
+            return true;
+        }
+        return false;
     }
 
     private static boolean isReadOnlyAllowed(HttpServletRequest request) {

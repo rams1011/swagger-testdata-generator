@@ -37,6 +37,15 @@ jobs:
       TESTDATA_REDIS_SSL: ${{ vars.TESTDATA_REDIS_SSL }}
       TESTDATA_REDIS_DISABLE_PEER_VERIFICATION: ${{ vars.TESTDATA_REDIS_DISABLE_PEER_VERIFICATION }}
       TESTDATA_REDIS_CACHE_TTL_SECONDS: ${{ vars.TESTDATA_REDIS_CACHE_TTL_SECONDS }}
+      STUDIO_API_URL: ${{ vars.STUDIO_API_URL }}
+      STUDIO_UI_URL: ${{ vars.STUDIO_UI_URL }}
+      TESTDATA_AUTH_OIDC_ENABLED: ${{ vars.TESTDATA_AUTH_OIDC_ENABLED }}
+      TESTDATA_AUTH_OIDC_ISSUER: ${{ vars.TESTDATA_AUTH_OIDC_ISSUER }}
+      TESTDATA_AUTH_OIDC_CLIENT_ID: ${{ secrets.TESTDATA_AUTH_OIDC_CLIENT_ID }}
+      TESTDATA_AUTH_OIDC_CLIENT_SECRET: ${{ secrets.TESTDATA_AUTH_OIDC_CLIENT_SECRET }}
+      TESTDATA_AUTH_OIDC_REDIRECT_URI: ${{ vars.TESTDATA_AUTH_OIDC_REDIRECT_URI }}
+      TESTDATA_AUTH_OIDC_UI_BASE: ${{ vars.TESTDATA_AUTH_OIDC_UI_BASE }}
+      TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION: ${{ vars.TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -100,6 +109,24 @@ jobs:
             echo "::error::TESTDATA_SAAS_ADMIN_PASSWORD is empty. Add it as a repository secret."
             missing=1
           fi
+          if [ "${TESTDATA_AUTH_OIDC_ENABLED}" = "true" ]; then
+            if [ -z "${TESTDATA_AUTH_OIDC_CLIENT_ID}" ] || [ -z "${TESTDATA_AUTH_OIDC_CLIENT_SECRET}" ]; then
+              echo "::error::TESTDATA_AUTH_OIDC_ENABLED=true requires secrets TESTDATA_AUTH_OIDC_CLIENT_ID and TESTDATA_AUTH_OIDC_CLIENT_SECRET."
+              missing=1
+            fi
+            redirect="${TESTDATA_AUTH_OIDC_REDIRECT_URI}"
+            if [ -z "$redirect" ] && [ -n "${STUDIO_API_URL}" ]; then
+              redirect="${STUDIO_API_URL%/}/api/auth/oidc/callback"
+            fi
+            ui_base="${TESTDATA_AUTH_OIDC_UI_BASE}"
+            if [ -z "$ui_base" ] && [ -n "${STUDIO_UI_URL}" ]; then
+              ui_base="${STUDIO_UI_URL%/}"
+            fi
+            if [ -z "$redirect" ] || [ -z "$ui_base" ]; then
+              echo "::error::OIDC needs TESTDATA_AUTH_OIDC_REDIRECT_URI and TESTDATA_AUTH_OIDC_UI_BASE, or STUDIO_API_URL + STUDIO_UI_URL repository variables."
+              missing=1
+            fi
+          fi
           if [ "${missing}" -ne 0 ]; then
             exit 1
           fi
@@ -138,6 +165,29 @@ jobs:
             fi
             if [ -n "${TESTDATA_REDIS_CACHE_TTL_SECONDS}" ]; then
               echo "TESTDATA_REDIS_CACHE_TTL_SECONDS=${TESTDATA_REDIS_CACHE_TTL_SECONDS}"
+            fi
+            if [ "${TESTDATA_AUTH_OIDC_ENABLED}" = "true" ]; then
+              echo "TESTDATA_AUTH_OIDC_ENABLED=true"
+              if [ -n "${TESTDATA_AUTH_OIDC_ISSUER}" ]; then
+                echo "TESTDATA_AUTH_OIDC_ISSUER=${TESTDATA_AUTH_OIDC_ISSUER}"
+              fi
+              echo "TESTDATA_AUTH_OIDC_CLIENT_ID=${TESTDATA_AUTH_OIDC_CLIENT_ID}"
+              echo "TESTDATA_AUTH_OIDC_CLIENT_SECRET=${TESTDATA_AUTH_OIDC_CLIENT_SECRET}"
+              redirect="${TESTDATA_AUTH_OIDC_REDIRECT_URI}"
+              if [ -z "$redirect" ] && [ -n "${STUDIO_API_URL}" ]; then
+                redirect="${STUDIO_API_URL%/}/api/auth/oidc/callback"
+              fi
+              echo "TESTDATA_AUTH_OIDC_REDIRECT_URI=${redirect}"
+              ui_base="${TESTDATA_AUTH_OIDC_UI_BASE}"
+              if [ -z "$ui_base" ] && [ -n "${STUDIO_UI_URL}" ]; then
+                ui_base="${STUDIO_UI_URL%/}"
+              fi
+              echo "TESTDATA_AUTH_OIDC_UI_BASE=${ui_base}"
+              if [ -n "${TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION}" ]; then
+                echo "TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION=${TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION}"
+              fi
+            elif [ -n "${TESTDATA_AUTH_OIDC_ENABLED}" ]; then
+              echo "TESTDATA_AUTH_OIDC_ENABLED=${TESTDATA_AUTH_OIDC_ENABLED}"
             fi
           } > "${GITHUB_WORKSPACE}/cloudrun.env"
 

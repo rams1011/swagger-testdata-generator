@@ -67,9 +67,11 @@ class TenantIsolationTest {
         properties.getSaas().setEnabled(true);
         TenantContext.setSaasEnabled(true);
         FixedProvider<TenantStore> stores = new FixedProvider<>(new JdbcTenantStore(jdbcTemplate));
+        JdbcTenantStore tenantStore = new JdbcTenantStore(jdbcTemplate);
         authService = new AuthService(properties, stores,
                 new FixedProvider<>(new EntitlementService(properties, stores)),
                 new FixedProvider<>(null),
+                new com.tx.api.test.generator.studio.tenant.oidc.OidcAuthService(properties, tenantStore),
                 new com.tx.api.test.generator.studio.audit.StudioAuditService(storage));
     }
 

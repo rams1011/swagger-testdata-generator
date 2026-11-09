@@ -1,5 +1,7 @@
 package com.tx.api.test.generator.studio.tenant;
 
+import com.tx.api.test.generator.studio.tenant.oidc.OidcExchangeRecord;
+import com.tx.api.test.generator.studio.tenant.oidc.OidcPendingState;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -344,18 +346,35 @@ public class JdbcTenantStore implements TenantStore {
         Instant changedAt = account.getPasswordChangedAt() != null
                 ? account.getPasswordChangedAt()
                 : account.getCreatedAt();
+        int updated = jdbcTemplate.update("""
+                        UPDATE td_account
+                           SET email = ?, password_hash = ?, display_name = ?, platform_role = ?,
+                               password_changed_at = ?, must_change_password = ?, oidc_issuer = ?, oidc_subject = ?
+                         WHERE account_id = ?
+                        """,
+                account.getEmail(), account.getPasswordHash(), account.getDisplayName(),
+                account.getPlatformRole() == null || account.getPlatformRole().isBlank()
+                        ? "USER" : account.getPlatformRole(),
+                changedAt == null ? null : Timestamp.from(changedAt),
+                account.isMustChangePassword(),
+                account.getOidcIssuer(), account.getOidcSubject(),
+                account.getId());
+        if (updated > 0) {
+            return;
+        }
         jdbcTemplate.update("""
                         INSERT INTO td_account (
                             account_id, email, password_hash, display_name, created_at, platform_role,
-                            password_changed_at, must_change_password
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                            password_changed_at, must_change_password, oidc_issuer, oidc_subject
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                 account.getId(), account.getEmail(), account.getPasswordHash(),
                 account.getDisplayName(), Timestamp.from(account.getCreatedAt()),
                 account.getPlatformRole() == null || account.getPlatformRole().isBlank()
                         ? "USER" : account.getPlatformRole(),
                 changedAt == null ? null : Timestamp.from(changedAt),
-                account.isMustChangePassword());
+                account.isMustChangePassword(),
+                account.getOidcIssuer(), account.getOidcSubject());
     }
 
     @Override
@@ -418,6 +437,88 @@ public class JdbcTenantStore implements TenantStore {
         List<Account> accounts = jdbcTemplate.query(
                 "SELECT * FROM td_account WHERE LOWER(email) = LOWER(?)", accountMapper(), email);
         return accounts.stream().findFirst();
+    }
+
+    @Override
+    public Optional<Account> findAccountByOidc(String issuer, String subject) {
+        List<Account> accounts = jdbcTemplate.query("""
+                        SELECT * FROM td_account
+                         WHERE oidc_issuer = ? AND oidc_subject = ?
+                        """,
+                accountMapper(), issuer, subject);
+        return accounts.stream().findFirst();
+    }
+
+    @Override
+    public void updateAccountOidc(Account account) {
+        jdbcTemplate.update("""
+                        UPDATE td_account
+                           SET email = ?, display_name = ?, oidc_issuer = ?, oidc_subject = ?
+                         WHERE account_id = ?
+                        """,
+                account.getEmail(), account.getDisplayName(),
+                account.getOidcIssuer(), account.getOidcSubject(), account.getId());
+    }
+
+    @Override
+    public void saveOidcState(OidcPendingState state) {
+        jdbcTemplate.update("""
+                        INSERT INTO td_oidc_state (state, code_verifier, nonce, intent, return_to, expires_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                state.state(), state.codeVerifier(), state.nonce(), state.intent(),
+                state.returnTo(), Timestamp.from(state.expiresAt()));
+    }
+
+    @Override
+    public Optional<OidcPendingState> consumeOidcState(String state) {
+        List<OidcPendingState> rows = jdbcTemplate.query("""
+                        SELECT state, code_verifier, nonce, intent, return_to, expires_at
+                          FROM td_oidc_state
+                         WHERE state = ?
+                        """,
+                (rs, rowNum) -> new OidcPendingState(
+                        rs.getString("state"),
+                        rs.getString("code_verifier"),
+                        rs.getString("nonce"),
+                        rs.getString("intent"),
+                        rs.getString("return_to"),
+                        instant(rs.getTimestamp("expires_at"), Instant.EPOCH)),
+                state);
+        jdbcTemplate.update("DELETE FROM td_oidc_state WHERE state = ?", state);
+        return rows.stream().filter(pending -> pending.expiresAt().isAfter(Instant.now())).findFirst();
+    }
+
+    @Override
+    public void saveOidcExchange(OidcExchangeRecord exchange) {
+        jdbcTemplate.update("""
+                        INSERT INTO td_oidc_exchange (
+                            exchange_id, intent, email, display_name, oidc_issuer, oidc_subject,
+                            needs_registration, expires_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                exchange.exchangeId(), exchange.intent(), exchange.email(), exchange.displayName(),
+                exchange.oidcIssuer(), exchange.oidcSubject(), exchange.needsRegistration(),
+                Timestamp.from(exchange.expiresAt()));
+    }
+
+    @Override
+    public Optional<OidcExchangeRecord> findOidcExchange(String exchangeId) {
+        List<OidcExchangeRecord> rows = jdbcTemplate.query("""
+                        SELECT exchange_id, intent, email, display_name, oidc_issuer, oidc_subject,
+                               needs_registration, expires_at
+                          FROM td_oidc_exchange
+                         WHERE exchange_id = ?
+                        """,
+                oidcExchangeMapper(), exchangeId);
+        return rows.stream()
+                .filter(row -> row.expiresAt().isAfter(Instant.now()))
+                .findFirst();
+    }
+
+    @Override
+    public void deleteOidcExchange(String exchangeId) {
+        jdbcTemplate.update("DELETE FROM td_oidc_exchange WHERE exchange_id = ?", exchangeId);
     }
 
     @Override
@@ -661,8 +762,22 @@ public class JdbcTenantStore implements TenantStore {
             account.setPlatformRole(platformRole == null || platformRole.isBlank() ? "USER" : platformRole);
             account.setPasswordChangedAt(instant(rs.getTimestamp("password_changed_at")));
             account.setMustChangePassword(rs.getBoolean("must_change_password"));
+            account.setOidcIssuer(rs.getString("oidc_issuer"));
+            account.setOidcSubject(rs.getString("oidc_subject"));
             return account;
         };
+    }
+
+    private RowMapper<OidcExchangeRecord> oidcExchangeMapper() {
+        return (rs, rowNum) -> new OidcExchangeRecord(
+                rs.getString("exchange_id"),
+                rs.getString("intent"),
+                rs.getString("email"),
+                rs.getString("display_name"),
+                rs.getString("oidc_issuer"),
+                rs.getString("oidc_subject"),
+                rs.getBoolean("needs_registration"),
+                instant(rs.getTimestamp("expires_at"), Instant.EPOCH));
     }
 
     private RowMapper<StoredSession> sessionMapper() {
