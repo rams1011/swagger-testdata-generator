@@ -73,6 +73,36 @@ final class HttpPayloadSupport {
         return builder.toString();
     }
 
+    private static final char[] HEX = "0123456789ABCDEF".toCharArray();
+
+    /**
+     * A path parameter value as one path segment: letters, digits and {@code - . _ ~} stay, a valid {@code %XX} that
+     * is already there stays (no double encoding), and every other byte of its UTF-8 form becomes {@code %XX}, so
+     * {@code a/b} is {@code a%2Fb} and {@code a b} is {@code a%20b}. api-automation encodes the same way.
+     */
+    static String encodePathValue(String value) {
+        byte[] bytes = StringUtils.defaultString(value).getBytes(StandardCharsets.UTF_8);
+        StringBuilder out = new StringBuilder(bytes.length + 8);
+        for (int index = 0; index < bytes.length; index++) {
+            int current = bytes[index] & 0xFF;
+            if ((current >= 'a' && current <= 'z') || (current >= 'A' && current <= 'Z')
+                    || (current >= '0' && current <= '9') || current == '-' || current == '.' || current == '_'
+                    || current == '~') {
+                out.append((char) current);
+            } else if (current == '%' && index + 2 < bytes.length && isHex(bytes[index + 1]) && isHex(bytes[index + 2])) {
+                out.append('%').append((char) bytes[index + 1]).append((char) bytes[index + 2]);
+                index += 2;
+            } else {
+                out.append('%').append(HEX[current >> 4]).append(HEX[current & 0x0F]);
+            }
+        }
+        return out.toString();
+    }
+
+    private static boolean isHex(byte value) {
+        return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F');
+    }
+
     static String cookieHeader(Map<String, String> cookies) {
         if (cookies == null || cookies.isEmpty()) {
             return null;

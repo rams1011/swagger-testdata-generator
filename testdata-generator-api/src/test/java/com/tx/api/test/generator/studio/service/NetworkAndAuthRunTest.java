@@ -351,6 +351,31 @@ class NetworkAndAuthRunTest {
     }
 
     @Test
+    void eachPathValueIsEncodedOnItsOwnAndAMissingOneIsNamed() {
+        List<String> received = Collections.synchronizedList(new ArrayList<>());
+        servers.get(0).createContext("/paths", exchange -> {
+            received.add(exchange.getRequestURI().getRawPath());
+            respond(exchange, 200, "{}");
+        });
+        StudioTestCase testCase = get("/paths", 200);
+        testCase.setRawPath("/paths/{id}/notes/{note}");
+        testCase.setPathParams(new LinkedHashMap<>(Map.of("id", "{{itemId}}", "note", "a/b c?#%2F")));
+
+        RunTestResult result = service.execute(testCase, null, new LinkedHashMap<>(Map.of("itemId", "café 1")));
+
+        assertTrue(result.passed(), result.error());
+        // the same bytes api-automation sends: a "/" "?" "#" or space stays in its segment, an %2F isn't doubled
+        assertEquals(List.of("/paths/caf%C3%A9%201/notes/a%2Fb%20c%3F%23%2F"), received);
+
+        StudioTestCase missing = get("/paths", 200);
+        missing.setRawPath("/paths/{id}");
+        missing.setPathParams(new LinkedHashMap<>(Map.of("id", " ")));
+        RunTestResult missingResult = service.execute(missing, null, new LinkedHashMap<>());
+        assertFalse(missingResult.passed());
+        assertTrue(missingResult.error().startsWith("Path parameter 'id' has no value"), missingResult.error());
+    }
+
+    @Test
     void aHeaderTheClientSetsOrAMissingCredentialFailsTheCaseInsteadOfThrowing() {
         StudioTestCase host = get("/echo", 200);
         host.setHeaders(new LinkedHashMap<>(Map.of("Host", "other.example.com")));
