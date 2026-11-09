@@ -57,10 +57,14 @@ final class HttpPayloadSupport {
         StringBuilder builder = new StringBuilder(url);
         boolean first = !url.contains("?");
         for (Map.Entry<String, String> entry : query.entrySet()) {
-            if (StringUtils.isBlank(entry.getKey()) || entry.getValue() == null) {
+            if (StringUtils.isBlank(entry.getKey())) {
                 continue;
             }
             for (String value : explode(entry.getValue())) {
+                // An empty box on the case is an unset optional parameter, not a request to send name=.
+                if (StringUtils.isBlank(value)) {
+                    continue;
+                }
                 builder.append(first ? '?' : '&');
                 first = false;
                 builder.append(encode(entry.getKey())).append('=').append(encode(value));
