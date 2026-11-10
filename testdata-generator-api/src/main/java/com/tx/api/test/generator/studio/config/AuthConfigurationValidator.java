@@ -30,6 +30,21 @@ public class AuthConfigurationValidator {
                 throw new IllegalStateException("testdata.auth.oidc.ui-base is required when OIDC is enabled");
             }
         }
+        if (properties.isAuthEnabled() && properties.isGithubEnabled()) {
+            StudioProperties.Github github = properties.getAuth().getGithub();
+            if (StringUtils.isBlank(github.getClientId())) {
+                throw new IllegalStateException("testdata.auth.github.client-id is required when GitHub sign-in is enabled");
+            }
+            if (StringUtils.isBlank(github.getClientSecret())) {
+                throw new IllegalStateException("testdata.auth.github.client-secret is required when GitHub sign-in is enabled");
+            }
+            if (StringUtils.isBlank(github.resolvedRedirectUri())) {
+                throw new IllegalStateException("testdata.auth.github.redirect-uri is required when GitHub sign-in is enabled");
+            }
+            if (StringUtils.isBlank(github.resolvedUiBase())) {
+                throw new IllegalStateException("testdata.auth.github.ui-base is required when GitHub sign-in is enabled");
+            }
+        }
         if (!properties.isAuthEnabled() || !properties.isLdapAuth()) {
             return;
         }

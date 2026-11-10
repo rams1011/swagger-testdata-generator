@@ -993,6 +993,8 @@ public class TestDataStudioService {
         config.put("dynamicVariables", String.join(",", DynamicVariables.NAMES));
         config.put("oidcEnabled", String.valueOf(properties.isOidcEnabled()));
         config.put("oidcAllowRegistration", String.valueOf(properties.getAuth().getOidc().isAllowRegistration()));
+        config.put("githubEnabled", String.valueOf(properties.isGithubEnabled()));
+        config.put("githubAllowRegistration", String.valueOf(properties.getAuth().getGithub().isAllowRegistration()));
         return config;
     }
 

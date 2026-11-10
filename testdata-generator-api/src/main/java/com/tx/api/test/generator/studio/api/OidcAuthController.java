@@ -37,7 +37,7 @@ public class OidcAuthController {
     public void start(@RequestParam(defaultValue = "login") String intent,
                       @RequestParam(required = false) String returnTo,
                       HttpServletResponse response) throws IOException {
-        requireAuth();
+        requireOidc();
         String url = oidcAuthService.authorizationUrl(intent, returnTo);
         response.sendRedirect(url);
     }
@@ -48,30 +48,39 @@ public class OidcAuthController {
                          @RequestParam(required = false) String error,
                          @RequestParam(required = false, name = "error_description") String errorDescription,
                          HttpServletResponse response) throws IOException {
-        requireAuth();
+        requireOidc();
         String redirect = oidcAuthService.completeCallback(code, state, error, errorDescription);
         response.sendRedirect(redirect);
     }
 
     @PostMapping("/exchange")
     public OidcExchangeView exchange(@RequestBody OidcExchangeRequest request) {
-        requireAuth();
+        requireSocialExchange();
         return authService.exchangeOidc(request);
     }
 
     @PostMapping("/register")
     public AuthSessionView register(@RequestBody OidcRegisterRequest request) {
-        requireAuth();
+        requireSocialExchange();
         requireBilling();
         return authService.registerWithOidc(request);
     }
 
-    private void requireAuth() {
+    private void requireOidc() {
         if (!properties.isAuthEnabled()) {
             throw new ForbiddenException("Login is off. Set TESTDATA_EDITION=datacenter or saas.");
         }
         if (!oidcAuthService.enabled()) {
             throw new ForbiddenException("Google sign-in is not enabled");
+        }
+    }
+
+    private void requireSocialExchange() {
+        if (!properties.isAuthEnabled()) {
+            throw new ForbiddenException("Login is off. Set TESTDATA_EDITION=datacenter or saas.");
+        }
+        if (!properties.isSocialSignInEnabled()) {
+            throw new ForbiddenException("Social sign-in is not enabled");
         }
     }
 

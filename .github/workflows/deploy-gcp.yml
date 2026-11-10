@@ -46,6 +46,12 @@ jobs:
       TESTDATA_AUTH_OIDC_REDIRECT_URI: ${{ vars.TESTDATA_AUTH_OIDC_REDIRECT_URI }}
       TESTDATA_AUTH_OIDC_UI_BASE: ${{ vars.TESTDATA_AUTH_OIDC_UI_BASE }}
       TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION: ${{ vars.TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION }}
+      TESTDATA_AUTH_GITHUB_ENABLED: ${{ vars.TESTDATA_AUTH_GITHUB_ENABLED }}
+      TESTDATA_AUTH_GITHUB_CLIENT_ID: ${{ secrets.TESTDATA_AUTH_GITHUB_CLIENT_ID }}
+      TESTDATA_AUTH_GITHUB_CLIENT_SECRET: ${{ secrets.TESTDATA_AUTH_GITHUB_CLIENT_SECRET }}
+      TESTDATA_AUTH_GITHUB_REDIRECT_URI: ${{ vars.TESTDATA_AUTH_GITHUB_REDIRECT_URI }}
+      TESTDATA_AUTH_GITHUB_UI_BASE: ${{ vars.TESTDATA_AUTH_GITHUB_UI_BASE }}
+      TESTDATA_AUTH_GITHUB_ALLOW_REGISTRATION: ${{ vars.TESTDATA_AUTH_GITHUB_ALLOW_REGISTRATION }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -127,6 +133,24 @@ jobs:
               missing=1
             fi
           fi
+          if [ "${TESTDATA_AUTH_GITHUB_ENABLED}" = "true" ]; then
+            if [ -z "${TESTDATA_AUTH_GITHUB_CLIENT_ID}" ] || [ -z "${TESTDATA_AUTH_GITHUB_CLIENT_SECRET}" ]; then
+              echo "::error::TESTDATA_AUTH_GITHUB_ENABLED=true requires secrets TESTDATA_AUTH_GITHUB_CLIENT_ID and TESTDATA_AUTH_GITHUB_CLIENT_SECRET."
+              missing=1
+            fi
+            if [ -z "${TESTDATA_AUTH_GITHUB_REDIRECT_URI}" ]; then
+              echo "::error::TESTDATA_AUTH_GITHUB_ENABLED=true requires repository variable TESTDATA_AUTH_GITHUB_REDIRECT_URI (full callback URL)."
+              missing=1
+            fi
+            ui_base="${TESTDATA_AUTH_GITHUB_UI_BASE}"
+            if [ -z "$ui_base" ] && [ -n "${STUDIO_UI_URL}" ]; then
+              ui_base="${STUDIO_UI_URL%/}"
+            fi
+            if [ -z "$ui_base" ]; then
+              echo "::error::GitHub sign-in needs TESTDATA_AUTH_GITHUB_UI_BASE or STUDIO_UI_URL repository variable."
+              missing=1
+            fi
+          fi
           if [ "${missing}" -ne 0 ]; then
             exit 1
           fi
@@ -188,6 +212,22 @@ jobs:
               fi
             elif [ -n "${TESTDATA_AUTH_OIDC_ENABLED}" ]; then
               echo "TESTDATA_AUTH_OIDC_ENABLED=${TESTDATA_AUTH_OIDC_ENABLED}"
+            fi
+            if [ "${TESTDATA_AUTH_GITHUB_ENABLED}" = "true" ]; then
+              echo "TESTDATA_AUTH_GITHUB_ENABLED=true"
+              echo "TESTDATA_AUTH_GITHUB_CLIENT_ID=${TESTDATA_AUTH_GITHUB_CLIENT_ID}"
+              echo "TESTDATA_AUTH_GITHUB_CLIENT_SECRET=${TESTDATA_AUTH_GITHUB_CLIENT_SECRET}"
+              echo "TESTDATA_AUTH_GITHUB_REDIRECT_URI=${TESTDATA_AUTH_GITHUB_REDIRECT_URI}"
+              ui_base="${TESTDATA_AUTH_GITHUB_UI_BASE}"
+              if [ -z "$ui_base" ] && [ -n "${STUDIO_UI_URL}" ]; then
+                ui_base="${STUDIO_UI_URL%/}"
+              fi
+              echo "TESTDATA_AUTH_GITHUB_UI_BASE=${ui_base}"
+              if [ -n "${TESTDATA_AUTH_GITHUB_ALLOW_REGISTRATION}" ]; then
+                echo "TESTDATA_AUTH_GITHUB_ALLOW_REGISTRATION=${TESTDATA_AUTH_GITHUB_ALLOW_REGISTRATION}"
+              fi
+            elif [ -n "${TESTDATA_AUTH_GITHUB_ENABLED}" ]; then
+              echo "TESTDATA_AUTH_GITHUB_ENABLED=${TESTDATA_AUTH_GITHUB_ENABLED}"
             fi
           } > "${GITHUB_WORKSPACE}/cloudrun.env"
 
