@@ -15,7 +15,8 @@ The API is a Spring Boot JAR (`testdata-generator-api`). Choose a **hosting prof
 | `TESTDATA_SAAS_ADMIN_EMAIL` | When `saas` / Cloud Run | Bootstrap operator |
 | `TESTDATA_SAAS_ADMIN_PASSWORD` | When `saas` / Cloud Run | Bootstrap operator |
 | `TESTDATA_SAAS_CORS_ORIGINS` | Cloud + browser UI | Comma-separated Spring origin patterns. Any port is `:[*]`, for example `https://*.run.app,http://localhost:[*],http://127.0.0.1:[*]` |
-| `TESTDATA_AUTH_OIDC_*` | Optional | Google sign-in alongside local password; see Cloud Run table below |
+| `TESTDATA_AUTH_OIDC_*` | Optional | Google / OIDC sign-in alongside local password; see Cloud Run table below |
+| `TESTDATA_AUTH_GITHUB_*` | Optional | GitHub sign-in alongside local password; see Cloud Run table below |
 
 ## Docker Compose (docker profile)
 
@@ -94,6 +95,8 @@ Workflow: [`.github/workflows/deploy-gcp.yml`](../.github/workflows/deploy-gcp.y
 | `TESTDATA_SAAS_ADMIN_PASSWORD` | Bootstrap admin password |
 | `TESTDATA_AUTH_OIDC_CLIENT_ID` | Google OAuth Web client id (when `TESTDATA_AUTH_OIDC_ENABLED=true`) |
 | `TESTDATA_AUTH_OIDC_CLIENT_SECRET` | Google OAuth client secret |
+| `TESTDATA_AUTH_GITHUB_CLIENT_ID` | GitHub OAuth App client id (when `TESTDATA_AUTH_GITHUB_ENABLED=true`) |
+| `TESTDATA_AUTH_GITHUB_CLIENT_SECRET` | GitHub OAuth App client secret |
 
 **Repository variables**
 
@@ -112,8 +115,16 @@ Workflow: [`.github/workflows/deploy-gcp.yml`](../.github/workflows/deploy-gcp.y
 | `TESTDATA_AUTH_OIDC_REDIRECT_URI` | Required when OIDC is enabled — full OAuth redirect URL (must match Google Console) |
 | `TESTDATA_AUTH_OIDC_UI_BASE` | Optional if `STUDIO_UI_URL` is set |
 | `TESTDATA_AUTH_OIDC_ALLOW_REGISTRATION` | Optional; default `true` for SaaS |
+| `TESTDATA_AUTH_GITHUB_ENABLED` | `true` to enable GitHub sign-in |
+| `TESTDATA_AUTH_GITHUB_REDIRECT_URI` | Required when GitHub is enabled — full callback URL on the API host, e.g. `https://<api>/api/auth/github/callback` |
+| `TESTDATA_AUTH_GITHUB_UI_BASE` | Optional if `STUDIO_UI_URL` is set |
+| `TESTDATA_AUTH_GITHUB_ALLOW_REGISTRATION` | Optional; default `true` for SaaS |
+
+**Secrets (GitHub):** `TESTDATA_AUTH_GITHUB_CLIENT_ID`, `TESTDATA_AUTH_GITHUB_CLIENT_SECRET` from a [GitHub OAuth App](https://github.com/settings/developers).
 
 Register the redirect URI on the Google OAuth client. Match **External** consent screen + test users for non-org Gmail accounts.
+
+For GitHub, set the OAuth app **Authorization callback URL** to the same value as `TESTDATA_AUTH_GITHUB_REDIRECT_URI`. The app needs `read:user` and `user:email` (requested automatically).
 
 ### Runtime on Cloud Run
 
@@ -123,6 +134,7 @@ The deploy workflow sets:
 - `TESTDATA_EDITION=saas`
 - `SPRING_DATASOURCE_*` from the secrets above
 - `TESTDATA_AUTH_OIDC_*` when `TESTDATA_AUTH_OIDC_ENABLED=true`
+- `TESTDATA_AUTH_GITHUB_*` when `TESTDATA_AUTH_GITHUB_ENABLED=true`
 - `SERVER_PORT=8080`
 
 **AlloyDB:** put the full JDBC URL in `SPRING_DATASOURCE_URL` (public IP or connector URL — examples in [DATABASE.md](DATABASE.md)). Grant the Cloud Run **runtime** service account `roles/alloydb.client` when using the Java connector.

@@ -144,7 +144,7 @@ public class TenantFilter extends OncePerRequestFilter {
                 && ("/api/auth/login".equals(path) || "/api/auth/register".equals(path))) {
             return true;
         }
-        if (path.startsWith("/api/auth/oidc/")) {
+        if (path.startsWith("/api/auth/oidc/") || path.startsWith("/api/auth/github/")) {
             return true;
         }
         return false;

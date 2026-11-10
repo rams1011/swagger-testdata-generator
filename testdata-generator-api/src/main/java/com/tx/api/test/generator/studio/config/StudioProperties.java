@@ -508,6 +508,7 @@ public class StudioProperties {
         private int sessionIdleMinutes = LoginGuard.DEFAULT_IDLE_MINUTES;
         private Ldap ldap = new Ldap();
         private Oidc oidc = new Oidc();
+        private Github github = new Github();
 
         public String getProvider() {
             return provider;
@@ -639,10 +640,30 @@ public class StudioProperties {
         public boolean isOidcConfigured() {
             return oidc != null && oidc.isConfigured();
         }
+
+        public Github getGithub() {
+            return github;
+        }
+
+        public void setGithub(Github github) {
+            this.github = github == null ? new Github() : github;
+        }
+
+        public boolean isGithubConfigured() {
+            return github != null && github.isConfigured();
+        }
     }
 
     public boolean isOidcEnabled() {
         return isAuthEnabled() && getAuth().isOidcConfigured();
+    }
+
+    public boolean isGithubEnabled() {
+        return isAuthEnabled() && getAuth().isGithubConfigured();
+    }
+
+    public boolean isSocialSignInEnabled() {
+        return isOidcEnabled() || isGithubEnabled();
     }
 
     public static class Oidc {
@@ -732,6 +753,83 @@ public class StudioProperties {
                     && org.apache.commons.lang3.StringUtils.isNotBlank(clientSecret)
                     && org.apache.commons.lang3.StringUtils.isNotBlank(resolvedRedirectUri())
                     && org.apache.commons.lang3.StringUtils.isNotBlank(resolvedIssuer())
+                    && org.apache.commons.lang3.StringUtils.isNotBlank(resolvedUiBase());
+        }
+    }
+
+    public static class Github {
+        private boolean enabled = false;
+        private String clientId = "";
+        private String clientSecret = "";
+        private String redirectUri = "http://localhost:8083/api/auth/github/callback";
+        private String uiBase = "http://localhost:5173";
+        private boolean allowRegistration = true;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getClientId() {
+            return clientId;
+        }
+
+        public void setClientId(String clientId) {
+            this.clientId = clientId;
+        }
+
+        public String getClientSecret() {
+            return clientSecret;
+        }
+
+        public void setClientSecret(String clientSecret) {
+            this.clientSecret = clientSecret;
+        }
+
+        public String getRedirectUri() {
+            return redirectUri;
+        }
+
+        public void setRedirectUri(String redirectUri) {
+            this.redirectUri = redirectUri;
+        }
+
+        public String resolvedRedirectUri() {
+            return org.apache.commons.lang3.StringUtils.trimToEmpty(redirectUri);
+        }
+
+        public String getUiBase() {
+            return uiBase;
+        }
+
+        public void setUiBase(String uiBase) {
+            this.uiBase = uiBase;
+        }
+
+        public String resolvedUiBase() {
+            String base = org.apache.commons.lang3.StringUtils.trimToEmpty(uiBase);
+            if (base.endsWith("/")) {
+                return base.substring(0, base.length() - 1);
+            }
+            return base;
+        }
+
+        public boolean isAllowRegistration() {
+            return allowRegistration;
+        }
+
+        public void setAllowRegistration(boolean allowRegistration) {
+            this.allowRegistration = allowRegistration;
+        }
+
+        public boolean isConfigured() {
+            return enabled
+                    && org.apache.commons.lang3.StringUtils.isNotBlank(clientId)
+                    && org.apache.commons.lang3.StringUtils.isNotBlank(clientSecret)
+                    && org.apache.commons.lang3.StringUtils.isNotBlank(resolvedRedirectUri())
                     && org.apache.commons.lang3.StringUtils.isNotBlank(resolvedUiBase());
         }
     }
