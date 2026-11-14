@@ -119,11 +119,6 @@ public class TestRunService {
             // One case's bad header or missing credential fails that case, not the whole plan.
             return failed(bound, "", headers, 0, false, List.of(), exception.getMessage());
         }
-        String cookieHeader = HttpPayloadSupport.cookieHeader(cookies);
-        if (StringUtils.isNotBlank(cookieHeader)) {
-            HttpPayloadSupport.putHeader(headers, "Cookie", cookieHeader);
-        }
-
         String url;
         OutboundUrlPolicy.Target target;
         try {
@@ -131,6 +126,17 @@ public class TestRunService {
             target = outboundUrlPolicy.check(url, scope);
         } catch (IllegalArgumentException exception) {
             return failed(bound, "", headers, 0, false, List.of(), exception.getMessage());
+        }
+        // The case's own cookies (its cookie params, else a Cookie header it writes), plus the cookies earlier
+        // responses in this run set for this site; the case's win by name.
+        String ownCookies = HttpPayloadSupport.cookieHeader(cookies);
+        if (ownCookies == null) {
+            ownCookies = headers.entrySet().stream().filter(entry -> "Cookie".equalsIgnoreCase(entry.getKey()))
+                    .map(Map.Entry::getValue).findFirst().orElse(null);
+        }
+        String cookieHeader = RunCookieJar.merge(ownCookies, RunCookieJar.cookiesFor(store, url, System.currentTimeMillis()));
+        if (StringUtils.isNotBlank(cookieHeader)) {
+            HttpPayloadSupport.putHeader(headers, "Cookie", cookieHeader);
         }
 
         String method = StringUtils.defaultIfBlank(bound.getMethod(), "GET").toUpperCase(Locale.ROOT);
@@ -165,7 +171,10 @@ public class TestRunService {
                 }
                 auditPrivateTarget(proxy, "CONNECT", scope);
             }
-            channel = networkClients.channel(network, proxy);
+            // The proxy password is a {{variable}} (secret); an unresolved one fails the case by name.
+            String proxyUser = proxy == null ? null : CaseVariables.substitute(network.proxyUsername(), store);
+            String proxyPassword = proxy == null ? null : CaseVariables.substitute(network.proxyPassword(), store);
+            channel = networkClients.channel(network, proxy, proxyUser, proxyPassword);
         } catch (IllegalArgumentException exception) {
             return failed(bound, url, headers, 0, false, List.of(), exception.getMessage());
         }
@@ -196,6 +205,8 @@ public class TestRunService {
             }
             long elapsedMs = elapsed(started);
             Map<String, List<String>> rawHeaders = response.headers().map();
+            RunCookieJar.remember(store, response.uri() == null ? url : response.uri().toString(),
+                    setCookies(rawHeaders), System.currentTimeMillis());
             byte[] bytes = response.body() == null ? new byte[0] : response.body();
             String contentType = firstHeader(rawHeaders, "Content-Type");
             boolean binary = isBinaryResponse(bound, contentType, bytes);
@@ -821,12 +832,25 @@ public class TestRunService {
         return source == null ? new LinkedHashMap<>() : new LinkedHashMap<>(source);
     }
 
+    private static List<String> setCookies(Map<String, List<String>> headers) {
+        List<String> values = new ArrayList<>();
+        if (headers != null) {
+            headers.forEach((name, list) -> {
+                if ("Set-Cookie".equalsIgnoreCase(name) && list != null) {
+                    values.addAll(list);
+                }
+            });
+        }
+        return values;
+    }
+
     private static Map<String, String> filled(Map<String, String> source) {
         Map<String, String> copy = new LinkedHashMap<>();
         if (source != null) {
             source.forEach((name, value) -> {
-                if (StringUtils.isNotBlank(name) && StringUtils.isNotBlank(value)) {
-                    copy.put(name, value);
+                String sent = HttpPayloadSupport.sendable(value);
+                if (StringUtils.isNotBlank(name) && sent != null) {
+                    copy.put(name, sent);
                 }
             });
         }

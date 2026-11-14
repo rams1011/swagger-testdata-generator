@@ -351,6 +351,99 @@ class NetworkAndAuthRunTest {
     }
 
     @Test
+    void aCookieOneResponseSetsGoesWithTheNextRequestOfTheSameRunAndTheCaseWins() {
+        List<String> cookies = Collections.synchronizedList(new ArrayList<>());
+        servers.get(0).createContext("/session", exchange -> {
+            cookies.add(exchange.getRequestURI().getPath() + " cookie=" + exchange.getRequestHeaders().getFirst("Cookie"));
+            if (exchange.getRequestURI().getPath().endsWith("/login")) {
+                exchange.getResponseHeaders().add("Set-Cookie", "SESSION=abc123; Path=/; HttpOnly");
+            }
+            respond(exchange, 200, "{}");
+        });
+        Map<String, String> run = new LinkedHashMap<>();
+        service.execute(get("/session/login", 200), null, run);
+        service.execute(get("/session/me", 200), null, run);
+        StudioTestCase own = get("/session/own", 200);
+        own.setCookieParams(new LinkedHashMap<>(Map.of("SESSION", "mine", "theme", "dark")));
+        service.execute(own, null, run);
+        service.execute(get("/session/fresh", 200), null, new LinkedHashMap<>());
+
+        assertEquals("/session/login cookie=null", cookies.get(0));
+        assertEquals("/session/me cookie=SESSION=abc123", cookies.get(1));
+        assertTrue(cookies.get(2).contains("SESSION=mine") && !cookies.get(2).contains("abc123"), cookies.get(2));
+        assertEquals("/session/fresh cookie=null", cookies.get(3), "another run starts with an empty jar");
+    }
+
+    @Test
+    void doubleQuotesSendAQueryHeaderOrCookieEmptyOnPurpose() {
+        List<String> received = Collections.synchronizedList(new ArrayList<>());
+        servers.get(0).createContext("/empty", exchange -> {
+            var headers = exchange.getRequestHeaders();
+            received.add("query=" + exchange.getRequestURI().getRawQuery()
+                    + " header=" + (headers.containsKey("X-Clear") ? "[" + headers.getFirst("X-Clear") + "]" : "none")
+                    + " cookie=" + headers.getFirst("Cookie"));
+            respond(exchange, 200, "{}");
+        });
+        StudioTestCase testCase = get("/empty", 200);
+        testCase.setQueryParams(new LinkedHashMap<>(Map.of("filter", "\"\"", "unset", "")));
+        testCase.setHeaders(new LinkedHashMap<>(Map.of("X-Clear", "\"\"", "X-Unset", "")));
+        testCase.setCookieParams(new LinkedHashMap<>(Map.of("pref", "\"\"")));
+
+        RunTestResult result = service.execute(testCase, null, new LinkedHashMap<>());
+
+        assertTrue(result.passed(), result.error());
+        assertEquals(List.of("query=filter= header=[] cookie=pref="), received);
+    }
+
+    @Test
+    void aProxyThatAsksForALoginGetsTheUserNameAndTheResolvedSecretPassword() throws IOException {
+        List<String> proxied = Collections.synchronizedList(new ArrayList<>());
+        HttpServer proxy = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        proxy.createContext("/", exchange -> {
+            String login = exchange.getRequestHeaders().getFirst("Proxy-Authorization");
+            proxied.add(exchange.getRequestURI() + " login=" + login);
+            if (login == null) {
+                exchange.getResponseHeaders().add("Proxy-Authenticate", "Basic realm=\"corp\"");
+                exchange.sendResponseHeaders(407, -1);
+                exchange.close();
+                return;
+            }
+            respond(exchange, 200, "{\"via\":\"proxy\"}");
+        });
+        proxy.start();
+        servers.add(proxy);
+        StudioEnvironmentNetwork network = StudioEnvironmentNetwork.normalize(new StudioEnvironmentNetwork(
+                null, null, null, "http://127.0.0.1:" + proxy.getAddress().getPort(), null, "alice", "{{proxyPassword}}"));
+
+        RunTestResult result = service.execute(get("/through", 200), null,
+                new LinkedHashMap<>(Map.of("proxyPassword", "s3cret")), network);
+
+        assertTrue(result.passed(), result.error());
+        String expected = "Basic " + java.util.Base64.getEncoder()
+                .encodeToString("alice:s3cret".getBytes(StandardCharsets.UTF_8));
+        assertTrue(proxied.stream().anyMatch(line -> line.endsWith("login=" + expected)), String.valueOf(proxied));
+        assertTrue(proxied.get(0).startsWith("http://127.0.0.1:" + port + "/through"), proxied.get(0));
+
+        RunTestResult unresolved = service.execute(get("/through", 200), null, new LinkedHashMap<>(), network);
+        assertFalse(unresolved.passed());
+        assertTrue(unresolved.error().contains("proxyPassword"), unresolved.error());
+    }
+
+    @Test
+    void aProxyPasswordMustBeAVariableAndNeedsAUserNameAndAProxy() {
+        assertThrows(CollectionFormatException.class, () -> StudioEnvironmentNetwork.normalize(
+                new StudioEnvironmentNetwork(null, null, null, "http://proxy:8080", null, "alice", "plain-text")));
+        assertThrows(CollectionFormatException.class, () -> StudioEnvironmentNetwork.normalize(
+                new StudioEnvironmentNetwork(null, null, null, "http://proxy:8080", null, null, "{{proxyPassword}}")));
+        assertThrows(CollectionFormatException.class, () -> StudioEnvironmentNetwork.normalize(
+                new StudioEnvironmentNetwork(null, null, null, null, null, "alice", "{{proxyPassword}}")));
+        StudioEnvironmentNetwork ok = StudioEnvironmentNetwork.normalize(
+                new StudioEnvironmentNetwork(null, null, null, "http://proxy:8080", null, " alice ", " {{proxyPassword}} "));
+        assertEquals("alice", ok.proxyUsername());
+        assertEquals("{{proxyPassword}}", ok.proxyPassword());
+    }
+
+    @Test
     void eachPathValueIsEncodedOnItsOwnAndAMissingOneIsNamed() {
         List<String> received = Collections.synchronizedList(new ArrayList<>());
         servers.get(0).createContext("/paths", exchange -> {

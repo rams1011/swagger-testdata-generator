@@ -91,6 +91,12 @@ final class NetworkClients {
      * also connected to by its validated address.
      */
     Channel channel(StudioEnvironmentNetwork network, OutboundUrlPolicy.Target proxy) {
+        return channel(network, proxy, null, null);
+    }
+
+    /** As above, answering the proxy's login challenge with {@code proxyUser} / {@code proxyPassword} (resolved). */
+    Channel channel(StudioEnvironmentNetwork network, OutboundUrlPolicy.Target proxy, String proxyUser,
+                    String proxyPassword) {
         Key key = network == null
                 ? new Key(true, null)
                 : new Key(network.verifiesSsl(), StringUtils.trimToNull(network.caCertificate()));
@@ -99,7 +105,7 @@ final class NetworkClients {
             clients.clear();
             evicted.forEach(client -> client.close(CloseMode.GRACEFUL));
         }
-        return new Channel(clients.computeIfAbsent(key, NetworkClients::build), proxy);
+        return new Channel(clients.computeIfAbsent(key, NetworkClients::build), proxy, proxyUser, proxyPassword);
     }
 
     private static CloseableHttpClient build(Key key) {
@@ -136,9 +142,20 @@ final class NetworkClients {
     static final class Channel {
         private final CloseableHttpClient client;
         private final HttpHost proxy;
+        private final org.apache.hc.client5.http.auth.CredentialsProvider proxyCredentials;
 
-        private Channel(CloseableHttpClient client, OutboundUrlPolicy.Target proxy) {
+        private Channel(CloseableHttpClient client, OutboundUrlPolicy.Target proxy, String proxyUser,
+                        String proxyPassword) {
             this.client = client;
+            // Only the proxy is given the credentials (its host and port), never the API being called.
+            this.proxyCredentials = proxy == null || StringUtils.isBlank(proxyUser) ? null
+                    : org.apache.hc.client5.http.impl.auth.CredentialsProviderBuilder.create()
+                    .add(new org.apache.hc.client5.http.auth.AuthScope(null, proxy.address().getHostAddress(),
+                                    proxy.port(), null, null),
+                            proxyUser, StringUtils.defaultString(proxyPassword).toCharArray())
+                    .add(new org.apache.hc.client5.http.auth.AuthScope(null, bare(proxy.host()), proxy.port(), null, null),
+                            proxyUser, StringUtils.defaultString(proxyPassword).toCharArray())
+                    .build();
             // The JDK client this replaced always spoke plain HTTP to the proxy, whatever the proxy URL's scheme.
             this.proxy = proxy == null ? null : new HttpHost("http", proxy.address(), bare(proxy.host()), proxy.port());
         }
@@ -172,6 +189,9 @@ final class NetworkClients {
                     .setProtocolUpgradeEnabled(false)
                     .build());
             context.setAttribute(PROXY_ATTRIBUTE, proxy);
+            if (proxyCredentials != null) {
+                context.setCredentialsProvider(proxyCredentials);
+            }
             try {
                 return client.execute(endpoint, outbound, context, response -> received(request, response));
             } catch (ConnectTimeoutException exception) {

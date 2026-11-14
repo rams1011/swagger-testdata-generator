@@ -60,9 +60,10 @@ final class HttpPayloadSupport {
             if (StringUtils.isBlank(entry.getKey())) {
                 continue;
             }
-            for (String value : explode(entry.getValue())) {
-                // An empty box on the case is an unset optional parameter, not a request to send name=.
-                if (StringUtils.isBlank(value)) {
+            for (String raw : explode(entry.getValue())) {
+                // An empty box is an unset optional parameter, not a request to send name=; "" sends name= on purpose.
+                String value = sendable(raw);
+                if (value == null) {
                     continue;
                 }
                 builder.append(first ? '?' : '&');
@@ -101,6 +102,20 @@ final class HttpPayloadSupport {
 
     private static boolean isHex(byte value) {
         return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F');
+    }
+
+    /** Typed as a value, {@code ""} means "send this empty on purpose" (an empty box isn't sent at all). */
+    static final String EMPTY_ON_PURPOSE = "\"\"";
+
+    /**
+     * What to send for a query, header or cookie value: null to leave it out (blank), "" for {@code ""}, else the
+     * value. api-automation follows the same rule.
+     */
+    static String sendable(String value) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        return EMPTY_ON_PURPOSE.equals(value.trim()) ? "" : value;
     }
 
     static String cookieHeader(Map<String, String> cookies) {
