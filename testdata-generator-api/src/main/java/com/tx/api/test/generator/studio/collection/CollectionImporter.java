@@ -77,13 +77,19 @@ public final class CollectionImporter {
                 testCase.setLifecycle(CaseLifecycle.DRAFT);
             }
             ensureEnvironments(storage, spec.getSpecId(), testCase.getEnvironments());
-            if (storage.findTestCase(testCase.getId()).isPresent()) {
+            java.util.Optional<StudioTestCase> existing = storage.findTestCase(testCase.getId());
+            if (existing.isPresent()) {
                 updated++;
             } else {
                 created++;
             }
-            storage.saveTestCase(testCase);
-            storage.deleteCaseDraft(testCase.getId());
+            boolean unchanged = existing.isPresent()
+                    && storage.findCaseDraft(testCase.getId()).isEmpty()
+                    && com.tx.api.test.generator.studio.service.CaseVersionDocument.sameCase(existing.get(), testCase);
+            if (!unchanged) {
+                storage.saveTestCase(testCase);
+                storage.deleteCaseDraft(testCase.getId());
+            }
             FileCounts fileCounts = importFiles(storage, item, binaries);
             importedFiles += fileCounts.imported();
             skippedFiles += fileCounts.skipped();

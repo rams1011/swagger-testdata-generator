@@ -18,6 +18,7 @@ public final class StudioVariables {
     public static final int MAX_VALUE_LENGTH = 10_000;
 
     private static final Pattern KEY = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+    static final String RESERVED_NAME = "baseUrl";
     private static final Pattern ENV_PLACEHOLDER = Pattern.compile("^\\$\\{[A-Za-z_][A-Za-z0-9_]*}$");
 
     private static final Gson GSON = new Gson();
@@ -80,6 +81,11 @@ public final class StudioVariables {
             if (!KEY.matcher(key).matches()) {
                 throw new CollectionFormatException(scope + " variable '" + key
                         + "' must start with a letter or _ and use only letters, digits, and _");
+            }
+            if (RESERVED_NAME.equals(key)) {
+                // A variable layer sits above environment values, so it would replace the environment's base URL.
+                throw new CollectionFormatException(scope + " variable 'baseUrl' is reserved for the environment's "
+                        + "base URL; set it on the environment, or give this variable another name");
             }
             if (!seen.add(key)) {
                 throw new CollectionFormatException(scope + " variable '" + key + "' is defined more than once");

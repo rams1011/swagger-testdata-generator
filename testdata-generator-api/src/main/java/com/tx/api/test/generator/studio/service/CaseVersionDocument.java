@@ -71,6 +71,21 @@ public final class CaseVersionDocument {
         return view;
     }
 
+    /**
+     * Whether two cases hold exactly the same thing, settings and lifecycle included: an import of an unchanged case
+     * leaves it alone instead of saving it again (which would move its Updated time and add a version).
+     */
+    public static boolean sameCase(StudioTestCase left, StudioTestCase right) {
+        if (left == null || right == null) {
+            return false;
+        }
+        Map<String, Object> leftDocument = new TreeMap<>(of(left));
+        Map<String, Object> rightDocument = new TreeMap<>(of(right));
+        leftDocument.put("lifecycle", String.valueOf(left.getLifecycle()));
+        rightDocument.put("lifecycle", String.valueOf(right.getLifecycle()));
+        return comparable(leftDocument).equals(comparable(rightDocument));
+    }
+
     /** Whether two documents differ in anything but {@link #SETTINGS}. */
     static boolean sameContent(Map<String, Object> left, Map<String, Object> right) {
         return content(left).equals(content(right));

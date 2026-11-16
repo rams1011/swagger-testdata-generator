@@ -23,13 +23,13 @@ public final class CollectionDocuments {
     }
 
     public static StudioCollection parseCollection(String json) {
-        StudioCollection collection = parse(json, StudioCollection.class);
+        StudioCollection collection = parse(json, StudioCollection.class, "Collection");
         CollectionMapper.validate(collection);
         return collection;
     }
 
     public static StudioEnvironment parseEnvironment(String json) {
-        StudioEnvironment environment = parse(json, StudioEnvironment.class);
+        StudioEnvironment environment = parse(json, StudioEnvironment.class, "Environment");
         CollectionMapper.validate(environment);
         return environment;
     }
@@ -42,18 +42,19 @@ public final class CollectionDocuments {
         }
     }
 
-    private static <T> T parse(String json, Class<T> type) {
+    /** {@code kind} ("Collection" or "Environment") names the file in messages. */
+    private static <T> T parse(String json, Class<T> type, String kind) {
         if (json == null || json.isBlank()) {
-            throw new CollectionFormatException("Collection JSON is required");
+            throw new CollectionFormatException(kind + " JSON is required");
         }
         try {
             T value = GSON.fromJson(json, type);
             if (value == null) {
-                throw new CollectionFormatException("Collection JSON is empty");
+                throw new CollectionFormatException(kind + " JSON is empty");
             }
             return value;
-        } catch (JsonSyntaxException exception) {
-            throw new CollectionFormatException("Collection JSON is not valid.");
+        } catch (JsonSyntaxException | IllegalStateException exception) {
+            throw new CollectionFormatException(kind + " JSON is not valid.");
         }
     }
 }

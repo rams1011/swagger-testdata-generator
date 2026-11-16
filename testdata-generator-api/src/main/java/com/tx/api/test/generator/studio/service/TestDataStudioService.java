@@ -865,6 +865,7 @@ public class TestDataStudioService {
         if (StringUtils.isBlank(baseUrl)) {
             throw new IllegalArgumentException("Base URL is required");
         }
+        requireHttpBaseUrl(baseUrl);
         StoredEnvironment stored = saveEnvironmentDocument(specId,
                 EnvironmentMapper.fromInputs(name, baseUrl, request.authType(), request.variables(),
                         request.network()));
@@ -876,6 +877,9 @@ public class TestDataStudioService {
         StoredEnvironment stored = requireEnvironment(specId, environmentId);
         String name = requireEnvironmentName(request == null ? null : request.name());
         rejectDuplicateEnvironmentName(specId, name, environmentId);
+        if (request != null && StringUtils.isNotBlank(request.baseUrl())) {
+            requireHttpBaseUrl(request.baseUrl());
+        }
         StudioEnvironment existing = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
         StudioEnvironment merged = EnvironmentMapper.merge(existing, name,
                 request == null ? null : request.baseUrl(),
@@ -934,6 +938,11 @@ public class TestDataStudioService {
         if (!specId.equals(stored.getSpecId())) {
             throw new NoSuchElementException("Environment not found: " + environmentId);
         }
+        // Deleting the last environment would also delete every case that belongs only to it, and leave nothing to run in.
+        if (studioStorage.listEnvironments(specId).size() <= 1) {
+            throw new IllegalArgumentException("A collection needs at least one environment. Add another environment "
+                    + "before deleting " + StringUtils.defaultIfBlank(stored.getName(), "this one") + ".");
+        }
         StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
         String name = environment == null ? null : environment.name();
         if (StringUtils.isBlank(name)) {
@@ -981,13 +990,56 @@ public class TestDataStudioService {
         if (trimmed == null) {
             throw new IllegalArgumentException("Environment name is required");
         }
-        return trimmed;
+        return limitedText("Environment name", trimmed, MAX_NAME_LENGTH);
+    }
+
+    /**
+     * An environment's base URL is an http or https address with a host (and a port from 1 to 65535); the UI checks the
+     * same. A {{variable}} in it is left to run time.
+     */
+    static void requireHttpBaseUrl(String baseUrl) {
+        String text = baseUrl.trim();
+        if (text.contains("{{")) {
+            return;
+        }
+        if (!text.regionMatches(true, 0, "http://", 0, 7) && !text.regionMatches(true, 0, "https://", 0, 8)) {
+            throw new IllegalArgumentException("Base URL must start with http:// or https://");
+        }
+        if (text.chars().anyMatch(Character::isWhitespace)) {
+            throw new IllegalArgumentException("Base URL can't contain spaces");
+        }
+        java.net.URI uri;
+        try {
+            uri = new java.net.URI(text);
+        } catch (java.net.URISyntaxException invalid) {
+            throw new IllegalArgumentException("Base URL is not a valid URL");
+        }
+        if (StringUtils.isBlank(uri.getHost())) {
+            throw new IllegalArgumentException("Base URL needs a host name, such as https://api.example.com");
+        }
+        if (uri.getPort() == 0 || uri.getPort() > 65535) {
+            throw new IllegalArgumentException("Base URL port must be from 1 to 65535");
+        }
+    }
+
+    /** Names are VARCHAR(255) and groups VARCHAR(128): longer text is refused here, not by the database. */
+    static final int MAX_NAME_LENGTH = 255;
+    static final int MAX_GROUP_LENGTH = 128;
+    /** The same cap as a run's request timeout (testdata.run.max-request-timeout-ms default). */
+    static final long MAX_RESPONSE_TIME_MS = 300_000L;
+
+    static String limitedText(String label, String value, int max) {
+        if (value != null && value.length() > max) {
+            throw new IllegalArgumentException(label + " can be at most " + max + " characters (it has "
+                    + value.length() + ")");
+        }
+        return value;
     }
 
     private void rejectDuplicateEnvironmentName(String specId, String name, String excludeId) {
         studioStorage.findEnvironmentByName(specId, name).ifPresent(existing -> {
             if (excludeId == null || !excludeId.equals(existing.getId())) {
-                throw new IllegalArgumentException("An environment named '" + name + "' already exists for this spec");
+                throw new IllegalArgumentException("An environment named '" + name + "' already exists in this collection");
             }
         });
     }
@@ -1083,7 +1135,8 @@ public class TestDataStudioService {
         testCase.setSpecId(request.specId());
         testCase.setPlanId(resolvePlanId(request.specId(), request.planId()));
         testCase.setOperationKey(request.operationKey());
-        testCase.setTestName(StringUtils.defaultIfBlank(request.testName(), operation.summary()));
+        testCase.setTestName(limitedText("Test name", StringUtils.defaultIfBlank(request.testName(), operation.summary()),
+                MAX_NAME_LENGTH));
         testCase.setMethod(operation.method());
         testCase.setRawPath(operation.rawPath());
         testCase.setEndpoint(buildEndpoint(operation.rawPath(), pathParams));
@@ -1132,6 +1185,12 @@ public class TestDataStudioService {
             testCase.setResponseMatch(JsonBodyMatcher.normalize(request.responseMatch()));
         }
         if (creating || request.ignoreFields() != null) {
+            for (String path : JsonBodyMatcher.ignorePaths(request.ignoreFields())) {
+                String problem = JsonPathEvaluator.ignoreFieldProblem(path);
+                if (problem != null) {
+                    throw new IllegalArgumentException(problem);
+                }
+            }
             testCase.setIgnoreFields(JsonBodyMatcher.normalizeIgnoreFields(request.ignoreFields()));
         }
         if (creating || request.auth() != null) {
@@ -1148,11 +1207,17 @@ public class TestDataStudioService {
         } else if (StringUtils.isBlank(testCase.getLifecycle())) {
             testCase.setLifecycle(CaseLifecycle.READY);
         }
-        testCase.setTestGroup(StringUtils.defaultIfBlank(request.testGroup(), operation.tag()));
+        testCase.setTestGroup(limitedText("Group", StringUtils.defaultIfBlank(request.testGroup(), operation.tag()),
+                MAX_GROUP_LENGTH));
         if (StringUtils.isNotBlank(request.jsonPathAssertions())) {
             testCase.setJsonPathAssertions(request.jsonPathAssertions());
         }
         testCase.setExtracts(StringUtils.defaultIfBlank(request.extracts(), NA));
+        if (request.maxResponseTimeMs() != null
+                && (request.maxResponseTimeMs() < 1 || request.maxResponseTimeMs() > MAX_RESPONSE_TIME_MS)) {
+            throw new IllegalArgumentException("Max response time must be from 1 to " + MAX_RESPONSE_TIME_MS
+                    + " milliseconds");
+        }
         testCase.setMaxResponseTimeMs(request.maxResponseTimeMs() == null ? 3000L : request.maxResponseTimeMs());
         testCase.setEnvironments(membershipFor(request.specId(), request.environmentId(), request.environments()));
     }
@@ -1607,7 +1672,7 @@ public class TestDataStudioService {
                 .anyMatch(plan -> !plan.getId().equals(excludePlanId)
                         && name.equalsIgnoreCase(plan.getName()));
         if (duplicate) {
-            throw new IllegalArgumentException("A plan named '" + name + "' already exists for this spec");
+            throw new IllegalArgumentException("A plan named '" + name + "' already exists in this collection");
         }
     }
 

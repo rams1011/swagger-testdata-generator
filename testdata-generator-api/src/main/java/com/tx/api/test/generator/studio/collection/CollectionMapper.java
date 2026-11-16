@@ -122,7 +122,9 @@ public final class CollectionMapper {
             throw new CollectionFormatException("Collection is required");
         }
         if (!CollectionFormat.COLLECTION_FORMAT.equals(collection.format())) {
-            throw new CollectionFormatException("Unsupported collection format: " + collection.format());
+            throw new CollectionFormatException(collection.format() == null
+                    ? "This isn't a Test Data Studio collection file (it has no \"format\"). Use a file from Export → Download collection."
+                    : "Unsupported collection format: " + collection.format());
         }
         if (collection.version() != CollectionFormat.VERSION) {
             throw new CollectionFormatException("Unsupported collection version: " + collection.version());
@@ -152,7 +154,9 @@ public final class CollectionMapper {
             throw new CollectionFormatException("Environment is required");
         }
         if (!CollectionFormat.ENVIRONMENT_FORMAT.equals(environment.format())) {
-            throw new CollectionFormatException("Unsupported environment format: " + environment.format());
+            throw new CollectionFormatException(environment.format() == null
+                    ? "This isn't a Test Data Studio environment file (it has no \"format\"). Use a file from Export → Download environment."
+                    : "Unsupported environment format: " + environment.format());
         }
         if (environment.version() != CollectionFormat.VERSION) {
             throw new CollectionFormatException("Unsupported environment version: " + environment.version());

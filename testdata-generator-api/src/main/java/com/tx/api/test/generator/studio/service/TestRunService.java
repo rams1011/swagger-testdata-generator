@@ -617,7 +617,7 @@ public class TestRunService {
         }
         if (RunAuth.BASIC.equals(type)) {
             if (StringUtils.isBlank(auth.username())) {
-                throw new IllegalArgumentException("Username is required for credentials auth");
+                throw new IllegalArgumentException("Basic auth needs a user name: enter it under Auth");
             }
             String token = Base64.getEncoder().encodeToString(
                     (auth.username() + ":" + StringUtils.defaultString(auth.password()))

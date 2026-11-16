@@ -1247,8 +1247,17 @@ public class JdbcStudioStorage implements StudioStorage {
             args.add(filter.caseId());
         }
         if (hasText(filter.outcome())) {
-            sql.append(" AND EXISTS (SELECT 1 FROM td_run_result rr WHERE rr.run_id = r.run_id AND rr.outcome = ?)");
-            args.add(filter.outcome());
+            // Matches the run's own summary, where an error counts as a failure: Passed is a run with no failures,
+            // Failed any failed or errored result, Error and Skipped a result of that kind.
+            switch (filter.outcome()) {
+                case "passed" -> sql.append(" AND r.failed = 0 AND r.passed > 0");
+                case "failed" -> sql.append(" AND EXISTS (SELECT 1 FROM td_run_result rr WHERE rr.run_id = r.run_id"
+                        + " AND (rr.outcome = 'failed' OR rr.outcome = 'error'))");
+                default -> {
+                    sql.append(" AND EXISTS (SELECT 1 FROM td_run_result rr WHERE rr.run_id = r.run_id AND rr.outcome = ?)");
+                    args.add(filter.outcome());
+                }
+            }
         }
         sql.append(" ORDER BY r.started_at DESC LIMIT ?");
         args.add(filter.limit());
