@@ -65,6 +65,12 @@ public record RunTestResult(
                 requestHeaders, assertions, error, downloadPath, extracted, requestBody, label, iterations);
     }
 
+    public RunTestResult withError(String message) {
+        return new RunTestResult(passed, skipped, skipReason, caseId, testName, method, url, expectedStatus,
+                actualStatus, statusMatched, elapsedMs, maxResponseTimeMs, timedOut, responseBody, responseHeaders,
+                requestHeaders, assertions, message, downloadPath, extracted, requestBody, rowLabel, iterations);
+    }
+
     public RunTestResult withAssertions(List<AssertionCheck> checks) {
         return new RunTestResult(passed, skipped, skipReason, caseId, testName, method, url, expectedStatus,
                 actualStatus, statusMatched, elapsedMs, maxResponseTimeMs, timedOut, responseBody, responseHeaders,

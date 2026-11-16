@@ -436,9 +436,24 @@ final class XmlPayloadSupport {
             Document document = documentFactory().newDocumentBuilder()
                     .parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8)));
             document.getDocumentElement().normalize();
+            // The indenting below adds its own line breaks; the typed ones would otherwise become blank lines.
+            removeWhitespaceText(document.getDocumentElement());
             return serialize(document);
         } catch (Exception exception) {
             return xml.trim();
+        }
+    }
+
+    private static void removeWhitespaceText(org.w3c.dom.Node node) {
+        org.w3c.dom.NodeList children = node.getChildNodes();
+        for (int index = children.getLength() - 1; index >= 0; index--) {
+            org.w3c.dom.Node child = children.item(index);
+            if (child.getNodeType() == org.w3c.dom.Node.TEXT_NODE && child.getTextContent().isBlank()
+                    && children.getLength() > 1) {
+                node.removeChild(child);
+            } else if (child.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+                removeWhitespaceText(child);
+            }
         }
     }
 
@@ -450,7 +465,8 @@ final class XmlPayloadSupport {
             transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "2");
             StringWriter writer = new StringWriter();
             transformer.transform(new DOMSource(document), new StreamResult(writer));
-            return writer.toString().trim();
+            // The transformer uses the platform line separator; send the same body on every server.
+            return writer.toString().replace("\r\n", "\n").trim();
         } catch (Exception exception) {
             throw new IllegalArgumentException("Failed to serialize XML: " + exception.getMessage());
         }

@@ -8,6 +8,7 @@ public enum AuditAction {
     RELOADED,
     PUBLISHED,
     EXPORTED,
+    IMPORTED,
     LOGGED_IN,
     LOGIN_FAILED,
     LOGGED_OUT,

@@ -31,6 +31,8 @@ final class DataRowRun {
     static RunTestResult run(StudioTestCase testCase, List<DataRows.Row> rows, Map<String, String> variables,
                              Sender sender) {
         Set<String> produced = CaseVariables.producedNames(testCase.getExtracts());
+        Set<String> columns = new java.util.HashSet<>();
+        rows.forEach(row -> columns.addAll(DataRows.variables(row).keySet()));
         List<RunTestResult> results = new ArrayList<>();
         for (DataRows.Row row : rows) {
             Map<String, String> rowValues = DataRows.variables(row);
@@ -42,7 +44,7 @@ final class DataRowRun {
             } catch (IllegalArgumentException invalid) {
                 result = failed(testCase, invalid.getMessage());
             }
-            results.add(result.withRow(row.label()));
+            results.add(explainMissingCell(result, row.label(), rowValues, columns).withRow(row.label()));
             iteration.forEach((name, value) -> {
                 if (!rowValues.containsKey(name) || produced.contains(name)) {
                     variables.put(name, value);
@@ -50,6 +52,26 @@ final class DataRowRun {
             });
         }
         return summary(testCase, results);
+    }
+
+    /**
+     * A column other rows have but this one doesn't (an empty CSV cell leaves it out) fails as "Unresolved variable",
+     * whose advice points at environment variables. Say which row and column instead.
+     */
+    static RunTestResult explainMissingCell(RunTestResult result, String rowLabel, Map<String, String> rowValues,
+                                            Set<String> columns) {
+        String error = result.error();
+        if (error == null || !error.startsWith("Unresolved variable {{")) {
+            return result;
+        }
+        int end = error.indexOf("}}");
+        String name = end < 0 ? "" : error.substring("Unresolved variable {{".length(), end);
+        String column = name.startsWith(DataRows.DATA_PREFIX) ? name.substring(DataRows.DATA_PREFIX.length()) : name;
+        if (!columns.contains(column) || rowValues.containsKey(column)) {
+            return result;
+        }
+        return result.withError("Data row \"" + rowLabel + "\" has no value for {{" + name + "}}: fill in its "
+                + column + " cell. An empty cell leaves the column out of that row.");
     }
 
     private static RunTestResult failed(StudioTestCase testCase, String message) {

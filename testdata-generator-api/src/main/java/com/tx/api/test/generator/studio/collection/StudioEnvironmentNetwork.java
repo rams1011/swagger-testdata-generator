@@ -143,9 +143,13 @@ public record StudioEnvironmentNetwork(
                 throw new CollectionFormatException("CA certificate text has no certificate");
             }
             return certificates;
-        } catch (CertificateException exception) {
-            throw new CollectionFormatException("CA certificate is not a valid PEM certificate: "
-                    + StringUtils.defaultString(exception.getMessage()));
+        } catch (CertificateException | RuntimeException exception) {
+            if (exception instanceof CollectionFormatException format) {
+                throw format;
+            }
+            // The parser's own message names Java classes, which the API hides behind a generic error; say what to check.
+            throw new CollectionFormatException("CA certificate is not a valid PEM certificate: check that the text "
+                    + "between -----BEGIN CERTIFICATE----- and -----END CERTIFICATE----- is complete and unchanged");
         }
     }
 }

@@ -81,6 +81,7 @@ public final class ManualSpecDocument {
 
         String method = requireMethod(request == null ? null : request.method());
         String path = normalizePath(request == null ? null : request.path());
+        requireValidPath(path);
         String methodKey = method.toLowerCase(Locale.ROOT);
         JsonObject pathItem = paths.has(path) && paths.get(path).isJsonObject()
                 ? paths.getAsJsonObject(path)
@@ -109,6 +110,10 @@ public final class ManualSpecDocument {
             parameters.add(parameter(name, "query", false));
         }
         for (String name : namedList(request == null ? null : request.headerNames())) {
+            String problem = com.tx.api.test.generator.studio.collection.HeaderRules.problem(name, null);
+            if (problem != null) {
+                throw new IllegalArgumentException(StringUtils.capitalize(problem));
+            }
             parameters.add(parameter(name, "header", false));
         }
         if (parameters.size() > 0) {
@@ -233,6 +238,45 @@ public final class ManualSpecDocument {
             value = "/" + value;
         }
         return value.replaceAll("/{2,}", "/");
+    }
+
+    /**
+     * A path is the part after the base URL: no spaces, no query string or fragment (list query parameters
+     * separately), and every {name} closed and named.
+     */
+    static void requireValidPath(String path) {
+        if (path.chars().anyMatch(Character::isWhitespace)) {
+            throw new IllegalArgumentException("Path can't contain spaces: " + path);
+        }
+        if (path.contains("?") || path.contains("#")) {
+            throw new IllegalArgumentException("Leave the query string out of the path and list query parameters "
+                    + "under Query parameters: " + path);
+        }
+        int depth = 0;
+        StringBuilder name = new StringBuilder();
+        for (char character : path.toCharArray()) {
+            if (character == '{') {
+                if (depth > 0) {
+                    throw new IllegalArgumentException("Path parameters can't be nested: " + path);
+                }
+                depth = 1;
+                name.setLength(0);
+            } else if (character == '}') {
+                if (depth == 0) {
+                    throw new IllegalArgumentException("Path has a } without a {: " + path);
+                }
+                if (!name.toString().matches("[A-Za-z_][A-Za-z0-9_.-]*")) {
+                    throw new IllegalArgumentException("Name each path parameter with letters, digits, _, . or -, "
+                            + "as in {id}: " + path);
+                }
+                depth = 0;
+            } else if (depth > 0) {
+                name.append(character);
+            }
+        }
+        if (depth > 0) {
+            throw new IllegalArgumentException("Close every { in the path with }: " + path);
+        }
     }
 
     private static String operationId(String method, String path) {

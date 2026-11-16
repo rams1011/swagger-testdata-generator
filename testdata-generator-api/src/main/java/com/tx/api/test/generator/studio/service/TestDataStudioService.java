@@ -775,6 +775,9 @@ public class TestDataStudioService {
         String environmentName = environmentName(specId, environmentId);
         CollectionImportResult imported = CollectionImporter.importInto(
                 studioStorage, bytes, fileName, specId, environmentName);
+        auditService.recordImported(imported.specId(), "Collection", fileName,
+                "plan " + imported.planName() + (environmentName == null ? "" : ", environment " + environmentName)
+                        + ": " + imported.createdCases() + " created, " + imported.updatedCases() + " updated");
         log.info("Imported collection into spec {} plan {} (created={}, updated={}, files={})",
                 imported.specName(), imported.planName(), imported.createdCases(), imported.updatedCases(),
                 imported.importedFiles());
@@ -811,6 +814,7 @@ public class TestDataStudioService {
             specCatalogService.rename(specId, new SaveSpecRequest(null, null, summary.baseUrl(), null, null));
             applied = true;
         }
+        auditService.recordImported(specId, "Environment", summary.name(), created ? "created" : "updated");
         log.info("Imported environment {} into spec {} (applied={})", summary.name(), specId, applied);
         return new EnvironmentImportResult(specId, stored.getId(), summary.name(), summary.baseUrl(), applied, created);
     }
@@ -993,47 +997,17 @@ public class TestDataStudioService {
         return limitedText("Environment name", trimmed, MAX_NAME_LENGTH);
     }
 
-    /**
-     * An environment's base URL is an http or https address with a host (and a port from 1 to 65535); the UI checks the
-     * same. A {{variable}} in it is left to run time.
-     */
+    /** Delegates kept for the existing callers; the rules live in {@link InputRules}. */
     static void requireHttpBaseUrl(String baseUrl) {
-        String text = baseUrl.trim();
-        if (text.contains("{{")) {
-            return;
-        }
-        if (!text.regionMatches(true, 0, "http://", 0, 7) && !text.regionMatches(true, 0, "https://", 0, 8)) {
-            throw new IllegalArgumentException("Base URL must start with http:// or https://");
-        }
-        if (text.chars().anyMatch(Character::isWhitespace)) {
-            throw new IllegalArgumentException("Base URL can't contain spaces");
-        }
-        java.net.URI uri;
-        try {
-            uri = new java.net.URI(text);
-        } catch (java.net.URISyntaxException invalid) {
-            throw new IllegalArgumentException("Base URL is not a valid URL");
-        }
-        if (StringUtils.isBlank(uri.getHost())) {
-            throw new IllegalArgumentException("Base URL needs a host name, such as https://api.example.com");
-        }
-        if (uri.getPort() == 0 || uri.getPort() > 65535) {
-            throw new IllegalArgumentException("Base URL port must be from 1 to 65535");
-        }
+        InputRules.requireHttpBaseUrl("Base URL", baseUrl);
     }
 
-    /** Names are VARCHAR(255) and groups VARCHAR(128): longer text is refused here, not by the database. */
-    static final int MAX_NAME_LENGTH = 255;
-    static final int MAX_GROUP_LENGTH = 128;
-    /** The same cap as a run's request timeout (testdata.run.max-request-timeout-ms default). */
-    static final long MAX_RESPONSE_TIME_MS = 300_000L;
+    static final int MAX_NAME_LENGTH = InputRules.MAX_NAME_LENGTH;
+    static final int MAX_GROUP_LENGTH = InputRules.MAX_GROUP_LENGTH;
+    static final long MAX_RESPONSE_TIME_MS = InputRules.MAX_RESPONSE_TIME_MS;
 
     static String limitedText(String label, String value, int max) {
-        if (value != null && value.length() > max) {
-            throw new IllegalArgumentException(label + " can be at most " + max + " characters (it has "
-                    + value.length() + ")");
-        }
-        return value;
+        return InputRules.limitedText(label, value, max);
     }
 
     private void rejectDuplicateEnvironmentName(String specId, String name, String excludeId) {
@@ -1664,7 +1638,7 @@ public class TestDataStudioService {
         if (StringUtils.isBlank(name)) {
             throw new IllegalArgumentException("Plan name is required");
         }
-        return name.trim();
+        return limitedText("Plan name", name.trim(), MAX_NAME_LENGTH);
     }
 
     private void rejectDuplicatePlanName(String specId, String name, String excludePlanId) {

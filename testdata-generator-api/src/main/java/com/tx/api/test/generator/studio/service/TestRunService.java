@@ -619,6 +619,10 @@ public class TestRunService {
             if (StringUtils.isBlank(auth.username())) {
                 throw new IllegalArgumentException("Basic auth needs a user name: enter it under Auth");
             }
+            if (auth.username().contains(":")) {
+                // Basic sends "user:password", so a colon would move part of the user name into the password.
+                throw new IllegalArgumentException("A Basic auth user name can't contain a colon (:)");
+            }
             String token = Base64.getEncoder().encodeToString(
                     (auth.username() + ":" + StringUtils.defaultString(auth.password()))
                             .getBytes(StandardCharsets.UTF_8));
