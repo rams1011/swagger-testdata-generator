@@ -148,6 +148,17 @@ class JsonPathEvaluatorTest {
     }
 
     @Test
+    void unclosedFilterDoesNotSwallowTheNextCheck() {
+        Map<String, String> parsed = JsonPathEvaluator.parseAssertions(
+                "$.items[?(@.name == \"a\"=|header:Content-Type=application/json|$.id=1");
+
+        assertEquals("", parsed.get("$.items[?(@.name == \"a\"="));
+        assertEquals("application/json", parsed.get("header:Content-Type"));
+        assertEquals("1", parsed.get("$.id"));
+        assertEquals(3, parsed.size());
+    }
+
+    @Test
     void extractUnwrapsASingleFilterMatch() {
         var root = JsonParser.parseString(ORDERS);
 

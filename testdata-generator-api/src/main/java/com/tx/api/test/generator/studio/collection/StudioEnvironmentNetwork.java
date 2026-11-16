@@ -20,6 +20,8 @@ import java.util.Locale;
  *   <li>{@code verifySsl}: check the server certificate and host name. Default on; off accepts self-signed certs.</li>
  *   <li>{@code caCertificate}: extra trusted CA certificates (PEM), on top of the default trust store.</li>
  *   <li>{@code proxyUrl}: {@code http://host:port} HTTP(S) proxy for the API calls (no credentials in the URL).</li>
+ *   <li>{@code proxyUsername} / {@code proxyPassword}: credentials for a proxy that asks for them. The password must
+ *   be a {@code {{variable}}} (a secret variable), so no proxy password is stored; both resolve at run time.</li>
  *   <li>{@code requestTimeoutMs}: how long to wait for a response, instead of the case's max time + 5 s.</li>
  * </ul>
  */
@@ -28,9 +30,18 @@ public record StudioEnvironmentNetwork(
         Boolean verifySsl,
         String caCertificate,
         String proxyUrl,
-        Long requestTimeoutMs
+        Long requestTimeoutMs,
+        String proxyUsername,
+        String proxyPassword
 ) {
     public static final long MIN_TIMEOUT_MS = 1_000L;
+    private static final java.util.regex.Pattern SINGLE_PLACEHOLDER = java.util.regex.Pattern.compile("^[{]{2}[^{}]+[}]{2}$");
+
+    /** Settings without proxy credentials. */
+    public StudioEnvironmentNetwork(Boolean followRedirects, Boolean verifySsl, String caCertificate, String proxyUrl,
+                                    Long requestTimeoutMs) {
+        this(followRedirects, verifySsl, caCertificate, proxyUrl, requestTimeoutMs, null, null);
+    }
 
     public boolean followsRedirects() {
         return Boolean.TRUE.equals(followRedirects);
@@ -42,7 +53,8 @@ public record StudioEnvironmentNetwork(
 
     public boolean isDefault() {
         return !followsRedirects() && verifiesSsl() && StringUtils.isBlank(caCertificate)
-                && StringUtils.isBlank(proxyUrl) && requestTimeoutMs == null;
+                && StringUtils.isBlank(proxyUrl) && requestTimeoutMs == null
+                && StringUtils.isBlank(proxyUsername) && StringUtils.isBlank(proxyPassword);
     }
 
     /** Trimmed and validated copy; {@code null} when every setting is the default. */
@@ -65,10 +77,22 @@ public record StudioEnvironmentNetwork(
         if (timeout != null && timeout < MIN_TIMEOUT_MS) {
             throw new CollectionFormatException("Request timeout must be at least " + MIN_TIMEOUT_MS + " ms");
         }
+        String proxyUser = StringUtils.trimToNull(network.proxyUsername());
+        String proxyPassword = StringUtils.trimToNull(network.proxyPassword());
+        if ((proxyUser != null || proxyPassword != null) && proxy == null) {
+            throw new CollectionFormatException("Proxy user name and password need a proxy URL");
+        }
+        if (proxyPassword != null && proxyUser == null) {
+            throw new CollectionFormatException("Proxy password needs a proxy user name");
+        }
+        if (proxyPassword != null && !SINGLE_PLACEHOLDER.matcher(proxyPassword).matches()) {
+            throw new CollectionFormatException("Proxy password must be a variable such as {{proxyPassword}}: "
+                    + "add it as a secret variable, so the password isn't stored");
+        }
         StudioEnvironmentNetwork normalized = new StudioEnvironmentNetwork(
                 Boolean.TRUE.equals(network.followRedirects()) ? Boolean.TRUE : null,
                 Boolean.FALSE.equals(network.verifySsl()) ? Boolean.FALSE : null,
-                ca, proxy, timeout);
+                ca, proxy, timeout, proxyUser, proxyPassword);
         return normalized.isDefault() ? null : normalized;
     }
 

@@ -204,7 +204,7 @@ final class JsonPathEvaluator {
                 continue;
             }
             if (scanner.inPath) {
-                if (ch == '|' && scanner.topLevel()) {
+                if (ch == '|' && (scanner.topLevel() || startsNextAssertion(serialized, i))) {
                     parts.add(current.toString());
                     current.setLength(0);
                     scanner = new PathScanner();
@@ -284,6 +284,18 @@ final class JsonPathEvaluator {
             parts.add(current.toString());
         }
         current.setLength(0);
+    }
+
+    /**
+     * True when the text after this bar is the next check ({@code $…}, {@code header:}, {@code cookie:},
+     * {@code xpath:}). An unclosed filter must not swallow that check. {@code ||} inside a filter does not match.
+     */
+    private static boolean startsNextAssertion(String serialized, int barIndex) {
+        String rest = serialized.substring(barIndex + 1).trim();
+        return rest.startsWith("$")
+                || rest.regionMatches(true, 0, "header:", 0, "header:".length())
+                || rest.regionMatches(true, 0, "cookie:", 0, "cookie:".length())
+                || rest.regionMatches(true, 0, "xpath:", 0, "xpath:".length());
     }
 
     /** Index of the {@code =} that ends the path, ignoring any inside brackets, parentheses or quotes. */
@@ -659,9 +671,9 @@ final class JsonPathEvaluator {
             JsonPath compiled;
             try {
                 compiled = JsonPath.compile(path);
-            } catch (InvalidPathException exception) {
+            } catch (RuntimeException exception) {
                 throw new IllegalArgumentException("Ignore field " + raw + " is not a valid JSONPath: "
-                        + StringUtils.defaultString(exception.getMessage()));
+                        + readableProblem(exception));
             }
             try {
                 compiled.delete(copy, JAYWAY);
@@ -669,10 +681,37 @@ final class JsonPathEvaluator {
                 // Nothing to ignore at this path in this body.
             } catch (InvalidPathException exception) {
                 throw new IllegalArgumentException("Ignore field " + raw + " is not a valid JSONPath: "
-                        + StringUtils.defaultString(exception.getMessage()));
+                        + readableProblem(exception));
             }
         }
         return copy;
+    }
+
+    /** Why an ignore field can't be used (for saving a case), or null when it compiles. */
+    public static String ignoreFieldProblem(String raw) {
+        String path = normalizePath(raw);
+        if (StringUtils.isBlank(path) || "$".equals(path)) {
+            return null;
+        }
+        try {
+            JsonPath.compile(path);
+            return null;
+        } catch (RuntimeException exception) {
+            return "Ignore field " + raw + " is not a valid JSONPath: " + readableProblem(exception);
+        }
+    }
+
+    /**
+     * Jayway's own message when it is meant for people; a Java exception that leaked out of the parser (such as an
+     * index out of bounds on "$.[") becomes a plain hint instead.
+     */
+    static String readableProblem(RuntimeException exception) {
+        String message = StringUtils.defaultString(exception.getMessage()).trim();
+        if (message.isEmpty() || message.contains("java.") || message.contains("Exception")
+                || !(exception instanceof InvalidPathException)) {
+            return "check its brackets, dots and quotes";
+        }
+        return message;
     }
 
     private record Read(JsonElement value, boolean definite) {
