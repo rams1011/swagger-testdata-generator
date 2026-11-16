@@ -83,17 +83,31 @@ class InputRulesTest {
         String longName = "x".repeat(256);
         IllegalArgumentException environment = assertThrows(IllegalArgumentException.class,
                 () -> studio.createEnvironment(specId, new SaveEnvironmentRequest(longName, "http://127.0.0.1:1", "NONE")));
-        assertTrue(environment.getMessage().contains("at most 255"), environment.getMessage());
+        assertTrue(environment.getMessage().contains("at most 40"), environment.getMessage());
 
         IllegalArgumentException testName = assertThrows(IllegalArgumentException.class,
                 () -> studio.create(save(longName, null, 5000L, null)));
         assertTrue(testName.getMessage().startsWith("Test name can be at most 255"), testName.getMessage());
 
         IllegalArgumentException group = assertThrows(IllegalArgumentException.class,
-                () -> studio.create(save("Grouped", "g".repeat(129), 5000L, null)));
-        assertTrue(group.getMessage().startsWith("Group can be at most 128"), group.getMessage());
+                () -> studio.create(save("Grouped", "g".repeat(61), 5000L, null)));
+        assertTrue(group.getMessage().startsWith("Group can be at most 60"), group.getMessage());
 
-        studio.create(save("x".repeat(255), "g".repeat(128), 5000L, null));
+        studio.create(save("x".repeat(255), "g".repeat(60), 5000L, null));
+    }
+
+    @Test
+    void aLongerNameStoredEarlierStillSavesButANewOneMustFit() {
+        String imported = "Environment imported with a name longer than forty chars";
+        String file = "{\"format\":\"testdata.studio.environment\",\"version\":1,\"name\":\"" + imported
+                + "\",\"values\":{\"baseUrl\":\"http://127.0.0.1:1\"},\"auth\":{\"type\":\"NONE\"},\"cases\":{}}";
+        String environmentId = studio.importEnvironment(file.getBytes(java.nio.charset.StandardCharsets.UTF_8), specId, false)
+                .environmentId();
+
+        studio.updateEnvironment(specId, environmentId, new SaveEnvironmentRequest(imported, "http://127.0.0.1:2", null));
+        IllegalArgumentException renamed = assertThrows(IllegalArgumentException.class, () -> studio.updateEnvironment(
+                specId, environmentId, new SaveEnvironmentRequest(imported + " renamed", null, null)));
+        assertTrue(renamed.getMessage().startsWith("Environment name can be at most 40"), renamed.getMessage());
     }
 
     @Test
@@ -126,6 +140,12 @@ class InputRulesTest {
         EnvironmentSummary second = studio.createEnvironment(specId,
                 new SaveEnvironmentRequest("Second", "http://127.0.0.1:1", "NONE"));
         studio.deleteEnvironment(specId, second.id());
+    }
+
+    @Test
+    void theRuntimeConfigCarriesTheNameLimitsTheUiUses() {
+        assertEquals("collection=100,label=40,plan=60,environment=40,group=60,testName=255",
+                studio.runtimeConfig().get("nameLimits"));
     }
 
     @Test

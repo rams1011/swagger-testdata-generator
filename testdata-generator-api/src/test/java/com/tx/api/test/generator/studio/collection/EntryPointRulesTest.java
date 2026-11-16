@@ -67,8 +67,8 @@ class EntryPointRulesTest {
         assertMessage("API base URL must start with", () -> catalog.load(load("Bad base", null, "not a url")));
         assertMessage("API base URL port must be from 1 to 65535",
                 () -> catalog.load(load("Bad port", null, "https://httpbin.org:99999")));
-        assertMessage("Collection name can be at most 255", () -> catalog.load(load("n".repeat(300), null, null)));
-        assertMessage("Label can be at most 255", () -> catalog.load(load("Long label", "l".repeat(300), null)));
+        assertMessage("Collection name can be at most 100", () -> catalog.load(load("n".repeat(101), null, null)));
+        assertMessage("Label can be at most 40", () -> catalog.load(load("Long label", "l".repeat(41), null)));
         String name = catalog.getSummary(specId).name();
         assertMessage("A collection named", () -> catalog.load(load(name.toUpperCase(), null, null)));
         assertMessage("API base URL must start with", () -> catalog.load(
@@ -82,8 +82,8 @@ class EntryPointRulesTest {
 
     @Test
     void planNamesAreLimited() {
-        assertMessage("Plan name can be at most 255",
-                () -> studio.createPlan(specId, new SaveTestPlanRequest("p".repeat(300), null)));
+        assertMessage("Plan name can be at most 60",
+                () -> studio.createPlan(specId, new SaveTestPlanRequest("p".repeat(61), null)));
     }
 
     @Test

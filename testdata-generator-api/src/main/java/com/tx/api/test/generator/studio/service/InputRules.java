@@ -11,13 +11,46 @@ import org.apache.commons.lang3.StringUtils;
  */
 public final class InputRules {
 
-    /** Names are VARCHAR(255) and groups VARCHAR(128). */
+    /** Names are VARCHAR(255) and groups VARCHAR(128): the most an imported file may bring in. */
     public static final int MAX_NAME_LENGTH = 255;
     public static final int MAX_GROUP_LENGTH = 128;
+
+    /*
+     * What a person types. These names are labels shown in the sidebar, the workspace bar, dropdowns, chips and
+     * exported file names, so they are kept to what reads well there. Test names stay at the storage limit: the case
+     * generator builds them from the operation summary plus a description such as
+     * "— missing required body field customer.address.postcode — 400".
+     */
+    public static final int MAX_COLLECTION_NAME = 100;
+    public static final int MAX_LABEL = 40;
+    public static final int MAX_PLAN_NAME = 60;
+    public static final int MAX_ENVIRONMENT_NAME = 40;
+    public static final int MAX_GROUP = 60;
+    public static final int MAX_TEST_NAME = MAX_NAME_LENGTH;
+
+    /**
+     * The typed-name limits for the UI, sent in the runtime config as {@code name=number} pairs, so the UI's inputs use
+     * these numbers instead of keeping their own copy.
+     */
+    public static String nameLimitsConfig() {
+        return "collection=" + MAX_COLLECTION_NAME + ",label=" + MAX_LABEL + ",plan=" + MAX_PLAN_NAME
+                + ",environment=" + MAX_ENVIRONMENT_NAME + ",group=" + MAX_GROUP + ",testName=" + MAX_TEST_NAME;
+    }
     /** The same cap as a run's request timeout (testdata.run.max-request-timeout-ms default). */
     public static final long MAX_RESPONSE_TIME_MS = 300_000L;
 
     private InputRules() {
+    }
+
+    /**
+     * Like {@link #limitedText}, but a value equal to {@code previous} is let through: a name stored before the limit
+     * (or brought in by an import) doesn't stop saving other changes, only renaming it does.
+     */
+    public static String limitedName(String label, String value, int max, String previous) {
+        if (value != null && previous != null && value.trim().equals(previous.trim())) {
+            return value;
+        }
+        return limitedText(label, value, max);
     }
 
     /** {@code value} unchanged when it fits; otherwise a message naming {@code label}. */

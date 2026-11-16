@@ -133,7 +133,7 @@ public class TestDataStudioService {
     public TestPlanView createPlan(String specId, SaveTestPlanRequest request) {
         specCatalogService.requireSpec(specId);
         ensureDefaultPlan(specId);
-        String name = requirePlanName(request == null ? null : request.name());
+        String name = requirePlanName(request == null ? null : request.name(), null);
         rejectDuplicatePlanName(specId, name, null);
         StudioTestPlan plan = new StudioTestPlan();
         plan.setId(UUID.randomUUID().toString());
@@ -146,7 +146,7 @@ public class TestDataStudioService {
 
     public TestPlanView updatePlan(String specId, String planId, SaveTestPlanRequest request) {
         StudioTestPlan plan = requirePlan(specId, planId);
-        String name = requirePlanName(request == null ? null : request.name());
+        String name = requirePlanName(request == null ? null : request.name(), plan.getName());
         rejectDuplicatePlanName(specId, name, planId);
         plan.setName(name);
         plan.setDescription(request == null ? null : StringUtils.trimToNull(request.description()));
@@ -863,7 +863,7 @@ public class TestDataStudioService {
 
     public EnvironmentSummary createEnvironment(String specId, SaveEnvironmentRequest request) {
         specCatalogService.requireSpec(specId);
-        String name = requireEnvironmentName(request == null ? null : request.name());
+        String name = requireEnvironmentName(request == null ? null : request.name(), null);
         rejectDuplicateEnvironmentName(specId, name, null);
         String baseUrl = request == null ? null : request.baseUrl();
         if (StringUtils.isBlank(baseUrl)) {
@@ -879,7 +879,7 @@ public class TestDataStudioService {
 
     public EnvironmentSummary updateEnvironment(String specId, String environmentId, SaveEnvironmentRequest request) {
         StoredEnvironment stored = requireEnvironment(specId, environmentId);
-        String name = requireEnvironmentName(request == null ? null : request.name());
+        String name = requireEnvironmentName(request == null ? null : request.name(), stored.getName());
         rejectDuplicateEnvironmentName(specId, name, environmentId);
         if (request != null && StringUtils.isNotBlank(request.baseUrl())) {
             requireHttpBaseUrl(request.baseUrl());
@@ -989,12 +989,12 @@ public class TestDataStudioService {
         return EnvironmentExporter.upsert(studioStorage, specId, environment);
     }
 
-    private static String requireEnvironmentName(String name) {
+    private static String requireEnvironmentName(String name, String previous) {
         String trimmed = StringUtils.trimToNull(name);
         if (trimmed == null) {
             throw new IllegalArgumentException("Environment name is required");
         }
-        return limitedText("Environment name", trimmed, MAX_NAME_LENGTH);
+        return InputRules.limitedName("Environment name", trimmed, InputRules.MAX_ENVIRONMENT_NAME, previous);
     }
 
     /** Delegates kept for the existing callers; the rules live in {@link InputRules}. */
@@ -1034,6 +1034,7 @@ public class TestDataStudioService {
         config.put("redisCacheStatus", cacheDiagnostics.status().name().toLowerCase(Locale.ROOT));
         config.put("redisCacheDetail", cacheDiagnostics.detail());
         config.put("dynamicVariables", String.join(",", DynamicVariables.NAMES));
+        config.put("nameLimits", InputRules.nameLimitsConfig());
         config.put("oidcEnabled", String.valueOf(properties.isOidcEnabled()));
         config.put("oidcAllowRegistration", String.valueOf(properties.getAuth().getOidc().isAllowRegistration()));
         config.put("githubEnabled", String.valueOf(properties.isGithubEnabled()));
@@ -1183,6 +1184,12 @@ public class TestDataStudioService {
             testCase.setLifecycle(CaseLifecycle.normalize(request.lifecycle()));
         } else if (StringUtils.isBlank(testCase.getLifecycle())) {
             testCase.setLifecycle(CaseLifecycle.READY);
+        }
+        // A group typed on the case is kept short; one that defaults to the API's tag, or was stored before, only
+        // has to fit the column.
+        String typedGroup = StringUtils.trimToNull(request.testGroup());
+        if (typedGroup != null) {
+            InputRules.limitedName("Group", typedGroup, InputRules.MAX_GROUP, testCase.getTestGroup());
         }
         testCase.setTestGroup(limitedText("Group", StringUtils.defaultIfBlank(request.testGroup(), operation.tag()),
                 MAX_GROUP_LENGTH));
@@ -1637,11 +1644,11 @@ public class TestDataStudioService {
         return plan;
     }
 
-    private String requirePlanName(String name) {
+    private String requirePlanName(String name, String previous) {
         if (StringUtils.isBlank(name)) {
             throw new IllegalArgumentException("Plan name is required");
         }
-        return limitedText("Plan name", name.trim(), MAX_NAME_LENGTH);
+        return InputRules.limitedName("Plan name", name.trim(), InputRules.MAX_PLAN_NAME, previous);
     }
 
     private void rejectDuplicatePlanName(String specId, String name, String excludePlanId) {
