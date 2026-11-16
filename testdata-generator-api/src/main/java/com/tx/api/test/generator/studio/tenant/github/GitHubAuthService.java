@@ -102,8 +102,10 @@ public class GitHubAuthService {
         if (StringUtils.isBlank(code) || StringUtils.isBlank(state)) {
             return uiBase + "/login/oidc?error=" + encode("Sign-in was cancelled or incomplete");
         }
-        OidcPendingState pending = tenantStore.consumeOidcState(state.trim())
-                .orElseThrow(() -> new UnauthenticatedException("Sign-in expired — try again"));
+        OidcPendingState pending = tenantStore.consumeOidcState(state.trim()).orElse(null);
+        if (pending == null) {
+            return errorRedirect(OidcAuthService.EXPIRED_MESSAGE);
+        }
         OidcAuthService.OidcUser user = exchangeCode(code.trim(), pending.codeVerifier());
         boolean needsRegistration = needsRegistration(user, pending.intent());
         String exchangeId = UUID.randomUUID().toString();
@@ -331,6 +333,11 @@ public class GitHubAuthService {
             return null;
         }
         return object.get(name).getAsString();
+    }
+
+    /** Where a failed GitHub sign-in sends the browser: the UI's sign-in page with a message, never a JSON error. */
+    public String errorRedirect(String message) {
+        return properties.getAuth().getGithub().resolvedUiBase() + "/login/oidc?error=" + encode(message);
     }
 
     private static String encode(String value) {

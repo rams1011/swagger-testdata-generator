@@ -17,11 +17,17 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 
 @RestController
 @RequestMapping("/api/auth/oidc")
 public class OidcAuthController {
+
+    private static final Logger log = LoggerFactory.getLogger(OidcAuthController.class);
+    static final String UNFINISHED_MESSAGE = "Google sign-in didn't finish. Sign in again.";
 
     private final StudioProperties properties;
     private final OidcAuthService oidcAuthService;
@@ -48,8 +54,15 @@ public class OidcAuthController {
                          @RequestParam(required = false) String error,
                          @RequestParam(required = false, name = "error_description") String errorDescription,
                          HttpServletResponse response) throws IOException {
-        requireOidc();
-        String redirect = oidcAuthService.completeCallback(code, state, error, errorDescription);
+        // The browser lands here from Google, so every failure goes back to the sign-in page, never a JSON error.
+        String redirect;
+        try {
+            requireOidc();
+            redirect = oidcAuthService.completeCallback(code, state, error, errorDescription);
+        } catch (RuntimeException exception) {
+            log.warn("Google sign-in callback failed: {}", exception.getMessage());
+            redirect = oidcAuthService.errorRedirect(UNFINISHED_MESSAGE);
+        }
         response.sendRedirect(redirect);
     }
 
