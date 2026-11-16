@@ -101,6 +101,7 @@ public class SpecCatalogService {
             return createManual(request);
         }
         requireSpecSlot();
+        requireCollectionFields(request);
         String content = resolveContent(request);
         OpenAPI openApi = parseSpec(content);
         List<OperationPage> operations = TestdataGenerator.inspect(openApi, request.baseUrl());
@@ -122,6 +123,9 @@ public class SpecCatalogService {
         );
         cacheLoadedSpec(specId, loadedSpec);
         studioStorage.saveSpec(toStoredSpec(loadedSpec, request, content, name));
+        if (auditService != null) {
+            auditService.recordSpecCreated(specId, name, "created from an API definition with " + operations.size() + " operations");
+        }
         log.info("Loaded spec {} ({}) with {} operations", specId, name, operations.size());
         return toSummary(loadedSpec, request == null ? null : request.location(),
                 request == null ? null : request.label());
@@ -129,6 +133,7 @@ public class SpecCatalogService {
 
     public SpecSummary createManual(LoadSpecRequest request) {
         requireSpecSlot();
+        requireCollectionFields(request);
         String name = requireUniqueName(request == null ? null : request.name(), null);
         String baseUrl = firstNonBlank(request == null ? null : request.baseUrl(), "http://localhost:8080");
         String content = ManualSpecDocument.emptyCatalog(name, baseUrl);
@@ -149,6 +154,9 @@ public class SpecCatalogService {
                 new LoadSpecRequest(null, content, null, baseUrl, name,
                         request == null ? null : request.label(), true, null, null),
                 content, name));
+        if (auditService != null) {
+            auditService.recordSpecCreated(specId, name, "created as a REST catalog");
+        }
         log.info("Created manual catalog {} ({})", specId, name);
         return toSummary(loadedSpec, null, request == null ? null : request.label());
     }
@@ -187,10 +195,14 @@ public class SpecCatalogService {
             stored.setName(requireUniqueName(request.name(), specId));
         }
         if (updateLabel) {
+            InputRules.limitedText("Label", StringUtils.trimToNull(request.label()), InputRules.MAX_NAME_LENGTH);
             stored.setLabel(normalizeLabel(request.label()));
         }
         String previousBaseUrl = stored.getBaseUrl();
         if (updateBaseUrl) {
+            if (StringUtils.isNotBlank(request.baseUrl())) {
+                InputRules.requireHttpBaseUrl("Base URL", request.baseUrl());
+            }
             stored.setBaseUrl(resolveUpdatedBaseUrl(stored, request.baseUrl()));
         }
         // Applying an environment re-sends its base URL on every save; when nothing differs, nothing is written,
@@ -702,6 +714,20 @@ public class SpecCatalogService {
                 .orElse(StoredSpec.DEFAULT_LABEL);
     }
 
+    /** The name, label and base URL a new collection is created with (the name's uniqueness is checked later). */
+    private static void requireCollectionFields(LoadSpecRequest request) {
+        if (request == null) {
+            return;
+        }
+        if (request.name() != null) {
+            InputRules.limitedText("Collection name", request.name().trim(), InputRules.MAX_NAME_LENGTH);
+        }
+        InputRules.limitedText("Label", StringUtils.trimToNull(request.label()), InputRules.MAX_NAME_LENGTH);
+        if (StringUtils.isNotBlank(request.baseUrl())) {
+            InputRules.requireHttpBaseUrl("API base URL", request.baseUrl());
+        }
+    }
+
     private static String normalizeLabel(String label) {
         if (StringUtils.isBlank(label)) {
             return StoredSpec.DEFAULT_LABEL;
@@ -719,13 +745,14 @@ public class SpecCatalogService {
     private String requireUniqueName(String name, String excludeSpecId) {
         String trimmed = StringUtils.trimToNull(name);
         if (trimmed == null) {
-            throw new IllegalArgumentException("Spec name is required and must be unique");
+            throw new IllegalArgumentException("Collection name is required and must be unique");
         }
+        InputRules.limitedText("Collection name", trimmed, InputRules.MAX_NAME_LENGTH);
         boolean duplicate = studioStorage.listSpecs().stream()
                 .anyMatch(spec -> !spec.getSpecId().equals(excludeSpecId)
                         && trimmed.equalsIgnoreCase(StringUtils.trimToEmpty(spec.getName())));
         if (duplicate) {
-            throw new IllegalArgumentException("A spec named '" + trimmed + "' already exists");
+            throw new IllegalArgumentException("A collection named '" + trimmed + "' already exists");
         }
         return trimmed;
     }

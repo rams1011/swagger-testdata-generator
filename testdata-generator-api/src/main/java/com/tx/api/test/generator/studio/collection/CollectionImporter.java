@@ -6,6 +6,7 @@ import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
+import com.tx.api.test.generator.studio.service.InputRules;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 import org.apache.commons.lang3.StringUtils;
 
@@ -55,9 +56,20 @@ public final class CollectionImporter {
         CollectionMapper.validate(collection);
         List<StudioVariable> variables = StudioVariables.normalize(collection.variables(), "Collection");
         SharedSettings settings = collection.settings() == null ? null : SharedSettings.normalize(collection.settings());
+        CollectionSnapshot snapshot = CollectionMapper.toSnapshot(collection);
+        // Check every case before writing anything, with the rules a save applies, so one bad case leaves the
+        // collection as it was.
+        try {
+            InputRules.limitedText("Collection name", collection.spec().name().trim(), InputRules.MAX_NAME_LENGTH);
+            InputRules.limitedText("Plan name", collection.plan().name().trim(), InputRules.MAX_NAME_LENGTH);
+            for (StudioTestCase item : snapshot.cases()) {
+                InputRules.requireStorableCase(item, "Case \"" + StringUtils.abbreviate(item.getTestName(), 60) + "\"");
+            }
+        } catch (IllegalArgumentException invalid) {
+            throw new CollectionFormatException(invalid.getMessage());
+        }
         StoredSpec spec = resolveSpec(storage, collection, targetSpecId);
         PlanResolution plan = resolvePlan(storage, spec, collection.plan());
-        CollectionSnapshot snapshot = CollectionMapper.toSnapshot(collection);
         int created = 0;
         int updated = 0;
         int importedFiles = 0;
@@ -70,14 +82,14 @@ public final class CollectionImporter {
             testCase.setPlanId(plan.plan().getId());
             testCase.setBaseUrl(CollectionMapper.resolveStoredBaseUrl(
                     item.baseUrl(), collection.spec().baseUrl(), spec.getBaseUrl()));
+            java.util.Optional<StudioTestCase> existing = storage.findTestCase(testCase.getId());
             if (StringUtils.isNotBlank(environmentName)) {
-                testCase.setEnvironments(EnvironmentScope.normalize(List.of(environmentName)));
+                testCase.setEnvironments(importedEnvironments(existing.orElse(null), environmentName));
             }
             if (!publishReady) {
                 testCase.setLifecycle(CaseLifecycle.DRAFT);
             }
             ensureEnvironments(storage, spec.getSpecId(), testCase.getEnvironments());
-            java.util.Optional<StudioTestCase> existing = storage.findTestCase(testCase.getId());
             if (existing.isPresent()) {
                 updated++;
             } else {
@@ -120,6 +132,26 @@ public final class CollectionImporter {
                 importedFiles,
                 skippedFiles
         );
+    }
+
+    /**
+     * Where an imported case belongs: a new case goes to the environment it was imported into. A case that already
+     * exists keeps the environments it is in and gains that one, so importing with another environment selected never
+     * takes a case out of the environments it was in. A case in every environment (no list) stays there.
+     */
+    static List<String> importedEnvironments(StudioTestCase existing, String environmentName) {
+        if (existing == null) {
+            return EnvironmentScope.normalize(List.of(environmentName));
+        }
+        List<String> current = existing.getEnvironments();
+        if (current == null || current.isEmpty()) {
+            return current;
+        }
+        List<String> merged = new ArrayList<>(current);
+        if (merged.stream().noneMatch(name -> EnvironmentScope.matchesIgnoreCase(name, environmentName))) {
+            merged.add(environmentName);
+        }
+        return EnvironmentScope.normalize(merged);
     }
 
     private static StoredSpec resolveSpec(StudioStorage storage, StudioCollection collection, String targetSpecId) {

@@ -59,7 +59,7 @@ public class StudioAuditService {
 
     public void recordSpecRenamed(String specId, String name) {
         append(specId, AuditResourceType.SPEC, specId, AuditAction.RENAMED,
-                summary(name, "settings saved"));
+                collectionSummary(name, "settings saved"));
     }
 
     public void recordSpecReloaded(String specId, ReloadSpecResult result) {
@@ -72,7 +72,7 @@ public class StudioAuditService {
 
     public void recordSpecDeleted(String specId, String name) {
         append(specId, AuditResourceType.SPEC, specId, AuditAction.DELETED,
-                summary(name, "deleted"));
+                collectionSummary(name, "deleted"));
     }
 
     public void recordPublished(StudioTestCase testCase) {
@@ -81,6 +81,15 @@ public class StudioAuditService {
         }
         append(testCase.getSpecId(), AuditResourceType.CASE, testCase.getId(), AuditAction.PUBLISHED,
                 summary(testCase.getTestName(), "published"));
+    }
+
+    public void recordSpecCreated(String specId, String name, String how) {
+        append(specId, AuditResourceType.SPEC, specId, AuditAction.CREATED, collectionSummary(name, how));
+    }
+
+    public void recordImported(String specId, String kind, String fileName, String detail) {
+        append(specId, AuditResourceType.SPEC, specId, AuditAction.IMPORTED,
+                kind + " import " + StringUtils.defaultString(fileName) + (StringUtils.isBlank(detail) ? "" : " (" + detail + ")"));
     }
 
     public void recordExported(String specId, String kind, String fileName, int count) {
@@ -232,6 +241,10 @@ public class StudioAuditService {
             return "Test case " + verb;
         }
         return "Test case \"" + name.trim() + "\" " + verb;
+    }
+
+    private static String collectionSummary(String name, String verb) {
+        return StringUtils.isBlank(name) ? "Collection " + verb : "Collection \"" + name.trim() + "\" " + verb;
     }
 
     private static int clamp(int limit) {
