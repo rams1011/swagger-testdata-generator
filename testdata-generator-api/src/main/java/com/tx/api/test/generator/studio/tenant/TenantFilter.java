@@ -46,6 +46,11 @@ public class TenantFilter extends OncePerRequestFilter {
             return;
         }
         try {
+            if (isOperatorApi(request) && properties.isBillingEnabled()
+                    && !properties.isOperatorApiEnabled()) {
+                write(response, HttpServletResponse.SC_NOT_FOUND, "Not found");
+                return;
+            }
             if (isH2Console(request)) {
                 if (properties.isAuthEnabled()) {
                     forbidden(response, "H2 console is disabled when login is enabled");
@@ -129,6 +134,15 @@ public class TenantFilter extends OncePerRequestFilter {
         }
         return "POST".equalsIgnoreCase(method)
                 && ("/api/auth/password".equals(path) || "/api/auth/logout".equals(path));
+    }
+
+    /**
+     * The SaaS operator's endpoints: every organization's subscription. {@code /api/saas/subscription} (a customer's
+     * own plan) is not one of them.
+     */
+    static boolean isOperatorApi(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/api/saas/subscriptions".equals(path) || path.startsWith("/api/saas/subscriptions/");
     }
 
     private static boolean isPublic(HttpServletRequest request) {

@@ -180,6 +180,9 @@ testdata:
     admin-password: ${TESTDATA_SAAS_ADMIN_PASSWORD:}
     org-name: ${TESTDATA_SAAS_ORG_NAME:Studio}
     workspace-name: ${TESTDATA_SAAS_WORKSPACE_NAME:Default}
+    # SaaS operator endpoints (/api/saas/subscriptions*: every organization's plan). false answers 404, for a public
+    # deployment that leaves them to an internal one. A customer's own plan (/api/saas/subscription) stays.
+    operator-api: ${TESTDATA_SAAS_OPERATOR_API:true}
 
 logging:
   pattern:

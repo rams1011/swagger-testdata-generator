@@ -444,6 +444,70 @@ class TenantIsolationTest {
     }
 
     @Test
+    void operatorApiSwitchOffAnswers404() throws Exception {
+        properties.getSaas().setOperatorApi(false);
+        properties.getSaas().setAdminEmail("saas.admin@local.test");
+        properties.getSaas().setAdminPassword("saas-admin-1");
+        authService.ensureSaasAdmin();
+        var admin = authService.login(new LoginRequest("saas.admin@local.test", "saas-admin-1", null));
+        assertTrue(admin.saasAdmin());
+        assertFalse(admin.operatorApi());
+
+        TenantFilter filter = new TenantFilter(properties, authService, new EntitlementService(
+                properties, new FixedProvider<>(new JdbcTenantStore(new JdbcTemplate(dataSource)))));
+        for (String[] call : new String[][] {
+                {"GET", "/api/saas/subscriptions"}, {"PUT", "/api/saas/subscriptions/org-1"}}) {
+            MockHttpServletRequest request = new MockHttpServletRequest(call[0], call[1]);
+            request.addHeader("Authorization", "Bearer " + admin.token());
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            MockFilterChain chain = new MockFilterChain();
+            filter.doFilter(request, response, chain);
+            assertEquals(404, response.getStatus(), call[1]);
+            assertNull(chain.getRequest(), call[1]);
+        }
+
+        MockHttpServletRequest own = new MockHttpServletRequest("GET", "/api/saas/subscription");
+        own.addHeader("Authorization", "Bearer " + admin.token());
+        MockFilterChain ownChain = new MockFilterChain();
+        filter.doFilter(own, new MockHttpServletResponse(), ownChain);
+        assertTrue(ownChain.getRequest() != null, "a customer's own plan stays reachable");
+
+        AuthController controller = new AuthController(properties, authService);
+        TenantContext.runAs(admin.tenant().id(), admin.account().id(), "OWNER", () -> {
+            assertThrows(NoSuchElementException.class, controller::listSubscriptions);
+            assertThrows(NoSuchElementException.class, () -> controller.updateSubscription(
+                    "org-1", new UpdateSubscriptionRequest(true, null, null)));
+        });
+    }
+
+    @Test
+    void operatorApiIsOnByDefaultForSaasOnly() throws Exception {
+        assertTrue(new StudioProperties().getSaas().isOperatorApi());
+        assertTrue(properties.isOperatorApiEnabled());
+        properties.getSaas().setAdminEmail("saas.admin@local.test");
+        properties.getSaas().setAdminPassword("saas-admin-1");
+        authService.ensureSaasAdmin();
+        var admin = authService.login(new LoginRequest("saas.admin@local.test", "saas-admin-1", null));
+        assertTrue(admin.operatorApi());
+
+        TenantFilter filter = new TenantFilter(properties, authService, new EntitlementService(
+                properties, new FixedProvider<>(new JdbcTenantStore(new JdbcTemplate(dataSource)))));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/saas/subscriptions");
+        request.addHeader("Authorization", "Bearer " + admin.token());
+        MockFilterChain chain = new MockFilterChain();
+        filter.doFilter(request, new MockHttpServletResponse(), chain);
+        assertTrue(chain.getRequest() != null);
+
+        MockHttpServletRequest anonymous = new MockHttpServletRequest("GET", "/api/saas/subscriptions");
+        MockHttpServletResponse denied = new MockHttpServletResponse();
+        filter.doFilter(anonymous, denied, new MockFilterChain());
+        assertEquals(401, denied.getStatus());
+
+        properties.setEdition("datacenter");
+        assertFalse(properties.isOperatorApiEnabled());
+    }
+
+    @Test
     void blankEditionIsDatacenter() {
         StudioProperties props = new StudioProperties();
         assertEquals("datacenter", props.editionName());
