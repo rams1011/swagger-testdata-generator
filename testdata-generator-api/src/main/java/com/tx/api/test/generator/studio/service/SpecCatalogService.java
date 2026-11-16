@@ -192,10 +192,12 @@ public class SpecCatalogService {
         String originalName = stored.getName();
         String originalLabel = stored.getLabel();
         if (rename) {
+            InputRules.limitedName("Collection name", request.name().trim(), InputRules.MAX_COLLECTION_NAME,
+                    originalName);
             stored.setName(requireUniqueName(request.name(), specId));
         }
         if (updateLabel) {
-            InputRules.limitedText("Label", StringUtils.trimToNull(request.label()), InputRules.MAX_NAME_LENGTH);
+            InputRules.limitedName("Label", StringUtils.trimToNull(request.label()), InputRules.MAX_LABEL, originalLabel);
             stored.setLabel(normalizeLabel(request.label()));
         }
         String previousBaseUrl = stored.getBaseUrl();
@@ -720,9 +722,9 @@ public class SpecCatalogService {
             return;
         }
         if (request.name() != null) {
-            InputRules.limitedText("Collection name", request.name().trim(), InputRules.MAX_NAME_LENGTH);
+            InputRules.limitedText("Collection name", request.name().trim(), InputRules.MAX_COLLECTION_NAME);
         }
-        InputRules.limitedText("Label", StringUtils.trimToNull(request.label()), InputRules.MAX_NAME_LENGTH);
+        InputRules.limitedText("Label", StringUtils.trimToNull(request.label()), InputRules.MAX_LABEL);
         if (StringUtils.isNotBlank(request.baseUrl())) {
             InputRules.requireHttpBaseUrl("API base URL", request.baseUrl());
         }
