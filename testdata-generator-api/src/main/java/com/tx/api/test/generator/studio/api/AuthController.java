@@ -35,6 +35,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.NoSuchElementException;
 
 @RestController
 @RequestMapping("/api")
@@ -242,6 +243,7 @@ public class AuthController {
     @GetMapping("/saas/subscriptions")
     public List<SubscriptionView> listSubscriptions() {
         requireBilling();
+        requireOperatorApi();
         return authService.listSubscriptions();
     }
 
@@ -249,12 +251,20 @@ public class AuthController {
     public SubscriptionView updateSubscription(@PathVariable String orgId,
                                                @RequestBody UpdateSubscriptionRequest request) {
         requireBilling();
+        requireOperatorApi();
         return authService.updateSubscription(orgId, request);
     }
 
     private void requireAuth() {
         if (!properties.isAuthEnabled()) {
             throw new ForbiddenException("Login is off. Set TESTDATA_EDITION=datacenter or saas.");
+        }
+    }
+
+    /** testdata.saas.operator-api=false hides the operator endpoints: they answer 404, as if absent. */
+    private void requireOperatorApi() {
+        if (!properties.isOperatorApiEnabled()) {
+            throw new NoSuchElementException("Not found");
         }
     }
 

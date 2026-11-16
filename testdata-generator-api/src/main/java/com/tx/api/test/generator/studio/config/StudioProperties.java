@@ -141,6 +141,11 @@ public class StudioProperties {
         return resolvedEdition() == StudioEdition.SAAS;
     }
 
+    /** SaaS edition with the operator endpoints ({@code testdata.saas.operator-api}) left on. */
+    public boolean isOperatorApiEnabled() {
+        return isBillingEnabled() && (saas == null || saas.isOperatorApi());
+    }
+
     public boolean isDatacenter() {
         return resolvedEdition() == StudioEdition.DATACENTER;
     }
@@ -352,6 +357,11 @@ public class StudioProperties {
         private String adminPassword = "";
         private String orgName = "Studio";
         private String workspaceName = "Default";
+        /**
+         * The SaaS operator's endpoints (every organization's subscription). Off means they answer 404, so a public
+         * deployment can leave them to a separate internal one.
+         */
+        private boolean operatorApi = true;
 
         public boolean isEnabled() {
             return enabled;
@@ -493,6 +503,14 @@ public class StudioProperties {
                 return "Default";
             }
             return workspaceName.trim();
+        }
+
+        public boolean isOperatorApi() {
+            return operatorApi;
+        }
+
+        public void setOperatorApi(boolean operatorApi) {
+            this.operatorApi = operatorApi;
         }
     }
 
