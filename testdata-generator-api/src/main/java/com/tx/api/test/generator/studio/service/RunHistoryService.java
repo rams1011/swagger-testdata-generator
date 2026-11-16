@@ -62,15 +62,42 @@ public class RunHistoryService {
     }
 
     public void recordSingle(String trigger, String environmentId, StudioTestCase testCase, RunTestResult result) {
-        if (testCase == null || StringUtils.isBlank(testCase.getSpecId()) || result == null) {
+        if (testCase == null || result == null) {
             return;
         }
-        persist(buildRun(trigger, testCase.getSpecId(), testCase.getPlanId(), environmentId,
-                List.of(toStoredResult(trigger, testCase, result))));
+        recordCases(trigger, environmentId, List.of(testCase), List.of(result));
     }
 
-    public void recordPlan(String specId, String planId, String environmentId, List<RunTestResult> results,
-                           List<StudioTestCase> cases) {
+    /** One history run for a Send: the cases that ran first, then the case that was sent. */
+    public void recordCases(String trigger, String environmentId, List<StudioTestCase> testCases,
+                            List<RunTestResult> results) {
+        if (testCases == null || results == null || testCases.isEmpty()) {
+            return;
+        }
+        String specId = null;
+        String planId = null;
+        List<StudioRunResult> stored = new ArrayList<>();
+        int count = Math.min(testCases.size(), results.size());
+        for (int i = 0; i < count; i++) {
+            StudioTestCase testCase = testCases.get(i);
+            RunTestResult result = results.get(i);
+            if (testCase == null || result == null || StringUtils.isBlank(testCase.getSpecId())) {
+                continue;
+            }
+            if (specId == null) {
+                specId = testCase.getSpecId();
+                planId = testCase.getPlanId();
+            }
+            stored.add(toStoredResult(trigger, testCase, result));
+        }
+        if (stored.isEmpty() || StringUtils.isBlank(specId)) {
+            return;
+        }
+        persist(buildRun(trigger, specId, planId, environmentId, stored));
+    }
+
+    public void recordPlan(String trigger, String specId, String planId, String environmentId,
+                           List<RunTestResult> results, List<StudioTestCase> cases) {
         if (StringUtils.isBlank(specId) || results == null || results.isEmpty()) {
             return;
         }
@@ -86,9 +113,9 @@ public class RunHistoryService {
             if (testCase == null) {
                 continue;
             }
-            stored.add(toStoredResult(TRIGGER_PLAN, testCase, result));
+            stored.add(toStoredResult(trigger, testCase, result));
         }
-        persist(buildRun(TRIGGER_PLAN, specId, planId, environmentId, stored));
+        persist(buildRun(trigger, specId, planId, environmentId, stored));
     }
 
     public List<RunView> list(String specId, String planId, String environmentId, String caseId, String outcome,

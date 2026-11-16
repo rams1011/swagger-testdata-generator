@@ -204,7 +204,7 @@ final class JsonPathEvaluator {
                 continue;
             }
             if (scanner.inPath) {
-                if (ch == '|' && scanner.topLevel()) {
+                if (ch == '|' && (scanner.topLevel() || startsNextAssertion(serialized, i))) {
                     parts.add(current.toString());
                     current.setLength(0);
                     scanner = new PathScanner();
@@ -284,6 +284,18 @@ final class JsonPathEvaluator {
             parts.add(current.toString());
         }
         current.setLength(0);
+    }
+
+    /**
+     * True when the text after this bar is the next check ({@code $…}, {@code header:}, {@code cookie:},
+     * {@code xpath:}). An unclosed filter must not swallow that check. {@code ||} inside a filter does not match.
+     */
+    private static boolean startsNextAssertion(String serialized, int barIndex) {
+        String rest = serialized.substring(barIndex + 1).trim();
+        return rest.startsWith("$")
+                || rest.regionMatches(true, 0, "header:", 0, "header:".length())
+                || rest.regionMatches(true, 0, "cookie:", 0, "cookie:".length())
+                || rest.regionMatches(true, 0, "xpath:", 0, "xpath:".length());
     }
 
     /** Index of the {@code =} that ends the path, ignoring any inside brackets, parentheses or quotes. */
