@@ -42,6 +42,8 @@ public class OidcAuthService {
     private static final Duration HTTP_TIMEOUT = Duration.ofSeconds(15);
     private static final Duration STATE_TTL = Duration.ofMinutes(10);
     private static final Duration EXCHANGE_TTL = Duration.ofMinutes(10);
+    /** A sign-in whose state or exchange is gone: it took too long, or the link was opened twice. */
+    public static final String EXPIRED_MESSAGE = "Your sign-in link expired or was already used. Sign in again.";
 
     private final StudioProperties properties;
     private final TenantStore tenantStore;
@@ -113,8 +115,10 @@ public class OidcAuthService {
     if (StringUtils.isBlank(code) || StringUtils.isBlank(state)) {
       return uiBase + "/login/oidc?error=" + encode("Sign-in was cancelled or incomplete");
     }
-    OidcPendingState pending = tenantStore.consumeOidcState(state.trim())
-        .orElseThrow(() -> new UnauthenticatedException("Sign-in expired — try again"));
+    OidcPendingState pending = tenantStore.consumeOidcState(state.trim()).orElse(null);
+    if (pending == null) {
+      return errorRedirect(EXPIRED_MESSAGE);
+    }
     OidcUser user = exchangeCode(code.trim(), pending.codeVerifier(), pending.nonce());
     boolean needsRegistration = needsRegistration(user, pending.intent());
     String exchangeId = UUID.randomUUID().toString();
@@ -350,6 +354,11 @@ public class OidcAuthService {
     } catch (Exception exception) {
       return null;
     }
+  }
+
+  /** Where a failed Google sign-in sends the browser: the UI's sign-in page with a message, never a JSON error. */
+  public String errorRedirect(String message) {
+    return properties.getAuth().getOidc().resolvedUiBase() + "/login/oidc?error=" + encode(message);
   }
 
   private static String encode(String value) {

@@ -81,7 +81,7 @@ public class AuthService {
         }
         String exchangeId = request == null ? null : request.exchange();
         OidcExchangeRecord record = oidcAuthService.peekExchange(exchangeId)
-                .orElseThrow(() -> new UnauthenticatedException("Sign-in expired — try again"));
+                .orElseThrow(() -> new UnauthenticatedException(OidcAuthService.EXPIRED_MESSAGE));
         if (record.needsRegistration()) {
             return new OidcExchangeView(true, record.email(), record.displayName(), null);
         }
@@ -102,7 +102,7 @@ public class AuthService {
         }
         String exchangeId = request == null ? null : request.exchange();
         OidcExchangeRecord record = oidcAuthService.consumeExchange(exchangeId)
-                .orElseThrow(() -> new UnauthenticatedException("Sign-in expired — try again"));
+                .orElseThrow(() -> new UnauthenticatedException(OidcAuthService.EXPIRED_MESSAGE));
         if (!record.needsRegistration()) {
             throw new IllegalArgumentException("This Google account is already registered — sign in instead");
         }
