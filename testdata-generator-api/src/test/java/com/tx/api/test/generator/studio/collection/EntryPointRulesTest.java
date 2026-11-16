@@ -136,6 +136,27 @@ class EntryPointRulesTest {
                 "importing with another environment selected adds it instead of moving the case");
     }
 
+    @Test
+    void credentialsInABaseUrlAndATypedOutCaseUrlAreChecked() {
+        for (String withCredentials : List.of("http://user:pass@example.com", "http://user:pass@example.com:8080")) {
+            assertMessage("Base URL can't contain a user name or password", () -> studio.createEnvironment(specId,
+                    new SaveEnvironmentRequest("Creds " + withCredentials.length(), withCredentials, "NONE")));
+        }
+        for (String bad : List.of("not a url", "ftp://files.example.com/a")) {
+            SaveTestDataRequest request = save("Bad URL", null);
+            SaveTestDataRequest withUrl = new SaveTestDataRequest(request.specId(), request.planId(), request.operationKey(),
+                    request.testName(), bad, request.pathParams(), request.queryParams(), request.headers(),
+                    request.cookieParams(), request.requestBody(), request.statusCode(), request.responseType(),
+                    request.expectedResponse(), request.responseMatch(), request.ignoreFields(), request.auth(),
+                    request.enabled(), request.lifecycle(), request.testGroup(), request.jsonPathAssertions(),
+                    request.extracts(), request.maxResponseTimeMs(), request.contentType(), request.environmentId(),
+                    request.environments(), request.expectedRevision(), request.forceOverwrite(),
+                    request.expectedDraftRevision(), request.keepDraft(), request.dataRows());
+            assertMessage("Server URL must start with", () -> studio.create(withUrl));
+        }
+        studio.create(save("Variable URL", null));
+    }
+
     private LoadSpecRequest load(String name, String label, String baseUrl) {
         return new LoadSpecRequest(null, DEFINITION, null, baseUrl, name, label, null, null, null);
     }

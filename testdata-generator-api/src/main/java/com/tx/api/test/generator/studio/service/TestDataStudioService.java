@@ -1114,6 +1114,9 @@ public class TestDataStudioService {
         testCase.setMethod(operation.method());
         testCase.setRawPath(operation.rawPath());
         testCase.setEndpoint(buildEndpoint(operation.rawPath(), pathParams));
+        if (StringUtils.isNotBlank(request.baseUrl())) {
+            InputRules.requireHttpBaseUrl("Server URL", request.baseUrl());
+        }
         testCase.setBaseUrl(StringUtils.defaultIfBlank(request.baseUrl(), spec.getBaseUrl()));
         Object requestBody = request.requestBody();
         String contentType = StringUtils.defaultIfBlank(request.contentType(),

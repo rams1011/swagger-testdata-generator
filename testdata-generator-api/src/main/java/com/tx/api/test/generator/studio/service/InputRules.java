@@ -50,6 +50,12 @@ public final class InputRules {
         } catch (java.net.URISyntaxException invalid) {
             throw new IllegalArgumentException(label + " is not a valid URL");
         }
+        if (uri.getRawUserInfo() != null || StringUtils.substringBefore(
+                StringUtils.defaultString(uri.getRawAuthority()), "/").contains("@")) {
+            // Stored and exported as plain text; credentials belong in auth with a secret {{variable}}.
+            throw new IllegalArgumentException(label + " can't contain a user name or password: use Basic auth "
+                    + "with a secret {{variable}} instead");
+        }
         if (StringUtils.isBlank(uri.getHost())) {
             throw new IllegalArgumentException(label + " needs a host name, such as https://api.example.com");
         }
