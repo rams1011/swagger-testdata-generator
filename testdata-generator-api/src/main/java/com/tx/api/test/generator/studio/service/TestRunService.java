@@ -670,14 +670,45 @@ public class TestRunService {
         if (StringUtils.isBlank(auth.tokenUrl())) {
             throw new IllegalArgumentException("tokenUrl is required for OAuth2, or paste a bearer token");
         }
-        outboundUrlPolicy.check(auth.tokenUrl().trim(), scope);
+        checkTokenUrl(auth.tokenUrl().trim(), scope);
+    }
+
+    /** The outbound policy's check, with its messages about "the run target" naming the token URL instead. */
+    private OutboundUrlPolicy.Target checkTokenUrl(String tokenUrl, OutboundUrlPolicy.Scope scope) {
+        try {
+            return outboundUrlPolicy.check(tokenUrl, scope);
+        } catch (IllegalArgumentException invalid) {
+            String message = StringUtils.defaultString(invalid.getMessage());
+            throw new IllegalArgumentException("OAuth token URL: "
+                    + (message.startsWith("Run target URL") ? "the URL" + message.substring("Run target URL".length())
+                    : StringUtils.uncapitalize(message)), invalid);
+        }
+    }
+
+    /** Why a token request couldn't be sent, in words: the host, the connection or the time it took. */
+    static String tokenRequestProblem(Throwable exception) {
+        for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+            if (cause instanceof java.net.UnknownHostException) {
+                return "the token URL's host name could not be found";
+            }
+            if (cause instanceof java.net.ConnectException) {
+                return "nothing answered at the token URL (connection refused)";
+            }
+            if (cause instanceof java.net.http.HttpTimeoutException || cause instanceof java.net.SocketTimeoutException) {
+                return "the token URL didn't answer in time";
+            }
+            if (cause instanceof javax.net.ssl.SSLException) {
+                return "the token URL's TLS certificate couldn't be verified";
+            }
+        }
+        return "the token URL couldn't be reached";
     }
 
     private OAuthTokenCache.Fetched fetchOAuthToken(RunAuth auth, OutboundUrlPolicy.Scope scope) {
         if (StringUtils.isBlank(auth.tokenUrl())) {
             throw new IllegalArgumentException("tokenUrl is required for OAuth2, or paste a bearer token");
         }
-        OutboundUrlPolicy.Target target = outboundUrlPolicy.check(auth.tokenUrl().trim(), scope);
+        OutboundUrlPolicy.Target target = checkTokenUrl(auth.tokenUrl().trim(), scope);
         String grant = StringUtils.defaultIfBlank(auth.grantType(), "client_credentials").trim();
         if ("authorization_code".equalsIgnoreCase(grant) || "implicit".equalsIgnoreCase(grant)) {
             throw new IllegalArgumentException("This OAuth flow needs a bearer token pasted in Run authentication");
@@ -732,7 +763,7 @@ public class TestRunService {
             throw new IllegalArgumentException("OAuth token request interrupted");
         } catch (Exception exception) {
             log.warn("OAuth token request failed", exception);
-            throw new IllegalArgumentException("OAuth token request failed");
+            throw new IllegalArgumentException("OAuth token request failed: " + tokenRequestProblem(exception));
         }
     }
 
