@@ -1153,12 +1153,19 @@ public class AuthService {
         return slug;
     }
 
+    /**
+     * The workspace a sign-in opens. The requested one is the browser's last workspace, which may belong to another
+     * account that used the same browser; then the account's own first workspace opens instead of failing the
+     * sign-in (an OIDC exchange can't be retried).
+     */
     private Tenant selectTenant(List<Tenant> workspaces, String requestedId) {
         if (StringUtils.isNotBlank(requestedId)) {
-            return workspaces.stream()
-                    .filter(tenant -> requestedId.equals(tenant.getId()))
-                    .findFirst()
-                    .orElseThrow(() -> new ForbiddenException("You are not a member of that workspace"));
+            for (Tenant tenant : workspaces) {
+                if (requestedId.equals(tenant.getId())) {
+                    return tenant;
+                }
+            }
+            log.debug("Requested workspace {} is not one of the account's; opening its first workspace", requestedId);
         }
         return workspaces.get(0);
     }

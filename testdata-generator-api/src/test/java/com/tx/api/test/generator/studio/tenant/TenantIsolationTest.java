@@ -444,6 +444,27 @@ class TenantIsolationTest {
     }
 
     @Test
+    void signInWithAnotherAccountsRememberedWorkspaceOpensYourOwn() {
+        properties.getSaas().setAdminEmail("saas.admin@local.test");
+        properties.getSaas().setAdminPassword("saas-admin-1");
+        authService.ensureSaasAdmin();
+        var customer = authService.register(new RegisterRequest("qa@acme.test", "password1234", "Acme QA", "Acme"));
+        var operatorHome = authService.login(new LoginRequest("saas.admin@local.test", "saas-admin-1", null)).tenant();
+
+        var operator = authService.login(
+                new LoginRequest("saas.admin@local.test", "saas-admin-1", customer.tenant().id()));
+        assertTrue(operator.saasAdmin());
+        assertEquals(operatorHome.id(), operator.tenant().id());
+        assertEquals("OWNER", operator.tenant().role());
+
+        var back = authService.login(new LoginRequest("qa@acme.test", "password1234", operatorHome.id()));
+        assertEquals(customer.tenant().id(), back.tenant().id());
+
+        var chosen = authService.login(new LoginRequest("qa@acme.test", "password1234", customer.tenant().id()));
+        assertEquals(customer.tenant().id(), chosen.tenant().id());
+    }
+
+    @Test
     void operatorApiSwitchOffAnswers404() throws Exception {
         properties.getSaas().setOperatorApi(false);
         properties.getSaas().setAdminEmail("saas.admin@local.test");
