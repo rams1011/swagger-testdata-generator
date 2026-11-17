@@ -36,27 +36,38 @@ public class SafetyGuard {
     public static final String BLOCKED_OPERATION = "BLOCKED_OPERATION";
     public static final String LIMIT_REACHED = "LIMIT_REACHED";
     public static final String REDIRECT_INTO_PROTECTED = "REDIRECT_INTO_PROTECTED";
+    public static final String DRAFT_IN_PROTECTED = "DRAFT_IN_PROTECTED";
+    public static final String APPROVAL_VERSION_CHANGED = "APPROVAL_VERSION_CHANGED";
+    public static final String APPROVAL_EXPIRED = "APPROVAL_EXPIRED";
+    public static final String APPROVAL_USED_UP = "APPROVAL_USED_UP";
+    public static final String CONFIRMATION_REQUIRED = "CONFIRMATION_REQUIRED";
 
     private final StudioProperties properties;
     private final SafetyPolicyService policies;
     private final TenantStore tenantStore;
     private final StudioStorage studioStorage;
     private final StudioAuditService auditService;
+    private final ApprovalService approvals;
     /** Request times per organization and protected target, for the per-minute limit. On this server only. */
     private final Map<String, Deque<Long>> recent = new ConcurrentHashMap<>();
 
     public SafetyGuard(StudioProperties properties, SafetyPolicyService policies, TenantStore tenantStore,
-                       StudioStorage studioStorage, StudioAuditService auditService) {
+                       StudioStorage studioStorage, StudioAuditService auditService, ApprovalService approvals) {
         this.properties = properties;
         this.policies = policies;
         this.tenantStore = tenantStore;
         this.studioStorage = studioStorage;
         this.auditService = auditService;
+        this.approvals = approvals;
     }
 
-    /** One request about to be sent. {@code address} and {@code port} are where it will connect. */
-    public record Attempt(String caseId, String method, String url, Map<String, String> headers, String body,
-                          String contentType, String host, InetAddress address, int port, boolean redirectHop) {
+    /**
+     * One request about to be sent. {@code address} and {@code port} are where it will connect. {@code caseRevision}
+     * and {@code draftCase} describe the stored case it comes from, for approvals.
+     */
+    public record Attempt(String caseId, Long caseRevision, boolean draftCase, String method, String url,
+                          Map<String, String> headers, String body, String contentType, String host,
+                          InetAddress address, int port, boolean redirectHop) {
     }
 
     /** {@code send} false: stop, nothing goes out. A note with {@code send} true is a Shadow-mode would-block. */
@@ -64,8 +75,12 @@ public class SafetyGuard {
         static final Decision ALLOW = new Decision(true, null);
     }
 
-    /** The run's context: the organization of the current workspace and the selected environment's protection. */
-    public SafetyContext newContext(String environmentId, String environmentName) {
+    /**
+     * The run's context: the organization of the current workspace, the selected environment's protection, what was
+     * typed to confirm writes, and whether the run sends what's in the editor.
+     */
+    public SafetyContext newContext(String environmentId, String environmentName, String confirmation,
+                                    boolean fromEditor) {
         if (!properties.safetyOn()) {
             return SafetyContext.none();
         }
@@ -78,7 +93,8 @@ public class SafetyGuard {
         boolean protectedEnvironment = StringUtils.isNotBlank(environmentId)
                 && studioStorage.findEnvironment(environmentId).map(StoredEnvironment::isProtectedEnvironment)
                 .orElse(false);
-        return new SafetyContext(orgId, environmentId, environmentName, protectedEnvironment);
+        return new SafetyContext(orgId, environmentId, environmentName, protectedEnvironment, confirmation,
+                fromEditor);
     }
 
     public Decision check(SafetyContext context, Attempt attempt) {
@@ -107,18 +123,23 @@ public class SafetyGuard {
         boolean write = kind.write() && (rule == null || rule.effect() != RuleEffect.TREAT_AS_READ);
         String targetKey = target.map(ProtectedTarget::id).orElse(context.environmentId());
         if (write) {
-            Decision decision = attempt.redirectHop()
-                    ? decide(policy, context, attempt, REDIRECT_INTO_PROTECTED, "The server redirected a write ("
-                    + kind.reason() + ") to " + label + ", so Specforge stopped before sending it there.", null, label)
-                    : decide(policy, context, attempt, WRITE_TO_PROTECTED_TARGET, "Production safety stopped this "
-                    + "request: " + kind.reason() + ", and " + label + " only accepts reads. An organization admin "
-                    + "can change the rules in Settings → Production safety.", null, label);
-            if (decision.send()) {
-                // Shadow mode sends it, so it counts toward this run's and this minute's requests.
-                context.countProtectedRequest();
-                withinMinuteLimit(context.orgId(), targetKey, Integer.MAX_VALUE);
+            String stopped = "Production safety stopped this request: " + kind.reason() + ", and " + label
+                    + " only accepts reads.";
+            if (attempt.redirectHop() || policy.mode() == SafetyMode.SHADOW || approvals == null) {
+                Decision decision = attempt.redirectHop()
+                        ? decide(policy, context, attempt, REDIRECT_INTO_PROTECTED, "The server redirected a write ("
+                        + kind.reason() + ") to " + label + ", so SpecPact stopped before sending it there.", null,
+                        label)
+                        : decide(policy, context, attempt, WRITE_TO_PROTECTED_TARGET, stopped + " An organization "
+                        + "admin can change the rules in Settings → Production safety.", null, label);
+                if (decision.send()) {
+                    // Shadow mode sends it, so it counts toward this run's and this minute's requests.
+                    context.countProtectedRequest();
+                    withinMinuteLimit(context.orgId(), targetKey, Integer.MAX_VALUE);
+                }
+                return decision;
             }
-            return decision;
+            return checkWrite(policy, context, attempt, kind, label, targetKey, stopped);
         }
         if (context.countProtectedRequest() > policy.maxRequestsPerRun()) {
             return decide(policy, context, attempt, LIMIT_REACHED, "This run reached the production limit of "
@@ -131,7 +152,53 @@ public class SafetyGuard {
         return Decision.ALLOW;
     }
 
-    private static OperationRule matchingRule(SafetyPolicy policy, RequestClassifier.Classification kind, String url,
+    /**
+     * Enforce mode, a write to production: allowed only with an approval for this case's published version (or
+     * emergency access for the environment), the environment's name typed to confirm, within the data-row cap and
+     * the request limits; using up one run of the approval is the last step.
+     */
+    private Decision checkWrite(SafetyPolicy policy, SafetyContext context, Attempt attempt,
+                                RequestClassifier.Classification kind, String label, String targetKey,
+                                String stopped) {
+        ApprovalService.Permission permission = approvals.permission(context.orgId(), context.environmentId(),
+                StringUtils.defaultIfBlank(context.environmentName(), label), attempt.caseId(), attempt.caseRevision(),
+                attempt.draftCase(), context.fromEditor(), policy.requireSecondAdmin());
+        if (!permission.allowed()) {
+            String message = WRITE_TO_PROTECTED_TARGET.equals(permission.code())
+                    ? stopped + " " + permission.message() : permission.message();
+            return decide(policy, context, attempt, permission.code(), message, null, label);
+        }
+        String expected = StringUtils.trimToEmpty(context.environmentName());
+        if (expected.isEmpty() || !expected.equalsIgnoreCase(StringUtils.trimToEmpty(context.confirmation()))) {
+            return decide(policy, context, attempt, CONFIRMATION_REQUIRED, "This write is allowed (" + permission.via()
+                    + "), but it goes to production: type " + expected + " to confirm sending it.", null, label);
+        }
+        if (context.countWriteRow(attempt.caseId()) > policy.maxWriteDataRows()) {
+            return decide(policy, context, attempt, LIMIT_REACHED, "Only " + policy.maxWriteDataRows() + " data row"
+                    + (policy.maxWriteDataRows() == 1 ? "" : "s") + " of a case that writes run against production, "
+                    + "so the rest weren't sent.", null, label);
+        }
+        if (context.countProtectedRequest() > policy.maxRequestsPerRun()) {
+            return decide(policy, context, attempt, LIMIT_REACHED, "This run reached the production limit of "
+                    + policy.maxRequestsPerRun() + " requests, so the rest weren't sent.", null, label);
+        }
+        if (!withinMinuteLimit(context.orgId(), targetKey, policy.maxRequestsPerMinute())) {
+            return decide(policy, context, attempt, LIMIT_REACHED, "More than " + policy.maxRequestsPerMinute()
+                    + " requests a minute went to " + label + ". Wait a minute and run it again.", null, label);
+        }
+        if (!approvals.use(permission)) {
+            return decide(policy, context, attempt, APPROVAL_USED_UP, "The " + permission.via() + " has no runs left. "
+                    + "Ask for a new one.", null, label);
+        }
+        context.markNoRetry(attempt.caseId());
+        audit(context, AuditAction.PROTECTED_WRITE_SENT, "Sent " + attempt.method() + " "
+                + urlForAudit(attempt.url()) + " to " + label + " (" + permission.via() + " " + permission.id() + ")");
+        log.info("Production safety let a write through to {} ({} {})", label, permission.via(), permission.id());
+        return Decision.ALLOW;
+    }
+
+    /** The first operation rule for this request, or null; the previews use the same matching. */
+    public static OperationRule matchingRule(SafetyPolicy policy, RequestClassifier.Classification kind, String url,
                                               ProtectedTarget target) {
         Instant now = Instant.now();
         for (OperationRule rule : policy.rules()) {

@@ -12,21 +12,36 @@ import java.util.Set;
  */
 public final class SafetyContext {
 
-    private static final SafetyContext NONE = new SafetyContext(null, null, null, false);
+    private static final SafetyContext NONE = new SafetyContext(null, null, null, false, null, false);
 
     private final String orgId;
     private final String environmentId;
     private final String environmentName;
     private final boolean environmentProtected;
+    private final String confirmation;
+    private final boolean fromEditor;
     private int protectedRequests;
     private final Map<String, Integer> writeRows = new HashMap<>();
     private final Set<String> noRetry = new HashSet<>();
 
-    SafetyContext(String orgId, String environmentId, String environmentName, boolean environmentProtected) {
+    SafetyContext(String orgId, String environmentId, String environmentName, boolean environmentProtected,
+                  String confirmation, boolean fromEditor) {
         this.orgId = orgId;
         this.environmentId = environmentId;
         this.environmentName = environmentName;
         this.environmentProtected = environmentProtected;
+        this.confirmation = confirmation;
+        this.fromEditor = fromEditor;
+    }
+
+    /** What the person typed to confirm writes to production (the environment's name), or null. */
+    public String confirmation() {
+        return confirmation;
+    }
+
+    /** The run sends what's in the editor (a draft or unsaved changes), which no approval covers. */
+    public boolean fromEditor() {
+        return fromEditor;
     }
 
     /** No organization (login off, or production safety off): every request is allowed. */

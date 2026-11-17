@@ -216,6 +216,12 @@ public class StudioAuditService {
         append(null, AuditResourceType.OUTBOUND_TARGET, StringUtils.defaultIfBlank(environmentId, "none"), action, detail);
     }
 
+    /** Approvals and emergency access (production safety). */
+    public void recordSafetyEvent(String specId, AuditResourceType type, String resourceId, AuditAction action,
+                                  String detail) {
+        append(specId, type, resourceId, action, detail);
+    }
+
     public List<AuditEventView> listForCase(String caseId, int limit) {
         return studioStorage.listAuditEvents(AuditResourceType.CASE, caseId, clamp(limit));
     }

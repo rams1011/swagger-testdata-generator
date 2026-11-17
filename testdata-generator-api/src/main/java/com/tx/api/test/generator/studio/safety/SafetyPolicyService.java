@@ -51,7 +51,7 @@ public class SafetyPolicyService {
     /** A change applies to the next request within this long on another node; this node clears its copy at once. */
     static final Duration CACHE_TTL = Duration.ofSeconds(5);
 
-    static final String SHADOW_NOTICE = "Production safety is now in Shadow: Specforge records requests that would "
+    static final String SHADOW_NOTICE = "Production safety is now in Shadow: SpecPact records requests that would "
             + "be blocked and blocks nothing yet. Review them before you switch to Enforce.";
 
     private static final Pattern HTTP_METHOD = Pattern.compile("[A-Z][A-Z0-9_-]{0,15}");
@@ -78,7 +78,8 @@ public class SafetyPolicyService {
     private record Cached(SafetyPolicy policy, Instant loadedAt) {
     }
 
-    private record Access(String orgId, String accountId, String orgRole) {
+    /** The signed-in account, its organization and its role there; ApprovalService uses the same check. */
+    record Access(String orgId, String accountId, String orgRole) {
         boolean admin() {
             return "OWNER".equals(orgRole) || "ADMIN".equals(orgRole);
         }
@@ -122,6 +123,18 @@ public class SafetyPolicyService {
             views.add(protectionView(environment, targets));
         }
         return views;
+    }
+
+    /** The current workspace's organization when production safety is on and someone is signed in; else empty. */
+    public Optional<String> currentOrgId() {
+        if (!properties.safetyOn()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(currentAccess().orgId());
+        } catch (RuntimeException notSignedIn) {
+            return Optional.empty();
+        }
     }
 
     /** The protected target an environment's base URL falls under, if any. */
@@ -317,7 +330,7 @@ public class SafetyPolicyService {
         invalidate(next.orgId());
     }
 
-    private Access currentAccess() {
+    Access currentAccess() {
         if (!properties.safetyOn()) {
             throw new NoSuchElementException("Not found");
         }
@@ -334,7 +347,7 @@ public class SafetyPolicyService {
         return new Access(tenant.getOrgId(), scope.accountId(), orgRole);
     }
 
-    private Access requireAdmin() {
+    Access requireAdmin() {
         Access access = currentAccess();
         if (!access.admin()) {
             throw new ForbiddenException("Only organization owners and admins can change production safety");
@@ -403,7 +416,7 @@ public class SafetyPolicyService {
                 environment.isProtectedEnvironment() || matched.isPresent());
     }
 
-    private static String baseUrl(StoredEnvironment environment) {
+    static String baseUrl(StoredEnvironment environment) {
         if (environment == null || environment.getDocumentJson() == null) {
             return null;
         }
