@@ -121,6 +121,12 @@ public class SafetyController {
         return approvalService.endEmergency(accessId);
     }
 
+    /** Emergency access in one environment (0 or 1 entries), for the banner every member sees. */
+    @GetMapping("/safety/emergency")
+    public List<EmergencyAccessView> environmentEmergencyAccess(@RequestParam String environmentId) {
+        return approvalService.currentEmergencyFor(environmentId);
+    }
+
     @GetMapping("/safety/summary")
     public SafetySummaryView summary() {
         return safetyPolicyService.summary();

@@ -79,7 +79,9 @@ public class TestDataController {
         String environmentId = request == null ? null : request.environmentId();
         Map<String, String> secrets = request == null ? null : request.secrets();
         Integer dataRow = request == null ? null : request.dataRow();
-        return testDataStudioService.run(new RunTestRequest(id, null, auth, environmentId, secrets, dataRow));
+        String confirmEnvironment = request == null ? null : request.confirmEnvironment();
+        return testDataStudioService.run(new RunTestRequest(id, null, auth, environmentId, secrets, dataRow,
+                confirmEnvironment));
     }
 
     @PutMapping("/{id}")

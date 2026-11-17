@@ -128,7 +128,7 @@ public class SafetyGuard {
             if (attempt.redirectHop() || policy.mode() == SafetyMode.SHADOW || approvals == null) {
                 Decision decision = attempt.redirectHop()
                         ? decide(policy, context, attempt, REDIRECT_INTO_PROTECTED, "The server redirected a write ("
-                        + kind.reason() + ") to " + label + ", so Specforge stopped before sending it there.", null,
+                        + kind.reason() + ") to " + label + ", so SpecPact stopped before sending it there.", null,
                         label)
                         : decide(policy, context, attempt, WRITE_TO_PROTECTED_TARGET, stopped + " An organization "
                         + "admin can change the rules in Settings → Production safety.", null, label);

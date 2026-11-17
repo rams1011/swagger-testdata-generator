@@ -275,6 +275,17 @@ class ProductionApprovalsTest {
     }
 
     @Test
+    void sendingFromTheEditorExplainsWhatIsMissing() {
+        assertEquals(SafetyGuard.WRITE_TO_PROTECTED_TARGET, run(create, "Production", true).policy().code(),
+                "no approval yet: ask an admin, whatever was sent");
+        approve(2);
+        RunTestResult approved = run(create, "Production", true);
+        assertEquals(SafetyGuard.DRAFT_IN_PROTECTED, approved.policy().code());
+        assertTrue(approved.policy().message().contains("Use Send to Production"), approved.policy().message());
+        assertEquals(List.of(), received);
+    }
+
+    @Test
     void publishingANewVersionEndsTheApproval() {
         approve(5);
         assertFalse(run(create, "Production", false).blocked());
@@ -342,6 +353,8 @@ class ProductionApprovalsTest {
 
         PlanPreflightView plan = previews.preflight(new RunPlanRequest("spec-p", "plan-p", null, environment.getId()));
         assertEquals(List.of("Create user"), plan.blocked().stream().map(PlanPreflightView.Entry::name).toList());
+        assertEquals("blocked", plan.blocked().get(0).state());
+        assertEquals("skipped", plan.skipped().get(0).state());
         assertEquals(List.of("Read user"), plan.skipped().stream().map(PlanPreflightView.Entry::name).toList());
         assertEquals(1, plan.willRun());
         assertEquals("Production", plan.confirmationText());
@@ -349,6 +362,8 @@ class ProductionApprovalsTest {
         as(memberId);
         approvals.request(create.getId(), new RequestApprovalRequest(environment.getId(), "Create the smoke test user", 7, 3));
         assertEquals("waiting", previews.evaluate(new EvaluateSafetyRequest(create.getId(), environment.getId())).state());
+        assertEquals("waiting", previews.preflight(new RunPlanRequest("spec-p", "plan-p", null, environment.getId()))
+                .blocked().get(0).state());
         as(adminId);
         approvals.approve(approvals.list("waiting").get(0).id(), null);
         var approved = previews.evaluate(new EvaluateSafetyRequest(create.getId(), environment.getId()));
@@ -435,8 +450,13 @@ class ProductionApprovalsTest {
         EmergencyAccessView granted = approvals.grantEmergency(new GrantEmergencyAccessRequest(environment.getId(), 15,
                 null, "Production outage: fix the stuck order"));
         assertTrue(granted.active());
+        as(memberId);
+        assertEquals(List.of(granted.id()), approvals.currentEmergencyFor(environment.getId()).stream()
+                .map(EmergencyAccessView::id).toList(), "every member sees the banner");
+        assertTrue(approvals.currentEmergencyFor(environment("Staging", false).getId()).isEmpty());
         RunTestResult sent = run(create, "Production", true);
         assertFalse(sent.blocked(), sent.policy() + " " + emergencyState());
+        as(owner.account().id());
         jdbc.update("UPDATE td_emergency_access SET starts_at = ?, ends_at = ? WHERE access_id = ?",
                 Timestamp.from(Instant.now().minus(Duration.ofMinutes(20))),
                 Timestamp.from(Instant.now().minus(Duration.ofMinutes(5))), granted.id());

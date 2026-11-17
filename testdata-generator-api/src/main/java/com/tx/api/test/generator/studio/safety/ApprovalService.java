@@ -300,6 +300,16 @@ public class ApprovalService {
                 .map(current -> emergencyView(current, second)).toList();
     }
 
+    /** Emergency access running now in one environment, for its banner. Any member of the organization may read it. */
+    public List<EmergencyAccessView> currentEmergencyFor(String environmentId) {
+        SafetyPolicyService.Access access = policies.currentAccess();
+        boolean second = policies.policy(access.orgId()).requireSecondAdmin();
+        Instant now = Instant.now();
+        return store.listCurrentEmergencyAccess(access.orgId(), now).stream()
+                .filter(current -> current.environmentId().equals(environmentId))
+                .map(current -> emergencyView(current, second)).toList();
+    }
+
     // --- What SafetyGuard and the previews read ---
 
     /** What lets a write through: an approval or emergency access, by id; or why not. */
@@ -325,9 +335,9 @@ public class ApprovalService {
                 return new Permission(true, "emergency access", current.id(), null, null);
             }
         }
-        if (fromEditor || draftCase || StringUtils.isBlank(caseId) || caseRevision == null) {
-            return Permission.deny(SafetyGuard.DRAFT_IN_PROTECTED, "Production only runs a case's published, saved "
-                    + "version, and this came from the editor or a draft. Publish the case, then run the saved case.");
+        if (draftCase || StringUtils.isBlank(caseId) || caseRevision == null) {
+            return Permission.deny(SafetyGuard.DRAFT_IN_PROTECTED, "Drafts and unsaved cases never run in "
+                    + environmentName + ". Publish the case, then ask an admin to approve it.");
         }
         List<WriteApproval> open = store.listOpenApprovals(caseId, environmentId);
         Permission denial = Permission.deny(SafetyGuard.WRITE_TO_PROTECTED_TARGET, "Ask an organization admin to "
@@ -351,6 +361,12 @@ public class ApprovalService {
             }
             if (approval.maxRuns() != null && approval.runsUsed() >= approval.maxRuns()) {
                 return Permission.deny(SafetyGuard.APPROVAL_USED_UP, "The approval has no runs left. Ask for a new one.");
+            }
+            if (fromEditor) {
+                // An approval covers the stored published version, never what's in the editor.
+                return Permission.deny(SafetyGuard.DRAFT_IN_PROTECTED, "This case is approved for " + environmentName
+                        + ", but Send sends what's in the editor. Use Send to " + environmentName
+                        + ", which sends the published version.");
             }
             return new Permission(true, approval.selfApproved() ? "self-approval" : "approval", approval.id(), null, null);
         }

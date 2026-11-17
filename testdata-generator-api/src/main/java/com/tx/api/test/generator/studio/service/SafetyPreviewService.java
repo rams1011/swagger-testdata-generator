@@ -151,7 +151,7 @@ public class SafetyPreviewService {
             String needs = CaseVariables.placeholderNames(testCase).stream()
                     .filter(blockedProduces::containsKey).findFirst().orElse(null);
             if (needs != null) {
-                skipped.add(new PlanPreflightView.Entry(testCase.getId(), name, null,
+                skipped.add(new PlanPreflightView.Entry(testCase.getId(), name, "skipped", null,
                         "Needs blocked case '" + blockedProduces.get(needs) + "' for {{" + needs + "}}"));
                 CaseVariables.producedNames(testCase.getExtracts()).forEach(produced -> blockedProduces.put(produced, name));
                 continue;
@@ -162,11 +162,12 @@ public class SafetyPreviewService {
             protectedEnvironment = protectedEnvironment || view.protectedEnvironment();
             switch (view.state()) {
                 case "blocked", "waiting", "draft" -> {
-                    blocked.add(new PlanPreflightView.Entry(testCase.getId(), name, view.code(), view.message()));
+                    blocked.add(new PlanPreflightView.Entry(testCase.getId(), name, view.state(), view.code(),
+                            view.message()));
                     CaseVariables.producedNames(testCase.getExtracts()).forEach(produced -> blockedProduces.put(produced, name));
                 }
                 case "approved" -> {
-                    confirm.add(new PlanPreflightView.Entry(testCase.getId(), name, null, view.via()));
+                    confirm.add(new PlanPreflightView.Entry(testCase.getId(), name, "approved", null, view.via()));
                     willRun++;
                 }
                 default -> willRun++;

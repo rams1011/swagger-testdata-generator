@@ -51,7 +51,7 @@ public class SafetyPolicyService {
     /** A change applies to the next request within this long on another node; this node clears its copy at once. */
     static final Duration CACHE_TTL = Duration.ofSeconds(5);
 
-    static final String SHADOW_NOTICE = "Production safety is now in Shadow: Specforge records requests that would "
+    static final String SHADOW_NOTICE = "Production safety is now in Shadow: SpecPact records requests that would "
             + "be blocked and blocks nothing yet. Review them before you switch to Enforce.";
 
     private static final Pattern HTTP_METHOD = Pattern.compile("[A-Z][A-Z0-9_-]{0,15}");
