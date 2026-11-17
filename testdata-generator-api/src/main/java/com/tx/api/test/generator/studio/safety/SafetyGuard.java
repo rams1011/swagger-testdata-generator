@@ -65,9 +65,16 @@ public class SafetyGuard {
      * One request about to be sent. {@code address} and {@code port} are where it will connect. {@code caseRevision}
      * and {@code draftCase} describe the stored case it comes from, for approvals.
      */
+    /** {@code pathTemplate}: the case's path ({@code /users/{id}}) for the review, or null (a redirect hop). */
     public record Attempt(String caseId, Long caseRevision, boolean draftCase, String method, String url,
                           Map<String, String> headers, String body, String contentType, String host,
-                          InetAddress address, int port, boolean redirectHop) {
+                          InetAddress address, int port, boolean redirectHop, String pathTemplate) {
+        public Attempt(String caseId, Long caseRevision, boolean draftCase, String method, String url,
+                       Map<String, String> headers, String body, String contentType, String host,
+                       InetAddress address, int port, boolean redirectHop) {
+            this(caseId, caseRevision, draftCase, method, url, headers, body, contentType, host, address, port,
+                    redirectHop, null);
+        }
     }
 
     /** {@code send} false: stop, nothing goes out. A note with {@code send} true is a Shadow-mode would-block. */
@@ -223,6 +230,7 @@ public class SafetyGuard {
         SafetyPolicyNote note = new SafetyPolicyNote(code, message, rule == null ? null : rule.id(), label,
                 context.environmentId(), shadow);
         String request = attempt.method() + " " + urlForAudit(attempt.url());
+        logDecision(policy, context, attempt, code, label, shadow);
         if (shadow) {
             context.markNoRetry(attempt.caseId());
             audit(context, AuditAction.WOULD_BLOCK, "Would have blocked " + request + " (" + code + ", " + label + ")");
@@ -232,6 +240,23 @@ public class SafetyGuard {
         audit(context, AuditAction.BLOCKED, "Blocked " + request + " (" + code + ", " + label + ")");
         log.info("Production safety blocked {} ({})", request, code);
         return new Decision(false, note);
+    }
+
+    /** Keeps the stop for the review on the settings page; a failure to write it never changes the decision. */
+    private void logDecision(SafetyPolicy policy, SafetyContext context, Attempt attempt, String code, String label,
+                             boolean shadow) {
+        try {
+            String template = StringUtils.isNotBlank(attempt.pathTemplate()) && !attempt.redirectHop()
+                    ? attempt.pathTemplate() : PathTemplates.path(attempt.url());
+            String targetId = policy.targets().stream().filter(target -> target.pattern().equals(label))
+                    .map(ProtectedTarget::id).findFirst().orElse(null);
+            policies.recordDecision(new SafetyDecision(java.util.UUID.randomUUID().toString(), context.orgId(),
+                    Instant.now(), context.environmentId(), attempt.caseId(),
+                    StringUtils.defaultIfBlank(attempt.method(), "GET").toUpperCase(java.util.Locale.ROOT),
+                    StringUtils.left(template, 500), targetId, StringUtils.left(label, 300), code, shadow));
+        } catch (RuntimeException exception) {
+            log.warn("Could not record the production safety decision: {}", exception.getMessage());
+        }
     }
 
     private boolean withinMinuteLimit(String orgId, String targetKey, int perMinute) {

@@ -8,6 +8,7 @@ import com.tx.api.test.generator.studio.collection.EnvironmentMapper;
 import com.tx.api.test.generator.studio.collection.StudioEnvironmentNetwork;
 import com.tx.api.test.generator.studio.config.H2Database;
 import com.tx.api.test.generator.studio.config.StudioProperties;
+import com.tx.api.test.generator.studio.dto.SafetyReviewView;
 import com.tx.api.test.generator.studio.dto.AddProtectedTargetRequest;
 import com.tx.api.test.generator.studio.dto.AuthSessionView;
 import com.tx.api.test.generator.studio.dto.RegisterRequest;
@@ -21,7 +22,9 @@ import com.tx.api.test.generator.studio.safety.ApprovalService;
 import com.tx.api.test.generator.studio.safety.JdbcSafetyStore;
 import com.tx.api.test.generator.studio.safety.SafetyContext;
 import com.tx.api.test.generator.studio.safety.SafetyGuard;
+import com.tx.api.test.generator.studio.safety.SafetyDecision;
 import com.tx.api.test.generator.studio.safety.SafetyPolicyService;
+import com.tx.api.test.generator.studio.safety.SafetyReviewService;
 import com.tx.api.test.generator.studio.storage.JdbcStudioStorage;
 import com.tx.api.test.generator.studio.tenant.AuthService;
 import com.tx.api.test.generator.studio.tenant.EntitlementService;
@@ -53,6 +56,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -70,6 +74,8 @@ class SafetyGuardRunTest {
     private SafetyPolicyService policies;
     private TestRunService runs;
     private AuthSessionView owner;
+    private JdbcSafetyStore safetyStore;
+    private SafetyReviewService review;
 
     @BeforeEach
     void setUp() throws IOException {
@@ -100,8 +106,9 @@ class SafetyGuardRunTest {
                 provider(EntitlementService.class,
                         new EntitlementService(properties, provider(TenantStore.class, tenantStore))),
                 provider(LdapAuthenticator.class, null), new OidcAuthService(properties, tenantStore), audit);
-        JdbcSafetyStore safetyStore = new JdbcSafetyStore(jdbc);
+        safetyStore = new JdbcSafetyStore(jdbc);
         policies = new SafetyPolicyService(properties, safetyStore, tenantStore, storage, audit);
+        review = new SafetyReviewService(policies, safetyStore, storage);
         SafetyGuard guard = new SafetyGuard(properties, policies, tenantStore, storage, audit,
                 new ApprovalService(safetyStore, policies, tenantStore, storage, audit));
         runs = new TestRunService(storage, properties, new OutboundUrlPolicy(properties), audit, guard);
@@ -235,6 +242,50 @@ class SafetyGuardRunTest {
         assertEquals(List.of("prod DELETE /users/1"), received);
         assertTrue(storage.listAuditEventsForTenant(20).stream()
                 .anyMatch(event -> "WOULD_BLOCK".equals(event.action())));
+    }
+
+    @Test
+    void theReviewGroupsWhatWasStoppedAndSuggestsTreatAsReadRules() {
+        protect("127.0.0.1", port(production));
+        StudioTestCase search = request("POST", production, "/search");
+        search.setRawPath("/search");
+        StudioTestCase remove = request("DELETE", production, "/users/7");
+        remove.setRawPath("/users/{{userId}}");
+        runs.execute(search, null, new LinkedHashMap<>());
+        runs.execute(search, null, new LinkedHashMap<>());
+        runs.execute(remove, null, new LinkedHashMap<>(Map.of("userId", "7")));
+        enforce();
+        runs.execute(remove, null, new LinkedHashMap<>(Map.of("userId", "7")));
+
+        SafetyReviewView view = review.review(14);
+        assertEquals(3, view.wouldBlock(), String.valueOf(view.items()));
+        assertEquals(1, view.blocked());
+        SafetyReviewView.Item first = view.items().get(0);
+        assertEquals("POST", first.method());
+        assertEquals("/search", first.pathTemplate());
+        assertEquals(2, first.count());
+        assertTrue(first.shadow());
+        assertTrue(first.suggestTreatAsRead());
+        assertEquals("127.0.0.1/32", first.target());
+        assertNotNull(first.targetId());
+        assertTrue(view.items().stream().anyMatch(item -> "/users/{userId}".equals(item.pathTemplate())
+                && !item.shadow()), "the case's path, with {{userId}} as a template variable");
+
+        policies.addRule(new SaveOperationRuleRequest("treat_as_read", "rest", "POST", "/search", null, null,
+                "Search only reads data", null));
+        assertFalse(review.review(14).items().get(0).suggestTreatAsRead(), "a rule covers it now");
+        assertThrows(IllegalArgumentException.class, () -> review.review(91));
+    }
+
+    @Test
+    void theDecisionLogKeepsNinetyDays() {
+        String orgId = owner.organization().id();
+        safetyStore.insertDecision(new SafetyDecision("old", orgId, java.time.Instant.now().minus(
+                java.time.Duration.ofDays(91)), null, null, "POST", "/old", null, "api.acme.com",
+                SafetyGuard.WRITE_TO_PROTECTED_TARGET, true));
+        policies.recordDecision(new SafetyDecision("new", orgId, java.time.Instant.now(), null, null, "POST", "/new",
+                null, "api.acme.com", SafetyGuard.WRITE_TO_PROTECTED_TARGET, true));
+        assertEquals(List.of("new"), jdbc.queryForList("SELECT decision_id FROM td_safety_decision", String.class));
     }
 
     @Test

@@ -65,6 +65,8 @@ public class SafetyPolicyService {
     private final StudioStorage studioStorage;
     private final StudioAuditService auditService;
     private final Map<String, Cached> cache = new ConcurrentHashMap<>();
+    static final Duration DECISION_RETENTION = Duration.ofDays(90);
+    private final Map<String, Instant> lastPruned = new ConcurrentHashMap<>();
 
     public SafetyPolicyService(StudioProperties properties, SafetyStore store, TenantStore tenantStore,
                                StudioStorage studioStorage, StudioAuditService auditService) {
@@ -126,6 +128,20 @@ public class SafetyPolicyService {
     }
 
     /** The current workspace's organization when production safety is on and someone is signed in; else empty. */
+    /**
+     * Keeps a stop for the review (SafetyReviewService). Rows older than {@link #DECISION_RETENTION} go, checked at
+     * most once an hour per organization.
+     */
+    public void recordDecision(SafetyDecision decision) {
+        store.insertDecision(decision);
+        Instant now = Instant.now();
+        Instant last = lastPruned.get(decision.orgId());
+        if (last == null || last.plus(Duration.ofHours(1)).isBefore(now)) {
+            lastPruned.put(decision.orgId(), now);
+            store.pruneDecisions(decision.orgId(), now.minus(DECISION_RETENTION));
+        }
+    }
+
     public Optional<String> currentOrgId() {
         if (!properties.safetyOn()) {
             return Optional.empty();

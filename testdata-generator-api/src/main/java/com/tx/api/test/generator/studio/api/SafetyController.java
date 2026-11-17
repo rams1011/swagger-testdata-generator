@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.api;
 
+import com.tx.api.test.generator.studio.dto.SafetyReviewView;
 import com.tx.api.test.generator.studio.dto.AddProtectedTargetRequest;
 import com.tx.api.test.generator.studio.dto.ApprovalView;
 import com.tx.api.test.generator.studio.dto.DecideApprovalRequest;
@@ -18,6 +19,7 @@ import com.tx.api.test.generator.studio.dto.SetEnvironmentProtectionRequest;
 import com.tx.api.test.generator.studio.dto.UpdateSafetySettingsRequest;
 import com.tx.api.test.generator.studio.safety.ApprovalService;
 import com.tx.api.test.generator.studio.safety.SafetyPolicyService;
+import com.tx.api.test.generator.studio.safety.SafetyReviewService;
 import com.tx.api.test.generator.studio.service.SafetyPreviewService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,12 +41,20 @@ public class SafetyController {
     private final SafetyPolicyService safetyPolicyService;
     private final ApprovalService approvalService;
     private final SafetyPreviewService previewService;
+    private final SafetyReviewService reviewService;
 
     public SafetyController(SafetyPolicyService safetyPolicyService, ApprovalService approvalService,
-                            SafetyPreviewService previewService) {
+                            SafetyPreviewService previewService, SafetyReviewService reviewService) {
         this.safetyPolicyService = safetyPolicyService;
         this.approvalService = approvalService;
         this.previewService = previewService;
+        this.reviewService = reviewService;
+    }
+
+    /** What production safety stopped, or would have stopped in Shadow mode, over the last {@code days} (1–90). */
+    @GetMapping("/organizations/current/safety/review")
+    public SafetyReviewView review(@RequestParam(required = false) Integer days) {
+        return reviewService.review(days);
     }
 
     // --- Previews (send nothing) ---
