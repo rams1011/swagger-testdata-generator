@@ -40,7 +40,7 @@ public class RunHistoryService {
     static final String TRIGGER_PLAN = "plan";
 
     private static final Set<String> TRIGGERS = Set.of(TRIGGER_TRY, TRIGGER_CASE, TRIGGER_PLAN);
-    private static final Set<String> OUTCOMES = Set.of("passed", "failed", "skipped", "error");
+    private static final Set<String> OUTCOMES = Set.of("passed", "failed", "skipped", "error", "blocked");
     private static final int DEFAULT_LIMIT = 100;
     /** How many recent results the Last run column looks through. */
     static final int LATEST_SCAN_LIMIT = 2000;
@@ -207,7 +207,8 @@ public class RunHistoryService {
             result.setCreatedAt(now);
             switch (StringUtils.defaultString(result.getOutcome())) {
                 case "passed" -> passed++;
-                case "skipped" -> skipped++;
+                // td_run has no blocked column: a run's blocked cases count as skipped; each result keeps "blocked".
+                case "skipped", "blocked" -> skipped++;
                 default -> failed++;
             }
         }
@@ -258,6 +259,9 @@ public class RunHistoryService {
     }
 
     private static String outcome(RunTestResult result) {
+        if (result.blocked()) {
+            return "blocked";
+        }
         if (result.skipped()) {
             return "skipped";
         }

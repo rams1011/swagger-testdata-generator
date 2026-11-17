@@ -124,7 +124,8 @@ public final class RunVariables {
                 result.timedOut(), mask(result.responseBody()), mask(result.responseHeaders()),
                 mask(result.requestHeaders()), assertions, mask(result.error()), result.downloadPath(),
                 mask(result.extracted()), mask(result.requestBody()), result.rowLabel(),
-                result.iterations() == null ? null : result.iterations().stream().map(this::mask).toList());
+                result.iterations() == null ? null : result.iterations().stream().map(this::mask).toList(),
+                result.blocked(), result.policy());
     }
 
     public List<RunTestResult> mask(List<RunTestResult> results) {

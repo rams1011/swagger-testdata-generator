@@ -10,7 +10,10 @@ import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AssertionCheck;
 import com.tx.api.test.generator.studio.dto.RunAuth;
 import com.tx.api.test.generator.studio.dto.RunTestResult;
+import com.tx.api.test.generator.studio.dto.SafetyPolicyNote;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
+import com.tx.api.test.generator.studio.safety.SafetyContext;
+import com.tx.api.test.generator.studio.safety.SafetyGuard;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -59,18 +62,34 @@ public class TestRunService {
     private final StudioProperties properties;
     private final OutboundUrlPolicy outboundUrlPolicy;
     private final StudioAuditService auditService;
+    private final SafetyGuard safetyGuard;
 
     public TestRunService(StudioStorage studioStorage, StudioProperties properties, OutboundUrlPolicy outboundUrlPolicy) {
-        this(studioStorage, properties, outboundUrlPolicy, null);
+        this(studioStorage, properties, outboundUrlPolicy, null, null);
+    }
+
+    public TestRunService(StudioStorage studioStorage, StudioProperties properties, OutboundUrlPolicy outboundUrlPolicy,
+                          StudioAuditService auditService) {
+        this(studioStorage, properties, outboundUrlPolicy, auditService, null);
     }
 
     @Autowired
     public TestRunService(StudioStorage studioStorage, StudioProperties properties, OutboundUrlPolicy outboundUrlPolicy,
-                          StudioAuditService auditService) {
+                          StudioAuditService auditService, SafetyGuard safetyGuard) {
         this.studioStorage = studioStorage;
         this.properties = properties;
         this.outboundUrlPolicy = outboundUrlPolicy;
         this.auditService = auditService;
+        this.safetyGuard = safetyGuard;
+    }
+
+    /** A production safety context for one run; callers that send several requests in one run share it. */
+    public SafetyContext safetyContext(OutboundUrlPolicy.Scope scope) {
+        if (safetyGuard == null) {
+            return SafetyContext.none();
+        }
+        OutboundUrlPolicy.Scope used = scope == null ? OutboundUrlPolicy.Scope.NONE : scope;
+        return safetyGuard.newContext(used.environmentId(), used.environmentName());
     }
 
     public RunTestResult execute(StudioTestCase testCase, RunAuth auth) {
@@ -93,6 +112,12 @@ public class TestRunService {
     /** {@code scope} is the environment whose private target allowlist applies to this request. */
     public RunTestResult execute(StudioTestCase testCase, RunAuth auth, Map<String, String> variables,
                                  StudioEnvironmentNetwork network, OutboundUrlPolicy.Scope scope) {
+        return execute(testCase, auth, variables, network, scope, safetyContext(scope));
+    }
+
+    /** {@code safety} is the run's production safety context ({@link #safetyContext}). */
+    public RunTestResult execute(StudioTestCase testCase, RunAuth auth, Map<String, String> variables,
+                                 StudioEnvironmentNetwork network, OutboundUrlPolicy.Scope scope, SafetyContext safety) {
         if (testCase == null) {
             throw new IllegalArgumentException("Test case is required");
         }
@@ -159,6 +184,17 @@ public class TestRunService {
         }
 
         String sentBody = binaryBody != null ? "[multipart body, " + binaryBody.length + " bytes]" : textBody;
+        // Production safety looks at the request exactly as it will go out, at the address it will connect to.
+        String checkedBody = binaryBody != null ? new String(binaryBody, StandardCharsets.ISO_8859_1) : textBody;
+        SafetyGuard.Decision safetyDecision = checkSafety(safety, bound, method, url, headers, checkedBody, target,
+                false);
+        if (!safetyDecision.send()) {
+            return blocked(bound, url, headers, sentBody, safetyDecision.note(), List.of());
+        }
+        List<SafetyPolicyNote> safetyNotes = new ArrayList<>();
+        if (safetyDecision.note() != null) {
+            safetyNotes.add(safetyDecision.note());
+        }
         long maxMs = bound.getMaxResponseTimeMs() <= 0 ? 3000L : bound.getMaxResponseTimeMs();
         long timeoutMs = timeoutMs(maxMs, network);
         NetworkClients.Channel channel;
@@ -198,7 +234,7 @@ public class TestRunService {
             HttpResponse<byte[]> response = channel.send(builder.build(), payload(method, binaryBody, textBody), target);
             if (network != null && network.followsRedirects()) {
                 response = followRedirects(channel, response, method, headers, binaryBody, textBody, timeoutMs, hops,
-                        scope);
+                        scope, new HopCheck(safety, bound, safetyNotes));
             }
             if (response.statusCode() == 401 && oauthUsed != null && oauthTokens.invalidate(oauthUsed)) {
                 log.info("API answered 401; dropped the cached OAuth token so the next request fetches a new one");
@@ -220,7 +256,12 @@ public class TestRunService {
             }
             RunTestResult result = evaluate(bound, url, redact(headers), response.statusCode(), rawHeaders,
                     bodyText, downloadPath, bytes, elapsedMs, maxMs, null, store).withRequestBody(sentBody);
+            if (!safetyNotes.isEmpty()) {
+                result = result.withPolicy(safetyNotes.get(0));
+            }
             return hops.isEmpty() ? result : withRedirects(result, hops);
+        } catch (SafetyBlockedException exception) {
+            return blocked(bound, url, headers, sentBody, exception.note, hops);
         } catch (HttpTimeoutException exception) {
             long elapsedMs = elapsed(started);
             return evaluate(bound, url, redact(headers), 0, Map.of(), null, null, null, elapsedMs, maxMs,
@@ -304,7 +345,7 @@ public class TestRunService {
     private HttpResponse<byte[]> followRedirects(NetworkClients.Channel channel, HttpResponse<byte[]> first, String method,
                                                  Map<String, String> headers, byte[] binaryBody, String textBody,
                                                  long timeoutMs, List<String> hops,
-                                                 OutboundUrlPolicy.Scope scope) throws Exception {
+                                                 OutboundUrlPolicy.Scope scope, HopCheck safety) throws Exception {
         HttpResponse<byte[]> response = first;
         String currentMethod = method;
         byte[] currentBinary = binaryBody;
@@ -340,6 +381,16 @@ public class TestRunService {
                             ? HttpRequest.BodyPublishers.ofByteArray(currentBinary)
                             : bodyPublisher(currentMethod, currentText));
             currentHeaders.forEach(builder::header);
+            byte[] hopPayload = payload(currentMethod, currentBinary, currentText);
+            SafetyGuard.Decision hopDecision = checkSafety(safety.context(), safety.testCase(), currentMethod,
+                    next.toString(), currentHeaders,
+                    hopPayload == null ? null : new String(hopPayload, StandardCharsets.ISO_8859_1), nextTarget, true);
+            if (!hopDecision.send()) {
+                throw new SafetyBlockedException(hopDecision.note());
+            }
+            if (hopDecision.note() != null) {
+                safety.notes().add(hopDecision.note());
+            }
             auditPrivateTarget(nextTarget, currentMethod, scope);
             response = channel.send(builder.build(), payload(currentMethod, currentBinary, currentText), nextTarget);
         }
@@ -377,6 +428,43 @@ public class TestRunService {
 
     private static boolean isRedirect(int status) {
         return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+    }
+
+    /** What a redirect hop needs for its production safety check. */
+    private record HopCheck(SafetyContext context, StudioTestCase testCase, List<SafetyPolicyNote> notes) {
+    }
+
+    /** A redirect hop production safety stopped: ends the request with a blocked result. */
+    private static final class SafetyBlockedException extends Exception {
+        private final transient SafetyPolicyNote note;
+
+        private SafetyBlockedException(SafetyPolicyNote note) {
+            super(note == null ? "Blocked by production safety" : note.message(), null, false, false);
+            this.note = note;
+        }
+    }
+
+    private SafetyGuard.Decision checkSafety(SafetyContext context, StudioTestCase testCase, String method, String url,
+                                             Map<String, String> headers, String body,
+                                             OutboundUrlPolicy.Target target, boolean redirectHop) {
+        if (safetyGuard == null || context == null || target == null) {
+            return new SafetyGuard.Decision(true, null);
+        }
+        String contentType = headers == null ? null : headers.entrySet().stream()
+                .filter(entry -> "Content-Type".equalsIgnoreCase(entry.getKey()))
+                .map(Map.Entry::getValue).findFirst().orElse(null);
+        return safetyGuard.check(context, new SafetyGuard.Attempt(testCase.getId(), method, url, headers, body,
+                contentType, target.host(), target.address(), target.port(), redirectHop));
+    }
+
+    /** Nothing was sent: production safety stopped it. Skipped, so a plan doesn't count it as a failure. */
+    private RunTestResult blocked(StudioTestCase testCase, String url, Map<String, String> headers, String sentBody,
+                                  SafetyPolicyNote note, List<String> hops) {
+        RunTestResult result = new RunTestResult(false, true, note == null ? "Blocked by production safety"
+                : note.message(), testCase.getId(), testCase.getTestName(), testCase.getMethod(), url,
+                testCase.getStatusCode(), 0, false, 0L, testCase.getMaxResponseTimeMs(), false, null, Map.of(),
+                redact(headers), List.of(), null, null, Map.of(), sentBody, null, null, true, note);
+        return hops.isEmpty() ? result : withRedirects(result, hops);
     }
 
     private static RunTestResult withRedirects(RunTestResult result, List<String> hops) {
