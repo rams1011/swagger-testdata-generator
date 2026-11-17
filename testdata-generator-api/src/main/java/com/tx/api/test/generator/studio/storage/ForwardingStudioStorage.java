@@ -112,6 +112,11 @@ abstract class ForwardingStudioStorage implements StudioStorage {
     }
 
     @Override
+    public void setEnvironmentProtected(String environmentId, boolean value) {
+        delegate.setEnvironmentProtected(environmentId, value);
+    }
+
+    @Override
     public void deleteEnvironment(String environmentId) {
         delegate.deleteEnvironment(environmentId);
     }

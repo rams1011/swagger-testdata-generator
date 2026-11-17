@@ -150,7 +150,8 @@ public final class EnvironmentMapper {
         StudioEnvironment environment = CollectionDocuments.parseEnvironment(stored.getDocumentJson());
         String baseUrl = environment.values() == null ? null : environment.values().get("baseUrl");
         return new EnvironmentSummary(stored.getId(), stored.getSpecId(), stored.getName(), baseUrl,
-                authType(environment), new ArrayList<>(environment.variableList()), environment.network());
+                authType(environment), new ArrayList<>(environment.variableList()), environment.network(),
+                stored.isProtectedEnvironment());
     }
 
     public static String baseUrl(StudioEnvironment environment) {

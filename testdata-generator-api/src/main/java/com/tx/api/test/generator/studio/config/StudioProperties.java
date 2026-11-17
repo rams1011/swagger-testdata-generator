@@ -12,6 +12,7 @@ public class StudioProperties {
     private Run run = new Run();
     private Saas saas = new Saas();
     private Auth auth = new Auth();
+    private Safety safety = new Safety();
     /**
      * Hosting mode. The only switch operators should set:
      * {@code local} (no login), {@code datacenter} (login, no plan), {@code saas} (login + plan).
@@ -55,6 +56,19 @@ public class StudioProperties {
 
     public Auth getAuth() {
         return auth;
+    }
+
+    public Safety getSafety() {
+        return safety;
+    }
+
+    public void setSafety(Safety safety) {
+        this.safety = safety == null ? new Safety() : safety;
+    }
+
+    /** Production safety is built and switched on, and login is on (it is per organization). */
+    public boolean isSafetyEnabled() {
+        return safety != null && safety.isEnabled() && isAuthEnabled();
     }
 
     public void setAuth(Auth auth) {
@@ -511,6 +525,19 @@ public class StudioProperties {
 
         public void setOperatorApi(boolean operatorApi) {
             this.operatorApi = operatorApi;
+        }
+    }
+
+    /** Production safety (docs/PRODUCTION_SAFETY.md in the UI repo). Off until it is fully built and rolled out. */
+    public static class Safety {
+        private boolean enabled = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 

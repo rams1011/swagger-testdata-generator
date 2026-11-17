@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.tx.api.test.generator.studio.collection.StudioEnvironmentNetwork;
 import com.tx.api.test.generator.studio.collection.StudioVariable;
 
@@ -12,6 +13,9 @@ public record EnvironmentSummary(
         String baseUrl,
         String authType,
         List<StudioVariable> variables,
-        StudioEnvironmentNetwork network
+        StudioEnvironmentNetwork network,
+        /* Marked Protected by an organization admin (production safety). A base URL matching a protected target
+           protects it too; GET /api/safety/environments says which. */
+        @JsonProperty("protected") boolean protectedEnvironment
 ) {
 }

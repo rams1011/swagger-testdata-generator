@@ -170,6 +170,10 @@ testdata:
       redirect-uri: ${TESTDATA_AUTH_GITHUB_REDIRECT_URI:http://localhost:8083/api/auth/github/callback}
       ui-base: ${TESTDATA_AUTH_GITHUB_UI_BASE:http://localhost:5173}
       allow-registration: ${TESTDATA_AUTH_GITHUB_ALLOW_REGISTRATION:true}
+  safety:
+    # Production safety (protected targets, send-time check, approvals). Leave off until it is fully built;
+    # with it off nothing changes. Needs login (datacenter or saas).
+    enabled: ${TESTDATA_SAFETY_ENABLED:false}
   saas:
     # Operator/session settings — not the hosting mode. Use testdata.edition for that.
     session-days: 14

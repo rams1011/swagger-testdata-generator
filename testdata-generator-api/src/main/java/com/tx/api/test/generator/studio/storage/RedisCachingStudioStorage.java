@@ -182,6 +182,13 @@ public class RedisCachingStudioStorage extends ForwardingStudioStorage {
     }
 
     @Override
+    public void setEnvironmentProtected(String environmentId, boolean value) {
+        Optional<StoredEnvironment> existing = super.findEnvironment(environmentId);
+        super.setEnvironmentProtected(environmentId, value);
+        touchEnvironmentCache(existing.map(StoredEnvironment::getSpecId).orElse(null));
+    }
+
+    @Override
     public void deleteEnvironment(String environmentId) {
         Optional<StoredEnvironment> existing = super.findEnvironment(environmentId);
         super.deleteEnvironment(environmentId);

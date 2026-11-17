@@ -447,6 +447,18 @@ public class JdbcStudioStorage implements StudioStorage {
     }
 
     @Override
+    public void setEnvironmentProtected(String environmentId, boolean value) {
+        int rows = jdbcTemplate.update("""
+                UPDATE td_environment SET is_protected = ?
+                 WHERE environment_id = ?
+                   AND spec_id IN (SELECT spec_id FROM td_spec WHERE tenant_id = ?)
+                """, value, environmentId, tenantId());
+        if (rows == 0) {
+            throw new NoSuchElementException("Environment not found: " + environmentId);
+        }
+    }
+
+    @Override
     public void deleteEnvironment(String environmentId) {
         requireOwnedEnvironment(environmentId);
         int deleted = jdbcTemplate.update("""
@@ -1155,6 +1167,7 @@ public class JdbcStudioStorage implements StudioStorage {
             environment.setDocumentJson(rs.getString("document_json"));
             environment.setCreatedAt(toInstant(rs, "created_at"));
             environment.setUpdatedAt(toInstant(rs, "updated_at"));
+            environment.setProtectedEnvironment(rs.getBoolean("is_protected"));
             return environment;
         };
     }
