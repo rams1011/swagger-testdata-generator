@@ -1033,7 +1033,8 @@ public class AuthService {
                 properties.isBillingEnabled(),
                 passwordChangeRequired(account),
                 !LdapAccounts.isDirectoryManaged(account.getPasswordHash()),
-                properties.isOperatorApiEnabled()
+                properties.isOperatorApiEnabled(),
+                properties.safetyOn()
         );
     }
 

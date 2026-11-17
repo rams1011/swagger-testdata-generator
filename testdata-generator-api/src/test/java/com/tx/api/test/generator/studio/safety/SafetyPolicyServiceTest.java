@@ -109,6 +109,7 @@ class SafetyPolicyServiceTest {
 
     @Test
     void aNewOrganizationStartsInShadow() {
+        assertTrue(owner.safetyEnabled(), "the session tells the UI production safety is on");
         asOwner(() -> {
             var summary = safety.summary();
             assertTrue(summary.enabled());

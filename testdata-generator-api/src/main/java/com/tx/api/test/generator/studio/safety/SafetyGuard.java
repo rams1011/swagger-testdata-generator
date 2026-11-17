@@ -66,7 +66,7 @@ public class SafetyGuard {
 
     /** The run's context: the organization of the current workspace and the selected environment's protection. */
     public SafetyContext newContext(String environmentId, String environmentName) {
-        if (!properties.isSafetyEnabled()) {
+        if (!properties.safetyOn()) {
             return SafetyContext.none();
         }
         String tenantId = TenantContext.current() == null ? null : TenantContext.current().tenantId();
@@ -82,7 +82,7 @@ public class SafetyGuard {
     }
 
     public Decision check(SafetyContext context, Attempt attempt) {
-        if (context == null || context.orgId() == null || !properties.isSafetyEnabled()) {
+        if (context == null || context.orgId() == null || !properties.safetyOn()) {
             return Decision.ALLOW;
         }
         SafetyPolicy policy = policies.policy(context.orgId());

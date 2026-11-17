@@ -17,10 +17,12 @@ public record AuthSessionView(
         boolean passwordChangeRequired,
         boolean localPassword,
         /* The SaaS operator endpoints are on (testdata.saas.operator-api). */
-        boolean operatorApi
+        boolean operatorApi,
+        /* Production safety is on for this server (testdata.safety.enabled, login on). */
+        boolean safetyEnabled
 ) {
     public static AuthSessionView local(TenantView tenant) {
-        return new AuthSessionView(false, true, null, null, tenant, List.of(tenant), false, null, null, "local", false, false, false, false);
+        return new AuthSessionView(false, true, null, null, tenant, List.of(tenant), false, null, null, "local", false, false, false, false, false);
     }
 
     public static AuthSessionView anonymous() {
@@ -28,6 +30,6 @@ public record AuthSessionView(
     }
 
     public static AuthSessionView anonymous(String edition, boolean billing) {
-        return new AuthSessionView(false, false, null, null, null, List.of(), false, null, null, null, false, false, false, false);
+        return new AuthSessionView(false, false, null, null, null, List.of(), false, null, null, null, false, false, false, false, false);
     }
 }
