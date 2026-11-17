@@ -17,6 +17,7 @@ import com.tx.api.test.generator.studio.dto.UpdateSafetySettingsRequest;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
+import com.tx.api.test.generator.studio.safety.ApprovalService;
 import com.tx.api.test.generator.studio.safety.JdbcSafetyStore;
 import com.tx.api.test.generator.studio.safety.SafetyContext;
 import com.tx.api.test.generator.studio.safety.SafetyGuard;
@@ -99,8 +100,10 @@ class SafetyGuardRunTest {
                 provider(EntitlementService.class,
                         new EntitlementService(properties, provider(TenantStore.class, tenantStore))),
                 provider(LdapAuthenticator.class, null), new OidcAuthService(properties, tenantStore), audit);
-        policies = new SafetyPolicyService(properties, new JdbcSafetyStore(jdbc), tenantStore, storage, audit);
-        SafetyGuard guard = new SafetyGuard(properties, policies, tenantStore, storage, audit);
+        JdbcSafetyStore safetyStore = new JdbcSafetyStore(jdbc);
+        policies = new SafetyPolicyService(properties, safetyStore, tenantStore, storage, audit);
+        SafetyGuard guard = new SafetyGuard(properties, policies, tenantStore, storage, audit,
+                new ApprovalService(safetyStore, policies, tenantStore, storage, audit));
         runs = new TestRunService(storage, properties, new OutboundUrlPolicy(properties), audit, guard);
         owner = authService.register(new RegisterRequest("owner@acme.test", "password1234", "Owner", "Acme"));
         TenantContext.set(new TenantContext.Scope(owner.tenant().id(), owner.account().id(), "owner@acme.test",

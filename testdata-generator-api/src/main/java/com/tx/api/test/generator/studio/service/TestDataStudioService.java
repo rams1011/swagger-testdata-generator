@@ -534,7 +534,9 @@ public class TestDataStudioService {
         Map<String, String> variables = scope.newScope();
         StudioEnvironmentNetwork network = network(testCase.getSpecId(), environmentId);
         OutboundUrlPolicy.Scope outbound = outboundScope(testCase.getSpecId(), environmentId);
-        SafetyContext safety = testRunService.safetyContext(outbound);
+        // A run of what's in the editor (Send) is never covered by an approval: only the stored published case is.
+        SafetyContext safety = testRunService.safetyContext(outbound, request.confirmEnvironment(),
+                request.testCase() != null);
         List<ExecutedCase> priors = runPrerequisites(testCase, request.auth(), variables, environmentId, scope, network,
                 safety);
         boolean priorFailed = !priors.isEmpty() && !priors.get(priors.size() - 1).result().passed();
@@ -638,7 +640,7 @@ public class TestDataStudioService {
         Map<String, String> variables = scope.newScope();
         StudioEnvironmentNetwork network = network(request.specId(), environmentId);
         OutboundUrlPolicy.Scope outboundScope = outboundScope(request.specId(), environmentId);
-        SafetyContext safety = testRunService.safetyContext(outboundScope);
+        SafetyContext safety = testRunService.safetyContext(outboundScope, request.confirmEnvironment(), false);
         PlanRun.Outcome outcome = PlanRun.execute(cases, new PlanRun.Actions() {
             @Override
             public boolean runnable(StudioTestCase testCase) {

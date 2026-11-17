@@ -19,8 +19,16 @@ public record RunPlanRequest(
         Boolean continueOnFailure,
         Long delayMs,
         Integer retries,
-        List<String> caseIds
+        List<String> caseIds,
+        /** Production safety: the environment's name, typed to confirm approved writes to production. */
+        String confirmEnvironment
 ) {
+    public RunPlanRequest(String specId, String planId, RunAuth auth, String environmentId,
+                          Map<String, String> secrets, Boolean continueOnFailure, Long delayMs, Integer retries,
+                          List<String> caseIds) {
+        this(specId, planId, auth, environmentId, secrets, continueOnFailure, delayMs, retries, caseIds, null);
+    }
+
     public static final long MAX_DELAY_MS = 60_000L;
     public static final int MAX_RETRIES = 5;
 

@@ -85,11 +85,19 @@ public class TestRunService {
 
     /** A production safety context for one run; callers that send several requests in one run share it. */
     public SafetyContext safetyContext(OutboundUrlPolicy.Scope scope) {
+        return safetyContext(scope, null, false);
+    }
+
+    /**
+     * {@code confirmation}: what was typed to confirm writes to production. {@code fromEditor}: the run sends what's in
+     * the editor (Send), which no approval covers.
+     */
+    public SafetyContext safetyContext(OutboundUrlPolicy.Scope scope, String confirmation, boolean fromEditor) {
         if (safetyGuard == null) {
             return SafetyContext.none();
         }
         OutboundUrlPolicy.Scope used = scope == null ? OutboundUrlPolicy.Scope.NONE : scope;
-        return safetyGuard.newContext(used.environmentId(), used.environmentName());
+        return safetyGuard.newContext(used.environmentId(), used.environmentName(), confirmation, fromEditor);
     }
 
     public RunTestResult execute(StudioTestCase testCase, RunAuth auth) {
@@ -186,7 +194,7 @@ public class TestRunService {
         String sentBody = binaryBody != null ? "[multipart body, " + binaryBody.length + " bytes]" : textBody;
         // Production safety looks at the request exactly as it will go out, at the address it will connect to.
         String checkedBody = binaryBody != null ? new String(binaryBody, StandardCharsets.ISO_8859_1) : textBody;
-        SafetyGuard.Decision safetyDecision = checkSafety(safety, bound, method, url, headers, checkedBody, target,
+        SafetyGuard.Decision safetyDecision = checkSafety(safety, testCase, method, url, headers, checkedBody, target,
                 false);
         if (!safetyDecision.send()) {
             return blocked(bound, url, headers, sentBody, safetyDecision.note(), List.of());
@@ -234,7 +242,7 @@ public class TestRunService {
             HttpResponse<byte[]> response = channel.send(builder.build(), payload(method, binaryBody, textBody), target);
             if (network != null && network.followsRedirects()) {
                 response = followRedirects(channel, response, method, headers, binaryBody, textBody, timeoutMs, hops,
-                        scope, new HopCheck(safety, bound, safetyNotes));
+                        scope, new HopCheck(safety, testCase, safetyNotes));
             }
             if (response.statusCode() == 401 && oauthUsed != null && oauthTokens.invalidate(oauthUsed)) {
                 log.info("API answered 401; dropped the cached OAuth token so the next request fetches a new one");
@@ -453,7 +461,9 @@ public class TestRunService {
         String contentType = headers == null ? null : headers.entrySet().stream()
                 .filter(entry -> "Content-Type".equalsIgnoreCase(entry.getKey()))
                 .map(Map.Entry::getValue).findFirst().orElse(null);
-        return safetyGuard.check(context, new SafetyGuard.Attempt(testCase.getId(), method, url, headers, body,
+        // The stored case's identity (not the bound copy's), for approvals of its published version.
+        return safetyGuard.check(context, new SafetyGuard.Attempt(testCase.getId(), testCase.getRevision(),
+                com.tx.api.test.generator.studio.model.CaseLifecycle.isDraft(testCase), method, url, headers, body,
                 contentType, target.host(), target.address(), target.port(), redirectHop));
     }
 
