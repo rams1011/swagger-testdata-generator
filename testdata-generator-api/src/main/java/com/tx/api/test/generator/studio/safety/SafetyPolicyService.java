@@ -98,7 +98,7 @@ public class SafetyPolicyService {
     }
 
     public SafetySummaryView summary() {
-        if (!properties.isSafetyEnabled()) {
+        if (!properties.safetyOn()) {
             return new SafetySummaryView(false, SafetyMode.OFF, SafetyPolicy.DEFAULT_MAX_REQUESTS_PER_RUN,
                     SafetyPolicy.DEFAULT_MAX_REQUESTS_PER_MINUTE, SafetyPolicy.DEFAULT_MAX_WRITE_DATA_ROWS, 0, false);
         }
@@ -318,7 +318,7 @@ public class SafetyPolicyService {
     }
 
     private Access currentAccess() {
-        if (!properties.isSafetyEnabled()) {
+        if (!properties.safetyOn()) {
             throw new NoSuchElementException("Not found");
         }
         TenantContext.Scope scope = TenantContext.current();

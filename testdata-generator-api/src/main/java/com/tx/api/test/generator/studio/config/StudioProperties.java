@@ -66,8 +66,12 @@ public class StudioProperties {
         this.safety = safety == null ? new Safety() : safety;
     }
 
-    /** Production safety is built and switched on, and login is on (it is per organization). */
-    public boolean isSafetyEnabled() {
+    /**
+     * Production safety is built and switched on, and login is on (it is per organization). Not named
+     * {@code isSafetyEnabled}: Spring would take that for a property and bind TESTDATA_SAFETY_ENABLED to a setter
+     * that doesn't exist, and the app would fail to start (SafetyConfigurationBindingTest).
+     */
+    public boolean safetyOn() {
         return safety != null && safety.isEnabled() && isAuthEnabled();
     }
 
