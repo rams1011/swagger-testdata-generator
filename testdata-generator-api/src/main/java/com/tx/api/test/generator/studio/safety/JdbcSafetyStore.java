@@ -258,6 +258,48 @@ public class JdbcSafetyStore implements SafetyStore {
                         """, accessId, timestamp(now), timestamp(now)) == 1;
     }
 
+    @Override
+    public void insertDecision(SafetyDecision decision) {
+        jdbcTemplate.update("""
+                        INSERT INTO td_safety_decision (decision_id, org_id, occurred_at, environment_id, case_id,
+                                                        http_method, path_template, target_id, target_label,
+                                                        block_code, shadow)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                decision.id(), decision.orgId(), timestamp(decision.occurredAt()), decision.environmentId(),
+                decision.caseId(), decision.method(), decision.pathTemplate(), decision.targetId(),
+                decision.targetLabel(), decision.code(), decision.shadow());
+    }
+
+    @Override
+    public int pruneDecisions(String orgId, Instant before) {
+        return jdbcTemplate.update("DELETE FROM td_safety_decision WHERE org_id = ? AND occurred_at < ?", orgId,
+                timestamp(before));
+    }
+
+    @Override
+    public List<SafetyDecision.Group> decisionGroups(String orgId, Instant since) {
+        return jdbcTemplate.query("""
+                        SELECT http_method, path_template, target_id, target_label, block_code, shadow,
+                               COUNT(*) AS hits, MAX(occurred_at) AS last_seen, MAX(case_id) AS example_case
+                          FROM td_safety_decision
+                         WHERE org_id = ? AND occurred_at >= ?
+                         GROUP BY http_method, path_template, target_id, target_label, block_code, shadow
+                         ORDER BY hits DESC, last_seen DESC
+                        """,
+                (rs, rowNum) -> new SafetyDecision.Group(
+                        rs.getString("http_method"),
+                        rs.getString("path_template"),
+                        rs.getString("target_id"),
+                        rs.getString("target_label"),
+                        rs.getString("block_code"),
+                        rs.getBoolean("shadow"),
+                        rs.getLong("hits"),
+                        instant(rs, "last_seen"),
+                        rs.getString("example_case")),
+                orgId, timestamp(since));
+    }
+
     private static RowMapper<WriteApproval> approvalMapper() {
         return (rs, rowNum) -> new WriteApproval(
                 rs.getString("approval_id"),

@@ -464,7 +464,8 @@ public class TestRunService {
         // The stored case's identity (not the bound copy's), for approvals of its published version.
         return safetyGuard.check(context, new SafetyGuard.Attempt(testCase.getId(), testCase.getRevision(),
                 com.tx.api.test.generator.studio.model.CaseLifecycle.isDraft(testCase), method, url, headers, body,
-                contentType, target.host(), target.address(), target.port(), redirectHop));
+                contentType, target.host(), target.address(), target.port(), redirectHop,
+                StringUtils.defaultIfBlank(testCase.getRawPath(), testCase.getEndpoint())));
     }
 
     /** Nothing was sent: production safety stopped it. Skipped, so a plan doesn't count it as a failure. */

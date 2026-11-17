@@ -60,4 +60,14 @@ public interface SafetyStore {
 
     /** Uses one request of an emergency access if it still has one, in one statement. */
     boolean useEmergencyRequest(String accessId, java.time.Instant now);
+
+    // --- Decision log (review of Shadow and Enforce blocks) ---
+
+    void insertDecision(SafetyDecision decision);
+
+    /** Removes an organization's log rows older than {@code before}; returns how many. */
+    int pruneDecisions(String orgId, java.time.Instant before);
+
+    /** The organization's log since {@code since}, grouped, most frequent first. */
+    List<SafetyDecision.Group> decisionGroups(String orgId, java.time.Instant since);
 }

@@ -208,6 +208,20 @@ td_run_result
   foreign key fk_td_run_result_plan (plan_id) -> td_test_plan on delete set null
   foreign key fk_td_run_result_run (run_id) -> td_run on delete cascade
   foreign key fk_td_run_result_spec (spec_id) -> td_spec on delete cascade
+td_safety_decision
+  column decision_id not null
+  column org_id not null
+  column occurred_at not null
+  column environment_id null
+  column case_id null
+  column http_method not null
+  column path_template null
+  column target_id null
+  column target_label not null
+  column block_code not null
+  column shadow not null
+  index ix_td_safety_decision_org (org_id, occurred_at)
+  foreign key fk_td_safety_decision_org (org_id) -> td_organization on delete cascade
 td_safety_policy
   column org_id not null
   column mode not null
