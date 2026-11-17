@@ -35,6 +35,22 @@ td_collection_variables
   column document_json not null
   column updated_at not null
   foreign key fk_td_collection_variables_spec (spec_id) -> td_spec on delete cascade
+td_emergency_access
+  column access_id not null
+  column org_id not null
+  column environment_id not null
+  column reason not null
+  column granted_by not null
+  column confirmed_by null
+  column starts_at not null
+  column ends_at not null
+  column max_requests null
+  column requests_used not null
+  column ended_by null
+  column ended_at null
+  index ix_td_emergency_access_org (org_id, ends_at)
+  foreign key fk_td_emergency_access_environment (environment_id) -> td_environment on delete cascade
+  foreign key fk_td_emergency_access_org (org_id) -> td_organization on delete cascade
 td_environment
   column environment_id not null
   column spec_id not null
@@ -42,6 +58,7 @@ td_environment
   column document_json not null
   column created_at not null
   column updated_at not null
+  column is_protected not null
   index ix_td_environment_spec (spec_id)
   unique index ux_td_environment_spec_name (spec_id, name)
   foreign key fk_td_environment_spec (spec_id) -> td_spec on delete cascade
@@ -79,6 +96,22 @@ td_oidc_state
   column intent not null
   column return_to null
   column expires_at not null
+td_operation_rule
+  column rule_id not null
+  column org_id not null
+  column effect not null
+  column protocol not null
+  column http_method null
+  column path_template null
+  column operation_name null
+  column target_id null
+  column reason not null
+  column expires_at null
+  column created_by null
+  column created_at not null
+  index ix_td_operation_rule_org (org_id)
+  foreign key fk_td_operation_rule_org (org_id) -> td_organization on delete cascade
+  foreign key fk_td_operation_rule_target (target_id) -> td_protected_target on delete cascade
 td_org_membership
   column org_id not null
   column account_id not null
@@ -104,6 +137,17 @@ td_private_target_allowlist
   column environment_id not null
   column entries not null
   column updated_at not null
+td_protected_target
+  column target_id not null
+  column org_id not null
+  column kind not null
+  column pattern not null
+  column ports null
+  column note null
+  column created_by null
+  column created_at not null
+  unique index ux_td_protected_target_pattern (org_id, pattern)
+  foreign key fk_td_protected_target_org (org_id) -> td_organization on delete cascade
 td_request_file
   column file_id not null
   column test_case_id not null
@@ -164,6 +208,18 @@ td_run_result
   foreign key fk_td_run_result_plan (plan_id) -> td_test_plan on delete set null
   foreign key fk_td_run_result_run (run_id) -> td_run on delete cascade
   foreign key fk_td_run_result_spec (spec_id) -> td_spec on delete cascade
+td_safety_policy
+  column org_id not null
+  column mode not null
+  column max_requests_per_run not null
+  column max_requests_per_minute not null
+  column max_write_data_rows not null
+  column require_second_admin not null
+  column self_approval not null
+  column revision not null
+  column updated_by null
+  column updated_at not null
+  foreign key fk_td_safety_policy_org (org_id) -> td_organization on delete cascade
 td_session
   column token_hash not null
   column account_id not null
@@ -307,3 +363,25 @@ td_workspace_access_request
   index ix_td_war_tenant_status (tenant_id, status, created_at)
   foreign key fk_td_war_account (account_id) -> td_account on delete cascade
   foreign key fk_td_war_tenant (tenant_id) -> td_tenant on delete cascade
+td_write_approval
+  column approval_id not null
+  column org_id not null
+  column case_id not null
+  column case_revision not null
+  column environment_id not null
+  column status not null
+  column reason not null
+  column requested_by not null
+  column requested_at not null
+  column decided_by null
+  column decided_at null
+  column decision_note null
+  column self_approved not null
+  column expires_at null
+  column max_runs null
+  column runs_used not null
+  index ix_td_write_approval_case (case_id, environment_id, status)
+  index ix_td_write_approval_org (org_id, status)
+  foreign key fk_td_write_approval_case (case_id) -> td_test_case on delete cascade
+  foreign key fk_td_write_approval_environment (environment_id) -> td_environment on delete cascade
+  foreign key fk_td_write_approval_org (org_id) -> td_organization on delete cascade

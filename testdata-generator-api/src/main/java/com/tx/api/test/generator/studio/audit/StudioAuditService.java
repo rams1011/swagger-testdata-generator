@@ -185,6 +185,32 @@ public class StudioAuditService {
                         + " changed: added " + added + ", removed " + removed);
     }
 
+    /** Production safety settings of the organization {@code orgId}, recorded in the admin's current workspace. */
+    public void recordSafetySettingsChanged(String orgId, String detail) {
+        append(null, AuditResourceType.SAFETY_POLICY, orgId, AuditAction.UPDATED, detail);
+    }
+
+    public void recordProtectedTargetAdded(String targetId, String pattern) {
+        append(null, AuditResourceType.PROTECTED_TARGET, targetId, AuditAction.CREATED,
+                "Added protected target " + pattern);
+    }
+
+    public void recordProtectedTargetRemoved(String targetId, String pattern) {
+        append(null, AuditResourceType.PROTECTED_TARGET, targetId, AuditAction.DELETED,
+                "Removed protected target " + pattern);
+    }
+
+    public void recordOperationRuleChanged(String ruleId, AuditAction action, String detail) {
+        append(null, AuditResourceType.OPERATION_RULE, ruleId, action, detail);
+    }
+
+    public void recordEnvironmentProtectionChanged(String specId, String environmentId, String environmentName,
+                                                   boolean protectedNow) {
+        append(specId, AuditResourceType.ENVIRONMENT, environmentId, AuditAction.PROTECTION_CHANGED,
+                "Environment " + StringUtils.defaultIfBlank(environmentName, environmentId)
+                        + (protectedNow ? " is now protected" : " is no longer protected"));
+    }
+
     public List<AuditEventView> listForCase(String caseId, int limit) {
         return studioStorage.listAuditEvents(AuditResourceType.CASE, caseId, clamp(limit));
     }

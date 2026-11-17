@@ -10,6 +10,8 @@ public class StoredEnvironment {
     private String documentJson;
     private Instant createdAt;
     private Instant updatedAt;
+    /** Production safety flag (column {@code is_protected}); kept out of the document so export and import can't move it. */
+    private boolean protectedEnvironment;
 
     public String getId() {
         return id;
@@ -57,5 +59,13 @@ public class StoredEnvironment {
 
     public void setUpdatedAt(Instant updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public boolean isProtectedEnvironment() {
+        return protectedEnvironment;
+    }
+
+    public void setProtectedEnvironment(boolean protectedEnvironment) {
+        this.protectedEnvironment = protectedEnvironment;
     }
 }

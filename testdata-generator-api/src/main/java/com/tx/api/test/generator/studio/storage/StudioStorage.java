@@ -79,6 +79,11 @@ public interface StudioStorage {
         throw new IllegalStateException("Environment files need H2 or database storage");
     }
 
+    /** Production safety: only this changes {@code is_protected}; saving or importing an environment never does. */
+    default void setEnvironmentProtected(String environmentId, boolean value) {
+        throw new IllegalStateException("Environment protection needs H2 or database storage");
+    }
+
     default void deleteEnvironment(String environmentId) {
         throw new java.util.NoSuchElementException("Environment not found: " + environmentId);
     }

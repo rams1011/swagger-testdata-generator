@@ -5,5 +5,9 @@ public enum AuditResourceType {
     SPEC,
     ACCOUNT,
     WORKSPACE,
-    OUTBOUND_TARGET
+    OUTBOUND_TARGET,
+    SAFETY_POLICY,
+    PROTECTED_TARGET,
+    OPERATION_RULE,
+    ENVIRONMENT
 }

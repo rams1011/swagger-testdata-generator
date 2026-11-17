@@ -906,6 +906,11 @@ public class TestDataStudioService {
         StudioEnvironment copy = EnvironmentMapper.merge(existing, copyName, EnvironmentMapper.baseUrl(existing),
                 EnvironmentMapper.authType(existing), null, existing == null ? null : existing.network());
         StoredEnvironment created = saveEnvironmentDocument(specId, copy);
+        if (stored.isProtectedEnvironment()) {
+            // A copy of a protected environment must not be a way around production safety.
+            studioStorage.setEnvironmentProtected(created.getId(), true);
+            created.setProtectedEnvironment(true);
+        }
         int copied = 0;
         for (StudioTestCase testCase : studioStorage.listTestCases(specId, null, null)) {
             List<String> names = EnvironmentScope.normalize(testCase.getEnvironments());

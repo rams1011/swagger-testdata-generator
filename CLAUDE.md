@@ -45,7 +45,9 @@ Studio package layout:
 | DB | `src/main/resources/db/migration/` and `db/migration_mysql/` (Flyway); tests use the same migrations (`TestSchema.migrate`) |
 
 Product design doc (cross-repo): `D:\code\testdata-studio-ui\docs\DATA_STUDIO_DESIGN.md`.  
-**Variable user guide:** `D:\code\testdata-studio-ui\docs\VARIABLES.md`.
+**Variable user guide:** `D:\code\testdata-studio-ui\docs\VARIABLES.md`.  
+**Production safety (being built; PR 1, the API foundation, is in `safety/` and `SafetyController`):** `D:\code\testdata-studio-ui\docs\PRODUCTION_SAFETY.md` (protected targets, `SafetyGuard` at send time, approvals, migration V8).  
+**Production safety plan and progress:** `D:\code\testdata-studio-ui\docs\PRODUCTION_SAFETY_PLAN.md`. When working on production safety, read it first; as you finish steps, tick them, set the PR status, and add PR links and branches (the file lives in the UI repo).
 
 ## Global, collection and environment variables
 
