@@ -83,14 +83,19 @@ final class DataRowRun {
     static RunTestResult summary(StudioTestCase testCase, List<RunTestResult> results) {
         List<AssertionCheck> checks = new ArrayList<>();
         List<String> failedLabels = new ArrayList<>();
+        List<String> blockedLabels = new ArrayList<>();
         RunTestResult shown = null;
+        com.tx.api.test.generator.studio.dto.SafetyPolicyNote policy = null;
         long elapsed = 0;
         for (RunTestResult result : results) {
             elapsed += result.elapsedMs();
+            if (policy == null) {
+                policy = result.policy();
+            }
             checks.add(new AssertionCheck(CHECK, result.rowLabel(), "passes",
-                    result.passed() ? "passed" : failureOf(result), result.passed()));
+                    result.passed() ? "passed" : result.blocked() ? "blocked" : failureOf(result), result.passed()));
             if (!result.passed()) {
-                failedLabels.add(result.rowLabel());
+                (result.blocked() ? blockedLabels : failedLabels).add(result.rowLabel());
                 if (shown == null) {
                     shown = result;
                 }
@@ -99,16 +104,34 @@ final class DataRowRun {
         if (shown == null) {
             shown = results.get(results.size() - 1);
         }
-        boolean passed = failedLabels.isEmpty();
-        String error = passed ? null : failedLabels.size() + " of " + results.size() + " data rows failed: "
-                + String.join(", ", failedLabels.subList(0, Math.min(LABELS_IN_ERROR, failedLabels.size())))
-                + (failedLabels.size() > LABELS_IN_ERROR ? ", …" : "");
         RunTestResult last = results.get(results.size() - 1);
+        if (blockedLabels.size() == results.size()) {
+            // Production safety stopped every row: the case was blocked, not failed.
+            return new RunTestResult(false, true, shown.skipReason(), testCase.getId(), testCase.getTestName(),
+                    shown.method(), shown.url(), shown.expectedStatus(), 0, false, elapsed,
+                    shown.maxResponseTimeMs(), false, null, Map.of(), shown.requestHeaders(), List.copyOf(checks),
+                    null, null, last.extracted(), shown.requestBody(), null, List.copyOf(results), true, policy);
+        }
+        boolean passed = failedLabels.isEmpty() && blockedLabels.isEmpty();
+        List<String> problems = new ArrayList<>();
+        if (!failedLabels.isEmpty()) {
+            problems.add(failedLabels.size() + " of " + results.size() + " data rows failed: " + labels(failedLabels));
+        }
+        if (!blockedLabels.isEmpty()) {
+            problems.add(blockedLabels.size() + " of " + results.size() + " data rows were blocked by production "
+                    + "safety: " + labels(blockedLabels));
+        }
+        String error = passed ? null : String.join("; ", problems);
         return new RunTestResult(passed, false, null, testCase.getId(), testCase.getTestName(), shown.method(),
                 shown.url(), shown.expectedStatus(), shown.actualStatus(), shown.statusMatched(), elapsed,
                 shown.maxResponseTimeMs(), shown.timedOut(), shown.responseBody(), shown.responseHeaders(),
                 shown.requestHeaders(), List.copyOf(checks), error, shown.downloadPath(), last.extracted(),
-                shown.requestBody(), null, List.copyOf(results));
+                shown.requestBody(), null, List.copyOf(results), false, policy);
+    }
+
+    private static String labels(List<String> labels) {
+        return String.join(", ", labels.subList(0, Math.min(LABELS_IN_ERROR, labels.size())))
+                + (labels.size() > LABELS_IN_ERROR ? ", …" : "");
     }
 
     private static String failureOf(RunTestResult result) {

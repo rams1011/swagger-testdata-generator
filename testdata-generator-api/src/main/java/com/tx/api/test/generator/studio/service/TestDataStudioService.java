@@ -56,6 +56,7 @@ import com.tx.api.test.generator.studio.model.LoadedSpec;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
+import com.tx.api.test.generator.studio.safety.SafetyContext;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import com.tx.api.test.generator.studio.api.ConflictException;
 import com.tx.api.test.generator.studio.audit.StudioAuditService;
@@ -532,7 +533,10 @@ public class TestDataStudioService {
         RunVariables scope = runVariables(testCase.getSpecId(), environmentId, request.secrets());
         Map<String, String> variables = scope.newScope();
         StudioEnvironmentNetwork network = network(testCase.getSpecId(), environmentId);
-        List<ExecutedCase> priors = runPrerequisites(testCase, request.auth(), variables, environmentId, scope, network);
+        OutboundUrlPolicy.Scope outbound = outboundScope(testCase.getSpecId(), environmentId);
+        SafetyContext safety = testRunService.safetyContext(outbound);
+        List<ExecutedCase> priors = runPrerequisites(testCase, request.auth(), variables, environmentId, scope, network,
+                safety);
         boolean priorFailed = !priors.isEmpty() && !priors.get(priors.size() - 1).result().passed();
         List<StudioTestCase> recordedCases = new ArrayList<>();
         List<RunTestResult> recordedResults = new ArrayList<>();
@@ -540,10 +544,12 @@ public class TestDataStudioService {
             recordedCases.add(prior.testCase());
             recordedResults.add(prior.result());
         }
+        RunTestResult lastPrior = priorFailed ? priors.get(priors.size() - 1).result() : null;
         RunTestResult result = priorFailed
-                ? testRunService.skipped(testCase, PlanRun.stopReason(priors.get(priors.size() - 1).result().testName()))
-                : executeCase(testCase, request.auth(), variables, network,
-                        outboundScope(testCase.getSpecId(), environmentId), scope, request.dataRow());
+                ? testRunService.skipped(testCase, lastPrior.blocked()
+                        ? PlanRun.blockedReason(lastPrior.testName())
+                        : PlanRun.stopReason(lastPrior.testName()))
+                : executeCase(testCase, request.auth(), variables, network, outbound, scope, request.dataRow(), safety);
         recordedCases.add(testCase);
         recordedResults.add(result);
         runHistoryService.recordCases(trigger, environmentId, recordedCases, recordedResults);
@@ -562,10 +568,10 @@ public class TestDataStudioService {
      */
     private RunTestResult executeCase(StudioTestCase testCase, RunAuth auth, Map<String, String> variables,
                                       StudioEnvironmentNetwork network, OutboundUrlPolicy.Scope outbound,
-                                      RunVariables scope, Integer onlyRow) {
+                                      RunVariables scope, Integer onlyRow, SafetyContext safety) {
         List<DataRows.Row> rows = DataRows.parse(testCase.getDataRows());
         if (rows.isEmpty()) {
-            return scope.mask(testRunService.execute(testCase, auth, variables, network, outbound));
+            return scope.mask(testRunService.execute(testCase, auth, variables, network, outbound, safety));
         }
         if (onlyRow != null) {
             if (onlyRow < 1 || onlyRow > rows.size()) {
@@ -574,13 +580,15 @@ public class TestDataStudioService {
             }
             rows = List.of(rows.get(onlyRow - 1));
         }
+        // Every row goes through production safety on its own, sharing the run's context.
         return DataRowRun.run(testCase, rows, variables, (row, rowVariables) ->
-                scope.mask(testRunService.execute(row, auth, rowVariables, network, outbound)));
+                scope.mask(testRunService.execute(row, auth, rowVariables, network, outbound, safety)));
     }
 
     private List<ExecutedCase> runPrerequisites(StudioTestCase testCase, RunAuth auth,
                                                 Map<String, String> variables, String environmentId,
-                                                RunVariables scope, StudioEnvironmentNetwork network) {
+                                                RunVariables scope, StudioEnvironmentNetwork network,
+                                                SafetyContext safety) {
         if (testCase == null || scope.names().containsAll(CaseVariables.placeholderNames(testCase))) {
             return List.of();
         }
@@ -599,7 +607,7 @@ public class TestDataStudioService {
             }
             RunTestResult priorResult = executeCase(
                     withShared(withLiveResponseSchema(applyOverlay(prior, environmentId))), auth, variables, network,
-                    outboundScope(testCase.getSpecId(), environmentId), scope, null);
+                    outboundScope(testCase.getSpecId(), environmentId), scope, null, safety);
             ran.add(new ExecutedCase(prior, priorResult));
             if (!priorResult.passed()) {
                 break;
@@ -630,6 +638,7 @@ public class TestDataStudioService {
         Map<String, String> variables = scope.newScope();
         StudioEnvironmentNetwork network = network(request.specId(), environmentId);
         OutboundUrlPolicy.Scope outboundScope = outboundScope(request.specId(), environmentId);
+        SafetyContext safety = testRunService.safetyContext(outboundScope);
         PlanRun.Outcome outcome = PlanRun.execute(cases, new PlanRun.Actions() {
             @Override
             public boolean runnable(StudioTestCase testCase) {
@@ -641,7 +650,13 @@ public class TestDataStudioService {
             @Override
             public RunTestResult execute(StudioTestCase testCase) {
                 return executeCase(withShared(withLiveResponseSchema(applyOverlay(testCase, environmentId))),
-                        request.auth(), variables, network, outboundScope, scope, null);
+                        request.auth(), variables, network, outboundScope, scope, null, safety);
+            }
+
+            @Override
+            public boolean mayRetry(StudioTestCase testCase) {
+                // A write that reached a protected target (Shadow mode) is never sent twice.
+                return safety.mayRetry(testCase.getId());
             }
 
             @Override
@@ -660,11 +675,13 @@ public class TestDataStudioService {
                 : RunHistoryService.TRIGGER_PLAN;
         runHistoryService.recordPlan(historyTrigger, request.specId(), request.planId(), environmentId,
                 outcome.results(), cases);
-        log.info("Finished plan {} on spec {} passed={} failed={} skipped={} continueOnFailure={} delayMs={} retries={}",
-                request.planId(), request.specId(), outcome.passed(), outcome.failed(), outcome.skipped(),
-                request.continuesOnFailure(), request.delayMillis(), request.retryCount());
+        log.info("Finished plan {} on spec {} passed={} failed={} skipped={} blocked={} continueOnFailure={} "
+                        + "delayMs={} retries={}", request.planId(), request.specId(), outcome.passed(), outcome.failed(),
+                outcome.skipped(), outcome.blocked(), request.continuesOnFailure(), request.delayMillis(),
+                request.retryCount());
         return new RunPlanResult(request.specId(), request.planId(), outcome.passed(), outcome.failed(),
-                outcome.skipped(), outcome.failed() == 0 && outcome.passed() > 0, outcome.results());
+                outcome.skipped(), outcome.failed() == 0 && outcome.passed() > 0, outcome.results(),
+                outcome.blocked());
     }
 
     /** The chosen cases, plus earlier cases they need extracted values from, in run order. Null means all of them. */

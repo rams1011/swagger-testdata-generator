@@ -36,6 +36,11 @@ final class PlanRun {
             return false;
         }
 
+        /** False when re-sending the case is not allowed (production safety: a write already reached production). */
+        default boolean mayRetry(StudioTestCase testCase) {
+            return true;
+        }
+
         default void pause(long millis) {
             try {
                 Thread.sleep(millis);
@@ -51,7 +56,8 @@ final class PlanRun {
         }
     }
 
-    record Outcome(int passed, int failed, int skipped, List<RunTestResult> results) {
+    /** {@code blocked} counts cases production safety stopped; they are not in {@code skipped}. */
+    record Outcome(int passed, int failed, int skipped, int blocked, List<RunTestResult> results) {
     }
 
     static Outcome execute(List<StudioTestCase> cases, Actions actions) {
@@ -69,8 +75,10 @@ final class PlanRun {
         int passed = 0;
         int failed = 0;
         int skipped = 0;
+        int blocked = 0;
         String stopReason = null;
         Map<String, String> missingFrom = new LinkedHashMap<>();
+        Map<String, String> blockedFrom = new LinkedHashMap<>();
         for (StudioTestCase testCase : cases) {
             if (!actions.runnable(testCase)) {
                 results.add(actions.skip(testCase, null));
@@ -82,7 +90,10 @@ final class PlanRun {
                 skipped++;
                 continue;
             }
-            String dependency = failedDependency(testCase, missingFrom, actions);
+            String dependency = failedDependency(testCase, missingFrom, actions, false);
+            if (dependency == null) {
+                dependency = failedDependency(testCase, blockedFrom, actions, true);
+            }
             if (dependency != null) {
                 results.add(actions.skip(testCase, dependency));
                 skipped++;
@@ -96,6 +107,10 @@ final class PlanRun {
             results.add(result);
             if (result.passed()) {
                 passed++;
+            } else if (result.blocked()) {
+                // Production safety stopped it: not a failure, but later cases that need its values can't run.
+                blocked++;
+                recordMissingExtracts(testCase, result, blockedFrom);
             } else if (!result.skipped()) {
                 failed++;
                 if (continueOnFailure) {
@@ -107,14 +122,14 @@ final class PlanRun {
                 skipped++;
             }
         }
-        return new Outcome(passed, failed, skipped, List.copyOf(results));
+        return new Outcome(passed, failed, skipped, blocked, List.copyOf(results));
     }
 
     /** Sends the case, re-sending a failure up to {@code retries} times. */
     private static RunTestResult attempt(StudioTestCase testCase, Actions actions, Options options) {
         RunTestResult result = actions.execute(testCase);
         int attempts = 1;
-        while (!result.passed() && !result.skipped() && attempts <= options.retries()) {
+        while (!result.passed() && !result.skipped() && attempts <= options.retries() && actions.mayRetry(testCase)) {
             if (Thread.currentThread().isInterrupted()) {
                 break;
             }
@@ -146,17 +161,28 @@ final class PlanRun {
         }
     }
 
-    private static String failedDependency(StudioTestCase testCase, Map<String, String> missingFrom, Actions actions) {
+    private static String failedDependency(StudioTestCase testCase, Map<String, String> missingFrom, Actions actions,
+                                           boolean blocked) {
         if (missingFrom.isEmpty()) {
             return null;
         }
         for (String name : CaseVariables.placeholderNames(testCase)) {
             String producer = missingFrom.get(name);
             if (producer != null && !actions.defined(name)) {
-                return dependencyReason(name, producer);
+                return blocked ? blockedDependencyReason(name, producer) : dependencyReason(name, producer);
             }
         }
         return null;
+    }
+
+    static String blockedDependencyReason(String variable, String producer) {
+        return "Needs blocked case '" + producer + "': {{" + variable + "}} comes from it, and production safety "
+                + "stopped it";
+    }
+
+    /** A single run's case whose earlier case (a prerequisite) production safety stopped. */
+    static String blockedReason(String testName) {
+        return "Needs blocked case '" + displayName(testName) + "', which production safety stopped";
     }
 
     static String dependencyReason(String variable, String producer) {

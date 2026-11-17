@@ -211,6 +211,11 @@ public class StudioAuditService {
                         + (protectedNow ? " is now protected" : " is no longer protected"));
     }
 
+    /** A request production safety stopped, or would have stopped in Shadow mode; one row per request. */
+    public void recordSafetyDecision(String environmentId, AuditAction action, String detail) {
+        append(null, AuditResourceType.OUTBOUND_TARGET, StringUtils.defaultIfBlank(environmentId, "none"), action, detail);
+    }
+
     public List<AuditEventView> listForCase(String caseId, int limit) {
         return studioStorage.listAuditEvents(AuditResourceType.CASE, caseId, clamp(limit));
     }
