@@ -110,6 +110,8 @@ class SafetyGuardRunTest {
     @AfterEach
     void tearDown() {
         TenantContext.clear();
+        // A JVM-wide flag: left on, it makes later tests without a workspace fail with "Sign in to continue".
+        TenantContext.setSaasEnabled(false);
         production.stop(0);
         staging.stop(0);
     }
