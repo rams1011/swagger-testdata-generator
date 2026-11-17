@@ -106,6 +106,7 @@ public class TestDataStudioService {
     private final StudioAuditService auditService;
     private final StudioDatasourceSettings datasourceSettings;
     private final StudioCacheDiagnostics cacheDiagnostics;
+    private final com.tx.api.test.generator.studio.safety.SafetyPolicyService safetyPolicies;
 
     public TestDataStudioService(SpecCatalogService specCatalogService, StudioProperties properties,
                                  StudioStorage studioStorage, TestRunService testRunService,
@@ -114,7 +115,9 @@ public class TestDataStudioService {
                                  EntitlementService entitlements,
                                  StudioAuditService auditService,
                                  StudioDatasourceSettings datasourceSettings,
-                                 StudioCacheDiagnostics cacheDiagnostics) {
+                                 StudioCacheDiagnostics cacheDiagnostics,
+                                 @org.springframework.beans.factory.annotation.Autowired(required = false)
+                                 com.tx.api.test.generator.studio.safety.SafetyPolicyService safetyPolicies) {
         this.specCatalogService = specCatalogService;
         this.properties = properties;
         this.studioStorage = studioStorage;
@@ -124,6 +127,7 @@ public class TestDataStudioService {
         this.auditService = auditService;
         this.datasourceSettings = datasourceSettings;
         this.cacheDiagnostics = cacheDiagnostics;
+        this.safetyPolicies = safetyPolicies;
     }
 
     public List<TestPlanView> listPlans(String specId) {
@@ -813,7 +817,9 @@ public class TestDataStudioService {
         StoredEnvironment stored = requireEnvironment(request.specId(), request.environmentId());
         var spec = studioStorage.findSpec(request.specId())
                 .orElseThrow(() -> new NoSuchElementException("Spec not found: " + request.specId()));
-        EnvironmentExport exported = EnvironmentExporter.export(spec, stored, loadGlobalVariables());
+        // Production safety travels with the file: api-automation makes no call to SpecPact (PRODUCTION_SAFETY.md §4.8).
+        var safety = safetyPolicies == null ? null : safetyPolicies.exportBlock(stored).orElse(null);
+        EnvironmentExport exported = EnvironmentExporter.export(spec, stored, loadGlobalVariables(), safety);
         log.info("Prepared environment {} for spec {}", exported.fileName(), spec.getName());
         auditService.recordExported(request.specId(), "Environment", exported.fileName(), 1);
         return exported;

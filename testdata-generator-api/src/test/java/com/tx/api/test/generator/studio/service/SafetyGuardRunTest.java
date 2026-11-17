@@ -1,5 +1,10 @@
 package com.tx.api.test.generator.studio.service;
 
+import com.google.gson.JsonParser;
+import com.google.gson.JsonObject;
+import com.tx.api.test.generator.studio.collection.StudioEnvironmentSafety;
+import com.tx.api.test.generator.studio.collection.EnvironmentImporter;
+import com.tx.api.test.generator.studio.collection.EnvironmentExporter;
 import com.sun.net.httpserver.HttpServer;
 import com.tx.api.test.generator.studio.TestSchema;
 import com.tx.api.test.generator.studio.audit.StudioAuditService;
@@ -286,6 +291,40 @@ class SafetyGuardRunTest {
         policies.recordDecision(new SafetyDecision("new", orgId, java.time.Instant.now(), null, null, "POST", "/new",
                 null, "api.acme.com", SafetyGuard.WRITE_TO_PROTECTED_TARGET, true));
         assertEquals(List.of("new"), jdbc.queryForList("SELECT decision_id FROM td_safety_decision", String.class));
+    }
+
+    @Test
+    void theEnvironmentFileCarriesThePolicyForCiAndImportIgnoresIt() {
+        StoredEnvironment production = storage.findEnvironment(environment("Production", true).getId()).orElseThrow();
+        settings("off");
+        assertTrue(policies.exportBlock(production).isEmpty(), "an organization that is Off exports nothing");
+        protect("127.0.0.1", port(this.production));
+        policies.addRule(new SaveOperationRuleRequest("treat_as_read", "rest", "POST", "/search", null, null,
+                "Search only reads data", null));
+        enforce();
+
+        StudioEnvironmentSafety block = policies.exportBlock(production).orElseThrow();
+        assertTrue(block.protectedEnvironment());
+        assertEquals("enforce", block.mode());
+        assertEquals(List.of("127.0.0.1/32"), block.targets().stream().map(StudioEnvironmentSafety.Target::pattern).toList());
+        assertEquals(List.of(port(this.production)), block.targets().get(0).ports());
+        assertEquals("treat_as_read", block.rules().get(0).effect());
+        assertEquals("/search", block.rules().get(0).pathTemplate());
+        assertEquals(1, block.limits().maxWriteDataRows());
+        assertFalse(policies.exportBlock(environment("Staging", false)).orElseThrow().protectedEnvironment());
+
+        StoredSpec spec = storage.findSpec("spec-env").orElseThrow();
+        String file = new String(EnvironmentExporter.export(spec, production, List.of(), block).content(),
+                StandardCharsets.UTF_8);
+        JsonObject safety = JsonParser.parseString(file).getAsJsonObject().getAsJsonObject("safety");
+        assertTrue(safety.get("protected").getAsBoolean());
+        assertFalse(file.contains("Search only reads data"), "rule reasons stay in SpecPact");
+        assertFalse(file.contains("\"note\""), "target notes stay in SpecPact");
+
+        StoredEnvironment imported = EnvironmentImporter.importInto(storage, "spec-env",
+                file.replace("\"name\": \"Production\"", "\"name\": \"Imported\"").getBytes(StandardCharsets.UTF_8));
+        assertFalse(imported.isProtectedEnvironment(), "import never changes protection");
+        assertFalse(imported.getDocumentJson().contains("safety"), "the block isn't stored");
     }
 
     @Test

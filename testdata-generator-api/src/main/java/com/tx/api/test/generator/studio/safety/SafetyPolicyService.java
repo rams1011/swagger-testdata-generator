@@ -5,6 +5,7 @@ import com.tx.api.test.generator.studio.audit.AuditAction;
 import com.tx.api.test.generator.studio.audit.StudioAuditService;
 import com.tx.api.test.generator.studio.collection.CollectionDocuments;
 import com.tx.api.test.generator.studio.collection.EnvironmentMapper;
+import com.tx.api.test.generator.studio.collection.StudioEnvironmentSafety;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.dto.AddProtectedTargetRequest;
 import com.tx.api.test.generator.studio.dto.EnvironmentProtectionView;
@@ -128,6 +129,42 @@ public class SafetyPolicyService {
     }
 
     /** The current workspace's organization when production safety is on and someone is signed in; else empty. */
+    /**
+     * The {@code safety} block of an exported environment file, or empty while production safety is off on the
+     * server, nobody is signed in, or the organization is Off. Any member who may export the environment gets it:
+     * targets and rules without notes or reasons.
+     */
+    public Optional<StudioEnvironmentSafety> exportBlock(StoredEnvironment environment) {
+        Optional<String> orgId = currentOrgId();
+        if (orgId.isEmpty() || environment == null) {
+            return Optional.empty();
+        }
+        SafetyPolicy policy = policy(orgId.get());
+        if (policy.mode() == SafetyMode.OFF) {
+            return Optional.empty();
+        }
+        Instant now = Instant.now();
+        Map<String, String> patterns = new java.util.HashMap<>();
+        policy.targets().forEach(target -> patterns.put(target.id(), target.pattern()));
+        List<StudioEnvironmentSafety.Target> targets = policy.targets().stream()
+                .map(target -> new StudioEnvironmentSafety.Target(target.kind().name().toLowerCase(Locale.ROOT),
+                        target.pattern(), target.ports()))
+                .toList();
+        List<StudioEnvironmentSafety.Rule> rules = policy.rules().stream()
+                .filter(rule -> !rule.expired(now))
+                .filter(rule -> rule.targetId() == null || patterns.containsKey(rule.targetId()))
+                .map(rule -> new StudioEnvironmentSafety.Rule(rule.effect().wire(), rule.protocol().wire(),
+                        rule.httpMethod(), rule.pathTemplate(), rule.operationName(),
+                        rule.targetId() == null ? null : patterns.get(rule.targetId()),
+                        rule.expiresAt() == null ? null : rule.expiresAt().toString()))
+                .toList();
+        boolean protectedEnvironment = protectionView(environment, policy.targets()).effective();
+        return Optional.of(new StudioEnvironmentSafety(protectedEnvironment, policy.mode().wire(), targets, rules,
+                new StudioEnvironmentSafety.Limits(policy.maxRequestsPerRun(), policy.maxRequestsPerMinute(),
+                        policy.maxWriteDataRows()),
+                policy.revision(), now.toString()));
+    }
+
     /**
      * Keeps a stop for the review (SafetyReviewService). Rows older than {@link #DECISION_RETENTION} go, checked at
      * most once an hour per organization.
