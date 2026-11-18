@@ -139,4 +139,13 @@ class OpenApiSpecLoaderReferenceTest {
                 () -> OpenApiSpecLoader.loadFromContent("{\"openapi\": "));
         assertTrue(exception.getMessage().contains("not valid JSON or YAML"), exception.getMessage());
     }
+
+    @Test
+    void aWordOrAListIsValidYamlButNotASpec() {
+        for (String content : new String[]{"hello", "[object Object]", "[1, 2, 3]", "42"}) {
+            IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
+                    () -> OpenApiSpecLoader.loadFromContent(content), content);
+            assertTrue(exception.getMessage().contains("must be an object with openapi"), exception.getMessage());
+        }
+    }
 }

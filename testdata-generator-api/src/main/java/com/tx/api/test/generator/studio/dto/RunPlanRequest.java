@@ -51,6 +51,16 @@ public record RunPlanRequest(
         this(specId, planId, auth, environmentId, secrets, continueOnFailure, delayMs, retries, null);
     }
 
+    /** Refuses a delay or retry count outside the limits, rather than quietly running with the nearest allowed value. */
+    public void requireOptions() {
+        if (delayMs != null && (delayMs < 0 || delayMs > MAX_DELAY_MS)) {
+            throw new IllegalArgumentException("Delay must be from 0 to " + MAX_DELAY_MS + " ms");
+        }
+        if (retries != null && (retries < 0 || retries > MAX_RETRIES)) {
+            throw new IllegalArgumentException("Retries must be from 0 to " + MAX_RETRIES);
+        }
+    }
+
     public long delayMillis() {
         return delayMs == null ? 0L : Math.max(0L, Math.min(MAX_DELAY_MS, delayMs));
     }

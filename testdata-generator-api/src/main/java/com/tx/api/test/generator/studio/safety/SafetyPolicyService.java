@@ -238,8 +238,11 @@ public class SafetyPolicyService {
             throw new IllegalArgumentException("An organization can have at most " + SafetyPolicy.MAX_TARGETS
                     + " protected targets");
         }
-        if (current.targets().stream().anyMatch(target -> target.pattern().equals(parsed.pattern()))) {
-            throw new IllegalArgumentException(parsed.pattern() + " is already protected");
+        Optional<ProtectedTarget> same = current.targets().stream()
+                .filter(target -> target.pattern().equals(parsed.pattern())).findFirst();
+        if (same.isPresent()) {
+            // The same host again adds its ports to the existing target (or widens it to any port).
+            return addPorts(access, same.get(), ports);
         }
         ProtectedTarget target = new ProtectedTarget(UUID.randomUUID().toString(), parsed.kind(), parsed.pattern(),
                 ports, note, access.accountId(), Instant.now());
@@ -263,6 +266,33 @@ public class SafetyPolicyService {
         }
         log.info("Protected target {} added for organization {}", target.pattern(), access.orgId());
         return view(load(access.orgId()), notice);
+    }
+
+    private SafetySettingsView addPorts(Access access, ProtectedTarget existing, List<Integer> ports) {
+        if (existing.ports().isEmpty()) {
+            throw new IllegalArgumentException(existing.pattern() + " is already protected on every port");
+        }
+        List<Integer> merged;
+        if (ports.isEmpty()) {
+            merged = List.of();
+        } else {
+            java.util.TreeSet<Integer> union = new java.util.TreeSet<>(existing.ports());
+            union.addAll(ports);
+            merged = List.copyOf(union);
+            if (merged.equals(existing.ports())) {
+                throw new IllegalArgumentException(existing.pattern() + " is already protected on "
+                        + (ports.size() == 1 ? "port " : "ports ") + TargetPatterns.portsText(ports));
+            }
+        }
+        List<Integer> normalized = TargetPatterns.normalizePorts(merged);
+        store.updateTargetPorts(access.orgId(), existing.id(), normalized);
+        invalidate(access.orgId());
+        String label = normalized.isEmpty() ? "any" : TargetPatterns.portsText(normalized);
+        audit(() -> auditService.recordProtectedTargetPortsChanged(existing.id(), existing.pattern(), label));
+        log.info("Protected target {} now covers ports {} for organization {}", existing.pattern(), label,
+                access.orgId());
+        return view(load(access.orgId()), existing.pattern() + " was already protected; it now covers "
+                + (normalized.isEmpty() ? "every port" : "ports " + label) + ".");
     }
 
     public SafetySettingsView deleteTarget(String targetId) {

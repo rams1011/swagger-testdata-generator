@@ -145,6 +145,10 @@ public class TestRunService {
         try {
             oauthUsed = applyAuth(headers, query, cookies, effectiveAuth, scope);
             String problem = HeaderRules.firstProblem(headers);
+            if (problem == null) {
+                // A cookie value with a line break (from the case or a {{variable}}) would make the HTTP client throw.
+                problem = CaseRules.cookieProblem(cookies);
+            }
             if (problem != null) {
                 throw new IllegalArgumentException(StringUtils.capitalize(problem));
             }
@@ -487,6 +491,12 @@ public class TestRunService {
 
     public RunTestResult skipped(StudioTestCase testCase) {
         return skipped(testCase, "Case is disabled (enabled=N)");
+    }
+
+    /** A case that couldn't be sent at all (an unexpected error), as a failed result for that case alone. */
+    public RunTestResult couldNotSend(StudioTestCase testCase, String reason) {
+        return failed(testCase, "", Map.of(), 0, false, List.of(),
+                "Couldn't send this case: " + StringUtils.defaultIfBlank(reason, "unexpected error"));
     }
 
     public RunTestResult skipped(StudioTestCase testCase, String reason) {

@@ -195,6 +195,11 @@ public class StudioAuditService {
                 "Added protected target " + pattern);
     }
 
+    public void recordProtectedTargetPortsChanged(String targetId, String pattern, String ports) {
+        append(null, AuditResourceType.PROTECTED_TARGET, targetId, AuditAction.UPDATED,
+                "Protected target " + pattern + " now covers ports: " + ports);
+    }
+
     public void recordProtectedTargetRemoved(String targetId, String pattern) {
         append(null, AuditResourceType.PROTECTED_TARGET, targetId, AuditAction.DELETED,
                 "Removed protected target " + pattern);

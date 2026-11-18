@@ -20,6 +20,9 @@ public interface SafetyStore {
 
     boolean deleteTarget(String orgId, String targetId);
 
+    /** Replaces a target's ports (empty = any port). */
+    boolean updateTargetPorts(String orgId, String targetId, List<Integer> ports);
+
     List<OperationRule> listRules(String orgId);
 
     void insertRule(String orgId, OperationRule rule);

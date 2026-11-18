@@ -626,11 +626,12 @@ public class TestDataStudioService {
     }
 
     public RunPlanResult runPlan(RunPlanRequest request) {
-        if (entitlements != null) {
-            entitlements.requireAndIncrementRun();
-        }
         if (request == null || StringUtils.isBlank(request.specId()) || StringUtils.isBlank(request.planId())) {
             throw new IllegalArgumentException("specId and planId are required");
+        }
+        request.requireOptions();
+        if (entitlements != null) {
+            entitlements.requireAndIncrementRun();
         }
         requirePlan(request.specId(), request.planId());
         List<StudioTestCase> storedCases = withShared(request.specId(),
@@ -655,8 +656,17 @@ public class TestDataStudioService {
 
             @Override
             public RunTestResult execute(StudioTestCase testCase) {
-                return executeCase(withShared(withLiveResponseSchema(applyOverlay(testCase, environmentId))),
-                        request.auth(), variables, network, outboundScope, scope, null, safety);
+                try {
+                    return executeCase(withShared(withLiveResponseSchema(applyOverlay(testCase, environmentId))),
+                            request.auth(), variables, network, outboundScope, scope, null, safety);
+                } catch (com.tx.api.test.generator.studio.tenant.UnauthenticatedException
+                         | com.tx.api.test.generator.studio.tenant.ForbiddenException access) {
+                    throw access;
+                } catch (RuntimeException unexpected) {
+                    // One case that can't be sent fails on its own; the rest of the plan still runs.
+                    log.warn("Run plan: case {} could not be sent", testCase.getId(), unexpected);
+                    return testRunService.couldNotSend(testCase, unexpected.getMessage());
+                }
             }
 
             @Override
@@ -1136,6 +1146,9 @@ public class TestDataStudioService {
         if (headerProblem != null) {
             throw new IllegalArgumentException(StringUtils.capitalize(headerProblem));
         }
+        // Refuse what the editor refuses instead of quietly reading it as a default (strict, none, Y).
+        CaseRules.requireResponseMatch(request.responseMatch());
+        CaseRules.requireAuthType(request.auth());
 
         testCase.setSpecId(request.specId());
         testCase.setPlanId(resolvePlanId(request.specId(), request.planId()));
@@ -1207,7 +1220,7 @@ public class TestDataStudioService {
         if (creating || request.dataRows() != null) {
             testCase.setDataRows(DataRows.normalize(request.dataRows()));
         }
-        testCase.setEnabled(StringUtils.defaultIfBlank(request.enabled(), "Y"));
+        testCase.setEnabled(CaseRules.enabledFlag(request.enabled()));
         if (creating) {
             testCase.setLifecycle(CaseLifecycle.normalizeOr(request.lifecycle(), CaseLifecycle.DRAFT));
         } else if (StringUtils.isNotBlank(request.lifecycle())) {
@@ -1234,6 +1247,7 @@ public class TestDataStudioService {
         }
         testCase.setMaxResponseTimeMs(request.maxResponseTimeMs() == null ? 3000L : request.maxResponseTimeMs());
         testCase.setEnvironments(membershipFor(request.specId(), request.environmentId(), request.environments()));
+        CaseRules.requireStorable(testCase);
     }
 
     private TestCaseView toView(StudioTestCase testCase) {
@@ -1582,6 +1596,15 @@ public class TestDataStudioService {
     }
 
     private List<String> membershipFor(String specId, String environmentId, List<String> fallback) {
+        // A name that isn't an environment of the collection is refused, even when environmentId decides membership.
+        List<String> named = EnvironmentScope.normalize(fallback);
+        if (named != null) {
+            for (String name : named) {
+                if (studioStorage.findEnvironmentByName(specId, name).isEmpty()) {
+                    throw new IllegalArgumentException("Environment '" + name + "' doesn't exist in this collection");
+                }
+            }
+        }
         StudioEnvironment environment = loadEnvironment(specId, environmentId);
         if (environment != null && StringUtils.isNotBlank(environment.name())) {
             return EnvironmentScope.normalize(List.of(environment.name()));

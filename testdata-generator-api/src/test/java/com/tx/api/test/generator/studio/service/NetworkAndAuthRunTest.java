@@ -487,6 +487,23 @@ class NetworkAndAuthRunTest {
         assertTrue(seen.isEmpty(), "nothing is sent: " + seen);
     }
 
+    @Test
+    void aCookieWithALineBreakFailsThatCaseWithAReasonAndSendsNothing() {
+        StudioTestCase literal = get("/cookie", 200);
+        literal.setCookieParams(new LinkedHashMap<>(Map.of("session", "a\nb")));
+        RunTestResult fromCase = service.execute(literal, null, new LinkedHashMap<>(), null);
+        assertFalse(fromCase.passed());
+        assertTrue(fromCase.error().contains("Cookie 'session' has a line break"), fromCase.error());
+
+        StudioTestCase viaVariable = get("/cookie", 200);
+        viaVariable.setCookieParams(new LinkedHashMap<>(Map.of("session", "{{nl}}")));
+        LinkedHashMap<String, String> variables = new LinkedHashMap<>(Map.of("nl", "a\r\nX-Injected: yes"));
+        RunTestResult fromVariable = service.execute(viaVariable, null, variables, null);
+        assertFalse(fromVariable.passed());
+        assertTrue(fromVariable.error().contains("line break"), fromVariable.error());
+        assertTrue(seen.stream().noneMatch(line -> line.contains("/cookie")), "nothing was sent");
+    }
+
     private StudioTestCase get(String path, int status) {
         StudioTestCase testCase = new StudioTestCase();
         testCase.setTestName("case " + path);

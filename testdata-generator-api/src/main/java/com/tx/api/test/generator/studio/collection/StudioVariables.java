@@ -97,7 +97,8 @@ public final class StudioVariables {
             if (variable.secret()) {
                 if (StringUtils.isNotBlank(value) && !ENV_PLACEHOLDER.matcher(value.trim()).matches()) {
                     throw new CollectionFormatException(scope + " variable '" + key
-                            + "' is secret; its value must be a ${ENV_VAR} placeholder, not the secret itself");
+                            + "' is secret: leave its value empty (it's entered when running), or in a file use a "
+                            + "${STUDIO_VAR_" + key.toUpperCase(java.util.Locale.ROOT) + "} placeholder, never the secret itself");
                 }
                 result.add(new StudioVariable(key, null, true));
             } else {
