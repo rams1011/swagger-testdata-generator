@@ -24,6 +24,15 @@ public final class EnvironmentExporter {
      * ignores that array and never overwrites workspace globals.
      */
     public static EnvironmentExport export(StoredSpec spec, StoredEnvironment stored, List<StudioVariable> globals) {
+        return export(spec, stored, globals, null);
+    }
+
+    /**
+     * As above, plus the optional top-level {@code safety} block (production safety for api-automation, which makes
+     * no call to SpecPact); null leaves it out. Import ignores it.
+     */
+    public static EnvironmentExport export(StoredSpec spec, StoredEnvironment stored, List<StudioVariable> globals,
+                                           StudioEnvironmentSafety safety) {
         if (spec == null) {
             throw new CollectionFormatException("spec is required");
         }
@@ -37,9 +46,14 @@ public final class EnvironmentExporter {
                 bare.network());
         String document = CollectionDocuments.toJson(environment);
         List<StudioVariable> exportedGlobals = StudioVariables.forExport(globals);
-        if (!exportedGlobals.isEmpty()) {
+        if (!exportedGlobals.isEmpty() || safety != null) {
             com.google.gson.JsonObject tree = com.google.gson.JsonParser.parseString(document).getAsJsonObject();
-            tree.add("globals", com.google.gson.JsonParser.parseString(CollectionDocuments.toJson(exportedGlobals)));
+            if (!exportedGlobals.isEmpty()) {
+                tree.add("globals", com.google.gson.JsonParser.parseString(CollectionDocuments.toJson(exportedGlobals)));
+            }
+            if (safety != null) {
+                tree.add("safety", com.google.gson.JsonParser.parseString(CollectionDocuments.toJson(safety)));
+            }
             document = CollectionDocuments.toJson(tree);
         }
         byte[] json = document.getBytes(StandardCharsets.UTF_8);

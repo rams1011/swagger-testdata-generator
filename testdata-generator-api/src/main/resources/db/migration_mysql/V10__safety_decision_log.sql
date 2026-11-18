@@ -15,6 +15,6 @@ CREATE TABLE td_safety_decision (
     CONSTRAINT pk_td_safety_decision PRIMARY KEY (decision_id),
     CONSTRAINT fk_td_safety_decision_org FOREIGN KEY (org_id)
         REFERENCES td_organization (org_id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE INDEX ix_td_safety_decision_org ON td_safety_decision (org_id, occurred_at);
