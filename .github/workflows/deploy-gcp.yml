@@ -52,6 +52,10 @@ jobs:
       TESTDATA_AUTH_GITHUB_REDIRECT_URI: ${{ vars.TESTDATA_AUTH_GITHUB_REDIRECT_URI }}
       TESTDATA_AUTH_GITHUB_UI_BASE: ${{ vars.TESTDATA_AUTH_GITHUB_UI_BASE }}
       TESTDATA_AUTH_GITHUB_ALLOW_REGISTRATION: ${{ vars.TESTDATA_AUTH_GITHUB_ALLOW_REGISTRATION }}
+      # Production safety (true/false; unset = the server default, off) and the SaaS operator console API
+      # (true/false; unset = on).
+      TESTDATA_SAFETY_ENABLED: ${{ vars.TESTDATA_SAFETY_ENABLED }}
+      TESTDATA_SAAS_OPERATOR_API: ${{ vars.TESTDATA_SAAS_OPERATOR_API }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -95,6 +99,13 @@ jobs:
       - name: Validate deploy secrets
         run: |
           missing=0
+          for flag in TESTDATA_SAFETY_ENABLED TESTDATA_SAAS_OPERATOR_API; do
+            value="${!flag}"
+            if [ -n "$value" ] && [ "$value" != "true" ] && [ "$value" != "false" ]; then
+              echo "::error::${flag} must be true or false (or unset), not '${value}'."
+              missing=1
+            fi
+          done
           if [ -z "${SPRING_DATASOURCE_URL}" ]; then
             echo "::error::SPRING_DATASOURCE_URL is empty. Add the JDBC URL as a repository secret."
             missing=1
@@ -168,6 +179,12 @@ jobs:
             echo "TESTDATA_SAAS_ADMIN_PASSWORD=${TESTDATA_SAAS_ADMIN_PASSWORD}"
             if [ -n "${TESTDATA_SAAS_CORS_ORIGINS}" ]; then
               echo "TESTDATA_SAAS_CORS_ORIGINS=${TESTDATA_SAAS_CORS_ORIGINS}"
+            fi
+            if [ -n "${TESTDATA_SAFETY_ENABLED}" ]; then
+              echo "TESTDATA_SAFETY_ENABLED=${TESTDATA_SAFETY_ENABLED}"
+            fi
+            if [ -n "${TESTDATA_SAAS_OPERATOR_API}" ]; then
+              echo "TESTDATA_SAAS_OPERATOR_API=${TESTDATA_SAAS_OPERATOR_API}"
             fi
             if [ -n "${TESTDATA_REDIS_CACHE_ENABLED}" ]; then
               echo "TESTDATA_REDIS_CACHE_ENABLED=${TESTDATA_REDIS_CACHE_ENABLED}"
