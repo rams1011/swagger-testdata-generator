@@ -177,8 +177,16 @@ public class RedisCachingStudioStorage extends ForwardingStudioStorage {
 
     @Override
     public void saveEnvironment(StoredEnvironment environment) {
+        Optional<StoredEnvironment> before = environment == null || StringUtils.isBlank(environment.getId())
+                ? Optional.empty() : super.findEnvironment(environment.getId());
         super.saveEnvironment(environment);
-        touchEnvironmentCache(environment == null ? null : environment.getSpecId());
+        String specId = environment == null ? null : environment.getSpecId();
+        touchEnvironmentCache(specId);
+        // Cached cases carry their environments' names (read from the links). After a rename they would keep the old
+        // name, so the renamed environment would list none of its cases until it got the old name back.
+        if (before.isPresent() && !java.util.Objects.equals(before.get().getName(), environment.getName())) {
+            touchCaseCache(specId);
+        }
     }
 
     @Override
@@ -193,6 +201,8 @@ public class RedisCachingStudioStorage extends ForwardingStudioStorage {
         Optional<StoredEnvironment> existing = super.findEnvironment(environmentId);
         super.deleteEnvironment(environmentId);
         touchEnvironmentCache(existing.map(StoredEnvironment::getSpecId).orElse(null));
+        // Its cases lost the link; cached copies would still list the deleted environment's name.
+        existing.ifPresent(item -> touchCaseCache(item.getSpecId()));
     }
 
     @Override
