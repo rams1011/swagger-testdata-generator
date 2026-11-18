@@ -96,6 +96,29 @@ class IntegrityRulesTest {
     }
 
     @Test
+    void aSaveRefusesWhatTheEditorRefusesInsteadOfStoringOrRewritingIt() {
+        SaveTestDataRequest cookie = new SaveTestDataRequest(specId, planId, "ok", "Cookie", "{{baseUrl}}", Map.of(),
+                Map.of(), Map.of(), Map.of("session", "a\nb"), new HashMap<>(Map.of("a", 1)), 200, "JSON", null, null,
+                null, null, null, "READY", null, null, null, 5000L, "application/json", null, null, null, null, null,
+                null);
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> studio.create(cookie)).getMessage()
+                .contains("line break"));
+        SaveTestDataRequest extract = new SaveTestDataRequest(specId, planId, "ok", "Extract", "{{baseUrl}}", Map.of(),
+                Map.of(), Map.of(), Map.of(), new HashMap<>(Map.of("a", 1)), 200, "JSON", null, null, null, null, null,
+                "READY", null, null, "1abc=$.id", 5000L, "application/json", null, null, null, null, null, null);
+        assertThrows(IllegalArgumentException.class, () -> studio.create(extract));
+        assertThrows(IllegalArgumentException.class, () -> studio.create(save("Maybe", null, null, "maybe")));
+        SaveTestDataRequest scoped = new SaveTestDataRequest(specId, planId, "ok", "Scoped", "{{baseUrl}}", Map.of(),
+                Map.of(), Map.of(), Map.of(), new HashMap<>(Map.of("a", 1)), 200, "JSON", null, null, null, null, null,
+                "READY", null, null, null, 5000L, "application/json", staging.id(), List.of("Nowhere"), null, null, null,
+                null);
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> studio.create(scoped)).getMessage()
+                .contains("Nowhere"), "an unknown name is refused even when environmentId decides membership");
+        assertThrows(IllegalArgumentException.class, () -> studio.runPlan(new com.tx.api.test.generator.studio.dto
+                .RunPlanRequest(specId, planId, null, staging.id(), null, null, 60_001L, 0, null)));
+    }
+
+    @Test
     void aCaseCannotNameAnEnvironmentThatDoesNotExist() {
         IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
                 () -> studio.create(save("Lost", null, List.of("Nowhere"), null)));

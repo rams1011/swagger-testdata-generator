@@ -143,6 +143,25 @@ class SafetyPolicyServiceTest {
     }
 
     @Test
+    void theSameHostAgainAddsItsPortsToTheExistingTarget() {
+        asOwner(() -> {
+            safety.addTarget(new AddProtectedTargetRequest("api.acme.com", List.of(443), null));
+            SafetySettingsView more = safety.addTarget(new AddProtectedTargetRequest("API.acme.com", List.of(8443), null));
+            assertEquals(1, more.targets().size());
+            assertEquals(List.of(443, 8443), more.targets().get(0).ports());
+            assertTrue(more.notice().contains("now covers ports"), more.notice());
+            assertThrows(IllegalArgumentException.class,
+                    () -> safety.addTarget(new AddProtectedTargetRequest("api.acme.com", List.of(443), null)),
+                    "nothing new to add");
+            SafetySettingsView any = safety.addTarget(new AddProtectedTargetRequest("api.acme.com", null, null));
+            assertEquals(List.of(), any.targets().get(0).ports(), "no ports widens it to every port");
+            assertThrows(IllegalArgumentException.class,
+                    () -> safety.addTarget(new AddProtectedTargetRequest("api.acme.com", List.of(9000), null)),
+                    "already protected on every port");
+        });
+    }
+
+    @Test
     void onlyOrganizationAdminsChangeProductionSafety() {
         String environmentId = asOwner(() -> environment("Production", "https://api.acme.com").getId());
         asMember(() -> {
@@ -207,7 +226,8 @@ class SafetyPolicyServiceTest {
             assertEquals("api.acme.com", target.pattern());
             assertEquals(List.of(443, 8443), target.ports());
             assertThrows(IllegalArgumentException.class,
-                    () -> safety.addTarget(new AddProtectedTargetRequest("api.acme.com", null, null)));
+                    () -> safety.addTarget(new AddProtectedTargetRequest("api.acme.com", List.of(443), null)),
+                    "a port it already covers adds nothing");
             assertThrows(IllegalArgumentException.class,
                     () -> safety.addTarget(new AddProtectedTargetRequest("https://api.acme.com", null, null)));
             assertThrows(IllegalArgumentException.class,

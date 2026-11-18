@@ -79,6 +79,12 @@ public class JdbcSafetyStore implements SafetyStore {
     }
 
     @Override
+    public boolean updateTargetPorts(String orgId, String targetId, List<Integer> ports) {
+        return jdbcTemplate.update("UPDATE td_protected_target SET ports = ? WHERE org_id = ? AND target_id = ?",
+                TargetPatterns.portsText(ports), orgId, targetId) == 1;
+    }
+
+    @Override
     public boolean deleteTarget(String orgId, String targetId) {
         return jdbcTemplate.update("DELETE FROM td_protected_target WHERE org_id = ? AND target_id = ?",
                 orgId, targetId) == 1;

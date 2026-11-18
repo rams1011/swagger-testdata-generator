@@ -71,7 +71,11 @@ public record StudioEnvironmentNetwork(
             proxyUri(proxy);
         }
         Long timeout = network.requestTimeoutMs();
-        if (timeout != null && timeout <= 0) {
+        if (timeout != null && timeout < 0) {
+            throw new CollectionFormatException("Request timeout can't be negative; leave it empty for the default");
+        }
+        if (timeout != null && timeout == 0) {
+            // 0 is how a form says "not set": the case's max time + 5 s.
             timeout = null;
         }
         if (timeout != null && timeout < MIN_TIMEOUT_MS) {

@@ -51,6 +51,7 @@ public final class OpenApiSpecLoader {
             throw new IllegalArgumentException("Swagger/OpenAPI content must not be blank");
         }
         rejectExternalReferences(specContent);
+        requireObjectDocument(specContent);
         SwaggerParseResult parseResult = new OpenAPIV3Parser().readContents(specContent, null, contentParseOptions());
         if (parseResult.getOpenAPI() != null) {
             return parseResult.getOpenAPI();
@@ -159,6 +160,26 @@ public final class OpenApiSpecLoader {
             return new IllegalArgumentException("The spec could not be read.");
         }
         return new IllegalArgumentException("Failed to parse Swagger/OpenAPI spec: " + cleaned);
+    }
+
+    /**
+     * A spec is a JSON or YAML object (with {@code openapi} or {@code swagger} at the top). A word, a number or a list
+     * is valid YAML but not a spec, and the parser would fail on it without saying why.
+     */
+    static void requireObjectDocument(String content) {
+        try (JsonParser parser = content.trim().startsWith("{")
+                ? JSON_TOKENS.createParser(content)
+                : YAML_TOKENS.createParser(content)) {
+            JsonToken first = parser.nextToken();
+            if (first != JsonToken.START_OBJECT) {
+                throw new IllegalArgumentException("Failed to parse Swagger/OpenAPI spec: the document must be an "
+                        + "object with openapi (or swagger) at the top, not "
+                        + (first == JsonToken.START_ARRAY ? "a list" : "a single value") + ".");
+            }
+        } catch (IOException exception) {
+            throw new IllegalArgumentException("Failed to parse Swagger/OpenAPI spec: the document is not valid "
+                    + "JSON or YAML.");
+        }
     }
 
     /**

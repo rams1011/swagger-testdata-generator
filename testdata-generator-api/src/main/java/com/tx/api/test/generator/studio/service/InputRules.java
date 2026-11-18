@@ -131,6 +131,7 @@ public final class InputRules {
             if (headerProblem != null) {
                 throw new IllegalArgumentException(StringUtils.capitalize(headerProblem));
             }
+            CaseRules.requireStorable(testCase);
         } catch (IllegalArgumentException problem) {
             throw new IllegalArgumentException(label + ": " + problem.getMessage());
         }

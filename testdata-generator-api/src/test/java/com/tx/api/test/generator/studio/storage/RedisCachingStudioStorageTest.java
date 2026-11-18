@@ -4,12 +4,14 @@ import com.tx.api.test.generator.studio.cache.StudioCacheDiagnostics;
 import com.tx.api.test.generator.studio.cache.StudioRedisCache;
 import com.tx.api.test.generator.studio.config.StudioProperties;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
+import com.tx.api.test.generator.studio.model.StudioTestCase;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -42,7 +44,43 @@ class RedisCachingStudioStorageTest {
         storage.saveEnvironment(after);
 
         assertEquals(after.getDocumentJson(), storage.findEnvironment("env-1").orElseThrow().getDocumentJson());
-        verify(delegate, times(2)).findEnvironment("env-1");
+        // Saving reads the stored copy once (to see a rename), then the cache is read through again.
+        verify(delegate, times(3)).findEnvironment("env-1");
+    }
+
+    @Test
+    void renamingAnEnvironmentRefreshesTheCachedCasesThatNameIt() {
+        Map<String, String> redis = new HashMap<>();
+        StudioStorage delegate = mock(StudioStorage.class);
+        RedisCachingStudioStorage storage = new RedisCachingStudioStorage(delegate, cache(redis));
+        StudioTestCase before = scopedCase("Default");
+        StudioTestCase after = scopedCase("Staging");
+        when(delegate.listTestCases("spec-1", "plan-1", null)).thenReturn(List.of(before), List.of(after));
+        when(delegate.findEnvironment("env-1")).thenReturn(Optional.of(environment("{}")));
+
+        assertEquals(List.of("Default"), storage.listTestCases("spec-1", "plan-1", null).get(0).getEnvironments());
+        StoredEnvironment unchanged = environment("{\"variables\":[]}");
+        storage.saveEnvironment(unchanged);
+        assertEquals(List.of("Default"), storage.listTestCases("spec-1", "plan-1", null).get(0).getEnvironments(),
+                "saving without a rename leaves the case cache alone");
+        verify(delegate, times(1)).listTestCases("spec-1", "plan-1", null);
+
+        StoredEnvironment renamed = environment("{}");
+        renamed.setName("Staging");
+        storage.saveEnvironment(renamed);
+        assertEquals(List.of("Staging"), storage.listTestCases("spec-1", "plan-1", null).get(0).getEnvironments(),
+                "the cases follow the rename instead of dropping out of the environment");
+        verify(delegate, times(2)).listTestCases("spec-1", "plan-1", null);
+    }
+
+    private static StudioTestCase scopedCase(String environmentName) {
+        StudioTestCase testCase = new StudioTestCase();
+        testCase.setId("case-1");
+        testCase.setSpecId("spec-1");
+        testCase.setPlanId("plan-1");
+        testCase.setTestName("Scoped");
+        testCase.setEnvironments(List.of(environmentName));
+        return testCase;
     }
 
     private static StoredEnvironment environment(String document) {
