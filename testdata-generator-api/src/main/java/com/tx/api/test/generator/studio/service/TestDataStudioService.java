@@ -925,6 +925,8 @@ public class TestDataStudioService {
                 request == null ? null : request.authType(),
                 request == null ? null : request.variables(),
                 request == null ? null : request.network());
+        SecretNameRules.requireForEnvironment(studioStorage, specId,
+                existing == null ? List.of() : existing.variableList(), merged.variableList());
         stored.setName(merged.name());
         stored.setDocumentJson(CollectionDocuments.toJson(merged));
         // Cases link to the environment by ID, so they follow a rename without being saved again.
@@ -1426,6 +1428,7 @@ public class TestDataStudioService {
     public GlobalVariables saveGlobalVariables(GlobalVariables request) {
         List<StudioVariable> variables = StudioVariables.normalize(
                 request == null ? null : request.variables(), "Global");
+        SecretNameRules.requireForGlobals(studioStorage, loadGlobalVariables(), variables);
         studioStorage.saveGlobalVariables(JSON.toJson(new GlobalVariables(variables)));
         log.info("Saved {} global variables", variables.size());
         return new GlobalVariables(variables);
@@ -1440,6 +1443,7 @@ public class TestDataStudioService {
         specCatalogService.requireSpec(specId);
         List<StudioVariable> variables = StudioVariables.normalize(
                 request == null ? null : request.variables(), "Collection");
+        SecretNameRules.requireForCollection(studioStorage, specId, loadCollectionVariables(specId), variables);
         studioStorage.saveCollectionVariables(specId, StudioVariables.toDocument(variables));
         log.info("Saved {} collection variables for spec {}", variables.size(), specId);
         return new CollectionVariables(variables);

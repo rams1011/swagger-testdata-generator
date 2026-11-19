@@ -7,6 +7,7 @@ import com.tx.api.test.generator.studio.model.StudioRequestFile;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
 import com.tx.api.test.generator.studio.service.InputRules;
+import com.tx.api.test.generator.studio.service.SecretNameRules;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 import org.apache.commons.lang3.StringUtils;
 
@@ -69,6 +70,17 @@ public final class CollectionImporter {
             throw new CollectionFormatException(invalid.getMessage());
         }
         StoredSpec spec = resolveSpec(storage, collection, targetSpecId);
+        if (!variables.isEmpty()) {
+            List<StudioVariable> current = storage.findCollectionVariables(spec.getSpecId())
+                    .map(StudioVariables::fromDocument)
+                    .orElse(List.of());
+            try {
+                SecretNameRules.requireForCollection(storage, spec.getSpecId(), current,
+                        StudioVariables.merge(current, variables));
+            } catch (IllegalArgumentException conflict) {
+                throw new CollectionFormatException(conflict.getMessage());
+            }
+        }
         PlanResolution plan = resolvePlan(storage, spec, collection.plan());
         int created = 0;
         int updated = 0;

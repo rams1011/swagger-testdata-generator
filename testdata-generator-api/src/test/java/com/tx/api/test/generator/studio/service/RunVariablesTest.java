@@ -65,6 +65,18 @@ class RunVariablesTest {
     }
 
     @Test
+    void aPlainVariableNamedLikeASecretIsMaskedToo() {
+        RunVariables scope = RunVariables.of(null, List.of(),
+                List.of(new StudioVariable("demoToken", null, true)),
+                List.of(new StudioVariable("demoToken", "plain-token-123", false)), Map.of());
+        assertEquals("plain-token-123", scope.newScope().get("demoToken"), "the later plain layer still supplies it");
+        RunTestResult result = new RunTestResult(false, false, null, "c1", "Get", "GET",
+                "https://x/items", 200, 200, true, 5, 0, false, "{}", Map.of(),
+                Map.of("Authorization", "Bearer plain-token-123"), List.of(), null, null, Map.of());
+        assertEquals("Bearer " + RunVariables.MASK, scope.mask(result).requestHeaders().get("Authorization"));
+    }
+
+    @Test
     void maskHidesSecretValuesInEveryResultField() {
         RunVariables scope = RunVariables.of(null, List.of(new StudioVariable("apiKey", null, true)), null,
                 Map.of("apiKey", "s3cr3t value"));

@@ -64,6 +64,20 @@ public final class RunVariables {
         layer(values, globalScoped, secretValues, globals, secrets);
         layer(values, collectionScoped, secretValues, collectionVariables, secrets);
         layer(values, environmentScoped, secretValues, environmentVariables, secrets);
+        // A name that is a secret in any layer is masked wherever its value came from, so a plain variable of the same
+        // name (stored before SecretNameRules refused it) doesn't show the value in results and history.
+        Set<String> secretNames = new LinkedHashSet<>();
+        secretNames.addAll(StudioVariables.secretKeys(globals));
+        secretNames.addAll(StudioVariables.secretKeys(collectionVariables));
+        secretNames.addAll(StudioVariables.secretKeys(environmentVariables));
+        for (String name : secretNames) {
+            for (Map<String, String> scope : List.of(values, globalScoped, collectionScoped, environmentScoped)) {
+                String value = scope.get(name);
+                if (StringUtils.isNotEmpty(value)) {
+                    secretValues.add(value);
+                }
+            }
+        }
         globalScoped.forEach((key, value) -> values.put(CaseVariables.GLOBAL_PREFIX + key, value));
         collectionScoped.forEach((key, value) -> values.put(CaseVariables.COLLECTION_PREFIX + key, value));
         environmentScoped.forEach((key, value) -> values.put(CaseVariables.ENV_PREFIX + key, value));
