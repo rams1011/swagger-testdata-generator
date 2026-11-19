@@ -172,6 +172,26 @@ class IntegrityRulesTest {
     }
 
     @Test
+    void aSecretNameCannotGetAPlainValueInAnotherLayer() {
+        studio.saveCollectionVariables(specId, new com.tx.api.test.generator.studio.dto.CollectionVariables(List.of(
+                new StudioVariable("demoToken", null, true))));
+
+        IllegalArgumentException refused = assertThrows(IllegalArgumentException.class, () ->
+                studio.updateEnvironment(specId, staging.id(), new SaveEnvironmentRequest("Staging", null, null,
+                        List.of(new StudioVariable("demoToken", "abc", false)))));
+        assertTrue(refused.getMessage().contains("secret in the collection variables"), refused.getMessage());
+        studio.updateEnvironment(specId, staging.id(), new SaveEnvironmentRequest("Staging", null, null,
+                List.of(new StudioVariable("demoToken", null, true))));
+
+        studio.updateEnvironment(specId, production.id(), new SaveEnvironmentRequest("Production", null, null,
+                List.of(new StudioVariable("adminToken", null, true))));
+        refused = assertThrows(IllegalArgumentException.class, () -> studio.saveCollectionVariables(specId,
+                new com.tx.api.test.generator.studio.dto.CollectionVariables(List.of(
+                        new StudioVariable("demoToken", null, true), new StudioVariable("adminToken", "x", false)))));
+        assertTrue(refused.getMessage().contains("secret in the environment Production"), refused.getMessage());
+    }
+
+    @Test
     void collectionVariablesBelongToOneCollectionAndLeaveItsRevisionAlone() {
         long revision = catalog.getSummary(specId).revision();
         studio.saveCollectionVariables(specId, new com.tx.api.test.generator.studio.dto.CollectionVariables(List.of(

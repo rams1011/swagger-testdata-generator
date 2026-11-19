@@ -3,6 +3,7 @@ package com.tx.api.test.generator.studio.collection;
 import com.tx.api.test.generator.studio.dto.EnvironmentExport;
 import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StoredSpec;
+import com.tx.api.test.generator.studio.service.SecretNameRules;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 
 import java.nio.charset.StandardCharsets;
@@ -67,7 +68,13 @@ public final class EnvironmentExporter {
     }
 
     public static StoredEnvironment upsert(StudioStorage storage, String specId, StudioEnvironment environment) {
-        StoredEnvironment stored = storage.findEnvironmentByName(specId, environment.name()).orElseGet(() -> {
+        java.util.Optional<StoredEnvironment> existing = storage.findEnvironmentByName(specId, environment.name());
+        List<StudioVariable> previous = existing
+                .map(found -> CollectionDocuments.parseEnvironment(found.getDocumentJson()))
+                .map(StudioEnvironment::variableList)
+                .orElse(List.of());
+        SecretNameRules.requireForEnvironment(storage, specId, previous, environment.variableList());
+        StoredEnvironment stored = existing.orElseGet(() -> {
             StoredEnvironment created = new StoredEnvironment();
             created.setId(UUID.randomUUID().toString());
             created.setSpecId(specId);
