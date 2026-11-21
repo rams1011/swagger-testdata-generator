@@ -121,6 +121,8 @@ Workflow: [`.github/workflows/deploy-gcp.yml`](../.github/workflows/deploy-gcp.y
 | `TESTDATA_AUTH_GITHUB_ALLOW_REGISTRATION` | Optional; default `true` for SaaS |
 | `TESTDATA_SAFETY_ENABLED` | Optional; `true` turns on production safety (protected targets, approvals; see the UI repo's `docs/PRODUCTION_SAFETY.md`). Unset or `false` leaves it off |
 | `TESTDATA_SAAS_OPERATOR_API` | Optional; `false` turns off the SaaS operator console API (`/api/saas/subscriptions*` answers 404). Unset or `true` leaves it on |
+| `TESTDATA_LOG_FORMAT` | Optional; console log format: `ecs` (default), `logstash`, `gelf`, or `text` for the readable pattern. JSON lets Cloud Logging and Elastic read the fields ([LOGGING.md](LOGGING.md)) |
+| `TESTDATA_LOG_ENVIRONMENT` | Optional; ECS `service.environment` on each log line, default `cloud` (e.g. `staging`, `production`) |
 
 **Secrets (GitHub):** `TESTDATA_AUTH_GITHUB_CLIENT_ID`, `TESTDATA_AUTH_GITHUB_CLIENT_SECRET` from a [GitHub OAuth App](https://github.com/settings/developers).
 
@@ -138,7 +140,10 @@ The deploy workflow sets:
 - `TESTDATA_AUTH_OIDC_*` when `TESTDATA_AUTH_OIDC_ENABLED=true`
 - `TESTDATA_AUTH_GITHUB_*` when `TESTDATA_AUTH_GITHUB_ENABLED=true`
 - `TESTDATA_SAFETY_ENABLED` and `TESTDATA_SAAS_OPERATOR_API` when those repository variables are set (`true` or `false`; anything else fails the deploy)
+- `TESTDATA_LOG_FORMAT` (`ecs` unless the variable says otherwise; nothing when `text`) and `TESTDATA_LOG_ENVIRONMENT` (default `cloud`)
 - `SERVER_PORT=8080`
+
+**Logs to Elastic:** the service writes JSON to stdout, Cloud Logging stores it, and a Logs Router sink → Pub/Sub carries it to Elastic. The service holds no Elastic credentials. Setup: [LOGGING.md](LOGGING.md).
 
 **AlloyDB:** put the full JDBC URL in `SPRING_DATASOURCE_URL` (public IP or connector URL — examples in [DATABASE.md](DATABASE.md)). Grant the Cloud Run **runtime** service account `roles/alloydb.client` when using the Java connector.
 

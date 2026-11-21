@@ -1,0 +1,27 @@
+{
+  "description": "Studio API logs from Cloud Logging (sink -> Pub/Sub -> Dataflow or Elastic Agent). Unwraps the LogEntry in 'message' so the app's ECS fields (message, log.level, requestId, tenantId, trace.id...) sit at the root, and keeps the Cloud Run metadata under gcp.*.",
+  "processors": [
+    {
+      "json": {
+        "if": "ctx.message instanceof String && ctx.message.startsWith('{')",
+        "field": "message",
+        "target_field": "_entry"
+      }
+    },
+    {
+      "script": {
+        "if": "ctx._entry instanceof Map",
+        "lang": "painless",
+        "source": "def e = ctx.remove('_entry'); def payload = e.jsonPayload; if (payload instanceof Map) { for (def key : payload.keySet()) { ctx[key] = payload[key]; } } else if (e.textPayload != null) { ctx.message = e.textPayload; } if (!(payload instanceof Map) || !payload.containsKey('@timestamp')) { ctx['@timestamp'] = e.timestamp; } def resource = e.resource instanceof Map ? e.resource : [:]; def labels = resource.labels instanceof Map ? resource.labels : [:]; ctx.cloud = ['provider': 'gcp', 'project': ['id': labels.project_id], 'region': labels.location]; def gcp = ['log_name': e.logName, 'insert_id': e.insertId, 'severity': e.severity, 'trace': e.trace, 'cloud_run': ['service': labels.service_name, 'revision': labels.revision_name]]; if (e.httpRequest instanceof Map) { gcp.http_request = e.httpRequest; } ctx.gcp = gcp; if (ctx.log == null && e.severity != null) { ctx.log = ['level': e.severity]; }"
+      }
+    }
+  ],
+  "on_failure": [
+    {
+      "set": {
+        "field": "error.message",
+        "value": "{{ _ingest.on_failure_message }}"
+      }
+    }
+  ]
+}

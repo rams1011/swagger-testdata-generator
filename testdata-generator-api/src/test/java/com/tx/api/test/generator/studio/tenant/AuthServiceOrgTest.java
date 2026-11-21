@@ -53,6 +53,26 @@ class AuthServiceOrgTest {
     }
 
     @Test
+    void addingAnUnknownEmailWithoutAPasswordSaysNoAccountUsesIt() {
+        StudioProperties properties = new StudioProperties();
+        properties.setEdition("saas");
+        TenantStore store = mock(TenantStore.class);
+        when(store.findTenant("ws-a")).thenReturn(Optional.of(tenant("ws-a", "org-1")));
+        when(store.findOrganization("org-1")).thenReturn(Optional.of(organization("org-1")));
+        when(store.findAccountByEmail("nobody@example.com")).thenReturn(Optional.empty());
+        when(store.findOrgRole(eq("org-1"), eq("admin-1"))).thenReturn(Optional.of("OWNER"));
+        AuthService authService = authService(properties, store);
+        TenantContext.setSaasEnabled(true);
+        TenantContext.set(new TenantContext.Scope("ws-a", "admin-1", "admin@example.com", "OWNER"));
+
+        IllegalArgumentException refused = assertThrows(IllegalArgumentException.class, () ->
+                authService.addOrgMember(new AddMemberRequest("nobody@example.com", null, "", "MEMBER")));
+        assertEquals("No account uses nobody@example.com. Enter a password to create one, or ask them to sign up first",
+                refused.getMessage());
+        verify(store, never()).saveAccount(any(Account.class));
+    }
+
+    @Test
     void removeOrgMemberRequiresOrgAdmin() {
         StudioProperties properties = new StudioProperties();
         properties.setEdition("datacenter");

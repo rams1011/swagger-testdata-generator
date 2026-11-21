@@ -1,0 +1,15 @@
+{
+  "index_patterns": ["logs-gcp.pubsub-testdata*"],
+  "data_stream": {},
+  "priority": 300,
+  "composed_of": ["logs@mappings", "logs@settings", "ecs@mappings"],
+  "ignore_missing_component_templates": ["ecs@mappings"],
+  "template": {
+    "settings": {
+      "index.default_pipeline": "testdata-studio-cloud-logging"
+    }
+  },
+  "_meta": {
+    "description": "Studio API logs from Cloud Run (namespace 'testdata'); runs the testdata-studio-cloud-logging pipeline."
+  }
+}

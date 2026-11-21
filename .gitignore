@@ -3,3 +3,4 @@ target/
 *.iml
 studio-output/
 .env
+logs/

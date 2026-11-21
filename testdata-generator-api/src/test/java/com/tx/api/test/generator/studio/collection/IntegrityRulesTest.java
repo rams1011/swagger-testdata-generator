@@ -228,8 +228,9 @@ class IntegrityRulesTest {
         assertTrue(all.iterations().get(0).url().contains("tier=GOLD"), all.iterations().get(0).url());
         assertTrue(all.iterations().get(1).url().contains("tier=SILVER"), all.iterations().get(1).url());
         String runId = runHistory.list(specId, null, null, created.id(), null, null, 1).get(0).runId();
-        assertEquals("failed", runHistory.get(runId).results().get(0).outcome(),
-                "rows that fail make the case failed in history, not an error");
+        assertEquals("error", runHistory.get(runId).results().get(0).outcome(),
+                "no row got a response (nothing listens on port 1), so it's an error like a single case's; rows that "
+                        + "get a response and fail make it failed (RunOutcomeTest)");
 
         var one = studio.run(new com.tx.api.test.generator.studio.dto.RunTestRequest(created.id(), null, null, null,
                 null, 2));
