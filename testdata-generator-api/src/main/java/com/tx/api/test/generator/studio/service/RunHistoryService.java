@@ -258,7 +258,8 @@ public class RunHistoryService {
         return stored;
     }
 
-    private static String outcome(RunTestResult result) {
+    /** The stored outcome of one result: blocked, skipped, passed, error (no response) or failed. */
+    static String outcome(RunTestResult result) {
         if (result.blocked()) {
             return "blocked";
         }
@@ -268,11 +269,18 @@ public class RunHistoryService {
         if (result.passed()) {
             return "passed";
         }
-        // A data-driven case's error only sums up its failed rows: that's a failure, not a request error.
-        if (StringUtils.isNotBlank(result.error()) && result.iterations() == null) {
+        // A data-driven case's error only sums up its failed rows: that's a failure, not a request error, unless no
+        // row got a response at all (an unresolved variable, a connection error), which is an error like a single case.
+        if (StringUtils.isNotBlank(result.error()) && (result.iterations() == null || noRowCompleted(result))) {
             return "error";
         }
         return "failed";
+    }
+
+    private static boolean noRowCompleted(RunTestResult result) {
+        return !result.iterations().isEmpty() && result.iterations().stream().allMatch(row -> row != null
+                && !row.passed() && !row.skipped() && !row.blocked()
+                && row.actualStatus() == 0 && StringUtils.isNotBlank(row.error()));
     }
 
     private static Map<String, String> redactHeaders(Map<String, String> headers) {

@@ -21,6 +21,7 @@ import com.tx.api.test.generator.studio.storage.JdbcStudioStorage;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.MDC;
 import org.springframework.beans.BeansException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -281,6 +282,20 @@ class TenantIsolationTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         filter.doFilter(request, response, new MockFilterChain());
         assertEquals(403, response.getStatus());
+    }
+
+    @Test
+    void theWorkspaceIdIsInTheLogContextForTheRequestOnly() throws Exception {
+        var session = authService.register(new RegisterRequest("mdc@example.com", "password1234", "Mdc", "Org", "Ws", null));
+        TenantFilter filter = new TenantFilter(properties, authService, new EntitlementService(
+                properties, new FixedProvider<>(new JdbcTenantStore(new JdbcTemplate(dataSource)))));
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/specs");
+        request.addHeader("Authorization", "Bearer " + session.token());
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        String[] seen = new String[1];
+        filter.doFilter(request, response, (req, res) -> seen[0] = MDC.get(TenantFilter.MDC_KEY));
+        assertEquals(session.tenant().id(), seen[0]);
+        assertNull(MDC.get(TenantFilter.MDC_KEY));
     }
 
     @Test

@@ -1,0 +1,30 @@
+# Reads the Studio API's ECS JSON log file (LOGGING_STRUCTURED_FORMAT_FILE=ecs) and sends it to the local
+# Elasticsearch. Each line is already ECS, so fields (requestId, tenantId, trace.id, log.level...) land at the root.
+filebeat.inputs:
+  - type: filestream
+    id: testdata-studio-api
+    # Spring rolls the file to <name>.<date>.<n>.gz; only the live .json file is read.
+    paths:
+      - /var/log/testdata-studio/*.json
+    prospector.scanner.check_interval: 2s
+    parsers:
+      - ndjson:
+          target: ""
+          overwrite_keys: true
+          expand_keys: true
+          add_error_key: true
+          message_key: message
+    fields_under_root: true
+    fields:
+      event.dataset: testdata-studio.api
+
+processors:
+  - add_fields:
+      target: service
+      fields:
+        environment: local
+
+output.elasticsearch:
+  hosts: ["http://elasticsearch:9200"]
+
+logging.level: info

@@ -613,7 +613,12 @@ public class AuthService {
             throw new IllegalArgumentException(
                     "That person must sign in with the company directory before you can add them to this organization");
         } else {
-            PasswordPolicy.requireAcceptable(request == null ? null : request.password(), email);
+            if (request == null || StringUtils.isBlank(request.password())) {
+                // A blank password means "add an existing account" in the form, so say that none exists.
+                throw new IllegalArgumentException("No account uses " + email
+                        + ". Enter a password to create one, or ask them to sign up first");
+            }
+            PasswordPolicy.requireAcceptable(request.password(), email);
             Instant now = Instant.now();
             account = new Account();
             account.setId(UUID.randomUUID().toString());
@@ -1032,7 +1037,7 @@ public class AuthService {
                 properties.editionName(),
                 properties.isBillingEnabled(),
                 passwordChangeRequired(account),
-                !LdapAccounts.isDirectoryManaged(account.getPasswordHash()),
+                !OidcAccounts.isExternalIdentity(account.getPasswordHash()),
                 properties.isOperatorApiEnabled(),
                 properties.safetyOn()
         );

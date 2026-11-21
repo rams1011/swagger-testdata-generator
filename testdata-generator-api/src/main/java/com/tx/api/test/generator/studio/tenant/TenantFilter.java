@@ -8,6 +8,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.MediaType;
@@ -26,6 +27,8 @@ public class TenantFilter extends OncePerRequestFilter {
 
     public static final String TENANT_HEADER = "X-Tenant-Id";
     public static final String WORKSPACE_HEADER = "X-Workspace-Id";
+    /** Log context key for the request's workspace (tenant) id. */
+    public static final String MDC_KEY = "tenantId";
 
     private final StudioProperties properties;
     private final AuthService authService;
@@ -62,6 +65,7 @@ public class TenantFilter extends OncePerRequestFilter {
             if (!properties.isAuthEnabled()) {
                 TenantContext.set(new TenantContext.Scope(
                         TenantContext.LOCAL_TENANT_ID, null, null, "OWNER"));
+                MDC.put(MDC_KEY, TenantContext.LOCAL_TENANT_ID);
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -107,6 +111,7 @@ public class TenantFilter extends OncePerRequestFilter {
             }
             TenantContext.set(new TenantContext.Scope(
                     tenantId, accountId, resolved.account().getEmail(), workspaceRole));
+            MDC.put(MDC_KEY, tenantId);
             if (authService.passwordChangeRequired(resolved.account()) && !allowedDuringPasswordChange(request)) {
                 forbidden(response, "Change your password to continue");
                 return;
@@ -122,6 +127,7 @@ public class TenantFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             TenantContext.clear();
+            MDC.remove(MDC_KEY);
         }
     }
 

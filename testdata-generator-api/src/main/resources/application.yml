@@ -198,3 +198,17 @@ logging:
     com.tx.api.test.generator.studio.config.StorageConfiguration: INFO
     # Per-method traces. Leave at WARN. Set this logger to DEBUG only when tracing a single call.
     com.tx.api.test.generator.studio.logging.MethodLoggingAspect: WARN
+  # JSON console logs for log shipping (Elastic, Cloud Logging): TESTDATA_LOG_FORMAT=ecs (or logstash, gelf).
+  # Unset keeps the readable pattern above. MDC fields (requestId, tenantId, studioReadSource) become top-level
+  # fields; traceId/spanId are renamed to ECS trace.id/span.id. See docs/LOGGING.md.
+  structured:
+    format:
+      console: ${TESTDATA_LOG_FORMAT:}
+    ecs:
+      service:
+        environment: ${TESTDATA_LOG_ENVIRONMENT:}
+    json:
+      rename:
+        traceId: trace.id
+        spanId: span.id
+      customizer: com.tx.api.test.generator.studio.observability.CloudLoggingSeverity
