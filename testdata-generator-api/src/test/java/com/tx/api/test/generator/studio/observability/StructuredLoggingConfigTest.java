@@ -37,6 +37,19 @@ class StructuredLoggingConfigTest {
     }
 
     @Test
+    void aLogFileForShippingIsWrittenOnlyWhenNamedAndIsEcsJson() throws Exception {
+        StandardEnvironment off = environment(Map.of());
+        assertEquals("", off.getProperty("logging.file.name"), "no file unless TESTDATA_LOG_FILE is set");
+
+        StandardEnvironment on = environment(Map.of("TESTDATA_LOG_FILE", "D:/logs/testdata-studio.json"));
+        assertEquals("D:/logs/testdata-studio.json", on.getProperty("logging.file.name"));
+        assertEquals("ecs", on.getProperty("logging.structured.format.file"));
+        assertEquals("", on.getProperty(FORMAT), "the console keeps its readable format");
+        assertEquals("50MB", on.getProperty("logging.logback.rollingpolicy.max-file-size"));
+        assertEquals("7", on.getProperty("logging.logback.rollingpolicy.max-history"));
+    }
+
+    @Test
     void ecsLinesCarryTheLogContext() throws Exception {
         StandardEnvironment environment = environment(Map.of(
                 "TESTDATA_LOG_FORMAT", "ecs", "TESTDATA_LOG_ENVIRONMENT", "cloud"));

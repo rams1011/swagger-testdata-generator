@@ -9,7 +9,9 @@ which both Elastic and Google Cloud Logging read field by field.
 |----------|--------|
 | `TESTDATA_LOG_FORMAT` | Console format: unset = readable text; `ecs`, `logstash` or `gelf` = JSON (`logging.structured.format.console`) |
 | `TESTDATA_LOG_ENVIRONMENT` | ECS `service.environment`, e.g. `local`, `cloud`, `production` (unset = left out) |
-| `LOGGING_FILE_NAME` + `LOGGING_STRUCTURED_FORMAT_FILE=ecs` | Spring Boot's own: also write an ECS JSON file, console unchanged (used by the local stack below) |
+| `TESTDATA_LOG_FILE` | Also write every line to this file as ECS JSON, for Filebeat to ship; the console keeps its format. Use an absolute path. Unset = no file |
+| `TESTDATA_LOG_FILE_FORMAT` | The file's format: `ecs` (default), `logstash` or `gelf` |
+| `TESTDATA_LOG_FILE_MAX_SIZE`, `TESTDATA_LOG_FILE_MAX_HISTORY`, `TESTDATA_LOG_FILE_TOTAL_SIZE_CAP` | Rolling: a new file at 50MB, old ones kept 7 days and 500MB in all (defaults) |
 
 Fields on each JSON line:
 
@@ -53,6 +55,55 @@ container logs are access lines for static files; every API call it proxies is a
 request id. Not worth shipping by default. `INCLUDE_UI=true` on the sink script adds only its Cloud Run request logs
 with status ≥ 500 (for example a failing proxy).
 
+## Local API to Elastic Cloud (Filebeat, no Docker)
+
+Full step-by-step guide, with Kibana and troubleshooting: [ELASTIC_CLOUD_LOCAL.md](ELASTIC_CLOUD_LOCAL.md).
+
+The API writes an ECS JSON file; Filebeat, installed on your machine, sends it to your Elastic Cloud deployment.
+Elastic credentials stay in Filebeat's keystore, never in the app or the repo.
+
+1. Start the API with a log file (from the repo root, PowerShell). The console stays readable:
+
+   ```powershell
+   $env:TESTDATA_LOG_FILE = "$PWD\logs\testdata-studio.json"
+   $env:TESTDATA_LOG_ENVIRONMENT = "local"
+   mvn -pl testdata-generator-api -am spring-boot:run
+   ```
+
+   `logs/` is git-ignored. Use an absolute path: `spring-boot:run` starts in `testdata-generator-api`.
+
+2. Download the Filebeat **Windows ZIP** in your deployment's version from elastic.co and unzip it, for example to
+   `D:\tools\filebeat`. Copy [`examples/elastic/filebeat-cloud.yml`](examples/elastic/filebeat-cloud.yml) over its
+   `filebeat.yml`, and set `paths` to your log folder if it differs.
+
+3. In Kibana (Stack Management), create a role with cluster privileges `monitor`, `read_ilm`, `read_pipeline`,
+   `manage_index_templates`, `manage_ilm`, and index privileges `create_doc`, `auto_configure`,
+   `view_index_metadata` on `filebeat-*`; then a user with that role. Don't use the `elastic` superuser.
+
+4. Put the Cloud ID (from the deployment page in the Elastic Cloud console), user name and password in the keystore.
+   Filebeat reads `filebeat.yml` even for these commands, so put `#` in front of the two `cloud.*` lines first and
+   remove it afterwards. Each `add` asks for the value (nothing shows while you type):
+
+   ```powershell
+   cd D:\tools\filebeat
+   .\filebeat.exe keystore create
+   .\filebeat.exe keystore add ELASTIC_CLOUD_ID
+   .\filebeat.exe keystore add ELASTIC_USERNAME
+   .\filebeat.exe keystore add ELASTIC_PASSWORD
+   ```
+
+5. Check and run (it stops when you close the window):
+
+   ```powershell
+   .\filebeat.exe test output -c filebeat.yml
+   .\filebeat.exe -e -c filebeat.yml
+   ```
+
+6. In your cloud Kibana, open **Discover** with a data view on `filebeat-*` (timestamp `@timestamp`).
+
+To keep Filebeat running, `install-service-filebeat.ps1` in the ZIP installs it as a Windows service (an
+administrator PowerShell, with the keystore commands run again there).
+
 ## Local: Elasticsearch + Kibana + Filebeat
 
 Files: [`examples/elastic/docker-compose.yml`](examples/elastic/docker-compose.yml),
@@ -62,8 +113,7 @@ port is bound to `127.0.0.1`: for your machine only, with no credentials anywher
 1. Run the API with an ECS log file next to the readable console (from the repo root, PowerShell):
 
    ```powershell
-   $env:LOGGING_FILE_NAME = "$PWD\logs\testdata-studio.json"
-   $env:LOGGING_STRUCTURED_FORMAT_FILE = "ecs"
+   $env:TESTDATA_LOG_FILE = "$PWD\logs\testdata-studio.json"
    $env:TESTDATA_LOG_ENVIRONMENT = "local"
    mvn -pl testdata-generator-api -am spring-boot:run
    ```
@@ -85,7 +135,7 @@ port is bound to `127.0.0.1`: for your machine only, with no credentials anywher
 
 Stop with `docker compose -f docs/examples/elastic/docker-compose.yml down` (add `-v` to drop the indexed logs).
 
-For the API running in the root `docker-compose.yml`, set the same two `LOGGING_*` variables on the
+For the API running in the root `docker-compose.yml`, set `TESTDATA_LOG_FILE` on the
 `testdata-studio` service with a file under a mounted folder, and point `STUDIO_LOG_DIR` at that folder.
 
 ## Cloud Run: sink → Pub/Sub → Elastic

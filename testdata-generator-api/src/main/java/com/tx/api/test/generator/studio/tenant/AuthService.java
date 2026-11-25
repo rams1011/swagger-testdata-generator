@@ -732,8 +732,8 @@ public class AuthService {
             throw new IllegalArgumentException("This workspace is not attached to an organization");
         }
         if (store.findOrgRole(orgId, accountId).isEmpty()) {
-            entitlements().requireSeat(orgId, accountId);
-            store.saveOrgMembership(orgId, accountId, "MEMBER");
+            // Someone in another organization joins by email (addOrgMember), never by an account ID.
+            throw new IllegalArgumentException("Account not found");
         }
         store.saveMembership(new Membership(tenantId, accountId, role));
         store.findPendingWorkspaceAccessRequest(tenantId, accountId).ifPresent(pending ->

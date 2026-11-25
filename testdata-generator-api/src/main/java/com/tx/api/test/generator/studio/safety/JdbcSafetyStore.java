@@ -1,5 +1,6 @@
 package com.tx.api.test.generator.studio.safety;
 
+import com.tx.api.test.generator.studio.tenant.DatabaseTenant;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Repository;
@@ -176,12 +177,22 @@ public class JdbcSafetyStore implements SafetyStore {
     }
 
     @Override
-    public List<WriteApproval> listOpenApprovals(String caseId, String environmentId) {
+    public List<WriteApproval> listOpenApprovals(String orgId, String caseId, String environmentId) {
         return jdbcTemplate.query("""
                         SELECT * FROM td_write_approval
-                         WHERE case_id = ? AND environment_id = ? AND status IN ('requested', 'approved')
+                         WHERE org_id = ? AND case_id = ? AND environment_id = ? AND status IN ('requested', 'approved')
                          ORDER BY requested_at DESC, approval_id
-                        """, approvalMapper(), caseId, environmentId);
+                        """, approvalMapper(), orgId, caseId, environmentId);
+    }
+
+    @Override
+    public Optional<String> findCaseTenant(String orgId, String caseId) {
+        return DatabaseTenant.acrossTenants(() -> jdbcTemplate.query("""
+                        SELECT s.tenant_id FROM td_test_case c
+                          JOIN td_spec s ON s.spec_id = c.spec_id
+                          JOIN td_tenant t ON t.tenant_id = s.tenant_id
+                         WHERE c.test_case_id = ? AND t.org_id = ?
+                        """, (rs, rowNum) -> rs.getString(1), caseId, orgId)).stream().findFirst();
     }
 
     @Override

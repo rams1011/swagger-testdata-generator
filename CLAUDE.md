@@ -119,7 +119,8 @@ Every published state is copied to `td_test_case_version` (`JdbcStudioStorage.sa
 - Prerequisites: `CaseVariables.prerequisites(..., definedNames)` skips names already in run scope, and never picks a draft: a draft's extracts aren't available to other cases until it is published.
 - `{{baseUrl}}`: `TestDataStudioService.withBaseUrlFallback` adds the spec's base URL when the environment has none (or none is selected). Collection import stores cases on the collection's base URL as `{{baseUrl}}` (`CollectionMapper.resolveStoredBaseUrl`).
 - Last run per case: `GET /api/runs/latest-by-case?specId&planId&environmentId` (`RunHistoryService.latestByCase`, storage `latestCaseRuns`). Home cards: `GET /api/specs/activity?ids=` (`TestDataStudioService.specActivity`: `countTestCases`, environment count, newest run).
-- Tenant: `TenantContext.tenantId()` for storage scoping.
+- Tenant: `TenantContext.tenantId()` for storage scoping. Every table under a collection has `tenant_id` and composite keys (V11): new inserts must write it. On PostgreSQL, V12 forces row-level security: `TenantDataSource` sets `app.tenant_id` per connection from `TenantContext` (`DatabaseTenant`), and a query across workspaces goes through `DatabaseTenant.acrossTenants`. New tables with `tenant_id` need a policy too (`V12__row_level_security` shows it; also raise `RowSecurityConfiguration.TABLES`). See `docs/DATABASE.md`.
+- Isolation tests: `TenantEndpointIsolationTest` calls every endpoint that takes an ID with another workspace's IDs, and fails when a new one has no attempt. To run it on PostgreSQL, set `TESTDATA_TEST_JDBC_URL` / `_USER` / `_PASSWORD`. `RowSecurityIntegrationTest` (`-Pintegration`) tests the policies.
 
 ## Storage migrations
 

@@ -277,6 +277,38 @@ class IntegrityRulesTest {
     }
 
     @Test
+    void duplicatingACaseCopiesTheFilesItUses() throws Exception {
+        SaveTestDataRequest base = save("With file", null, null, null);
+        TestCaseView source = studio.create(new SaveTestDataRequest(base.specId(), base.planId(), base.operationKey(),
+                base.testName(), base.baseUrl(), base.pathParams(), base.queryParams(), base.headers(),
+                base.cookieParams(), base.requestBody(), base.statusCode(), base.responseType(), null, null, null, null,
+                null, "DRAFT", null, null, null, base.maxResponseTimeMs(), "multipart/form-data", null, null, null,
+                null, null, null));
+        String fileId = studio.saveRequestFile(source.id(), new org.springframework.mock.web.MockMultipartFile("file",
+                "a.txt", "text/plain", "hello".getBytes()), "file").fileId();
+
+        TestCaseView copy = studio.duplicate(source.id(), new com.tx.api.test.generator.studio.dto
+                .CopyEnvironmentOverlayRequest(null, staging.id()));
+
+        var copied = storage.listRequestFiles(copy.id());
+        assertEquals(1, copied.size());
+        String copiedId = copied.get(0).getFileId();
+        assertFalse(fileId.equals(copiedId), "its own copy");
+        assertEquals("hello", new String(studio.requireRequestFile(copy.id(), copiedId).getContent()));
+        assertTrue(String.valueOf(copy.requestBody()).contains(copiedId), "the body refers to the copy");
+        assertEquals("hello", new String(studio.requireRequestFile(source.id(), fileId).getContent()));
+        assertEquals(1, storage.listRequestFiles(source.id()).size());
+
+        // A file uploaded to a published case that only draft changes would use.
+        TestCaseView published = studio.create(save("Published", null, null, null));
+        studio.saveRequestFile(published.id(), new org.springframework.mock.web.MockMultipartFile("file", "b.txt",
+                "text/plain", "draft".getBytes()), "file");
+        TestCaseView plain = studio.duplicate(published.id(), new com.tx.api.test.generator.studio.dto
+                .CopyEnvironmentOverlayRequest(null, staging.id()));
+        assertTrue(storage.listRequestFiles(plain.id()).isEmpty(), "a file only the draft uses stays behind");
+    }
+
+    @Test
     void enabledIsStoredAsABoolean() {
         TestCaseView disabled = studio.create(save("Off", null, null, "N"));
 

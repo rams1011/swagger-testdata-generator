@@ -1346,9 +1346,12 @@ public class TestDataStudioService {
         copy.setId(UUID.randomUUID().toString());
         copy.setLifecycle(CaseLifecycle.DRAFT);
         copy.setEnvironments(EnvironmentScope.normalize(List.of(target.name())));
-        copy.setRequestBody(copyRequestFiles(source.getId(), copy.getId(), source.getRequestBody()));
+        List<StudioRequestFile> files = new ArrayList<>();
+        copy.setRequestBody(copyRequestFiles(source.getId(), copy.getId(), source.getRequestBody(), files));
         RequestFileSupport.stampTestCaseId(copy.getRequestBody(), copy.getId());
+        // A file belongs to a stored case, so the copy comes first.
         studioStorage.saveTestCase(copy);
+        files.forEach(studioStorage::saveRequestFile);
         bindCaseFiles(copy);
         auditService.recordCaseCreated(copy);
         return toView(copy, request.toEnvironmentId());
@@ -1616,19 +1619,16 @@ public class TestDataStudioService {
         return EnvironmentScope.normalize(fallback);
     }
 
-    private Object copyRequestFiles(String fromCaseId, String toCaseId, Object body) {
-        List<StudioRequestFile> files = studioStorage.listRequestFiles(fromCaseId);
-        if (files == null || files.isEmpty()) {
-            return body;
-        }
+    /** The body with new file IDs; adds the copies to store to {@code copies}. Files it doesn't use stay behind. */
+    private Object copyRequestFiles(String fromCaseId, String toCaseId, Object body, List<StudioRequestFile> copies) {
         Map<String, String> oldToNew = new LinkedHashMap<>();
-        for (StudioRequestFile file : files) {
-            StudioRequestFile copy = studioStorage.findRequestFile(fromCaseId, file.getFileId()).orElse(null);
+        for (String fileId : RequestFileSupport.fileIds(body)) {
+            StudioRequestFile copy = studioStorage.findRequestFile(fromCaseId, fileId).orElse(null);
             if (copy == null) {
                 continue;
             }
             String newId = UUID.randomUUID().toString();
-            oldToNew.put(file.getFileId(), newId);
+            oldToNew.put(fileId, newId);
             StudioRequestFile stored = new StudioRequestFile();
             stored.setFileId(newId);
             stored.setTestCaseId(toCaseId);
@@ -1637,7 +1637,7 @@ public class TestDataStudioService {
             stored.setSizeBytes(copy.getSizeBytes());
             stored.setContent(copy.getContent());
             stored.setCreatedAt(Instant.now());
-            studioStorage.saveRequestFile(stored);
+            copies.add(stored);
         }
         return RequestFileSupport.replaceFileIds(body, oldToNew, toCaseId);
     }

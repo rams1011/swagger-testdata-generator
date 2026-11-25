@@ -295,13 +295,13 @@ public class JdbcTenantStore implements TenantStore {
 
     @Override
     public int countSpecsForOrg(String orgId) {
-        Integer count = jdbcTemplate.queryForObject("""
+        Integer count = DatabaseTenant.acrossTenants(() -> jdbcTemplate.queryForObject("""
                         SELECT COUNT(*)
                           FROM td_spec s
                           JOIN td_tenant t ON t.tenant_id = s.tenant_id
                          WHERE t.org_id = ?
                         """,
-                Integer.class, orgId);
+                Integer.class, orgId));
         return count == null ? 0 : count;
     }
 
