@@ -13,6 +13,7 @@ import com.tx.api.test.generator.studio.audit.AuditResourceType;
 import com.tx.api.test.generator.studio.dto.AuditEventView;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.model.StudioTestPlan;
+import com.tx.api.test.generator.studio.tenant.DatabaseTenant;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -285,10 +286,10 @@ public class JdbcStudioStorage implements StudioStorage {
             return;
         }
         jdbcTemplate.update("""
-                        INSERT INTO td_test_plan (plan_id, spec_id, name, description, created_at, updated_at)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO td_test_plan (plan_id, spec_id, tenant_id, name, description, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
-                plan.getId(), plan.getSpecId(), plan.getName(), plan.getDescription(),
+                plan.getId(), plan.getSpecId(), tenantId(), plan.getName(), plan.getDescription(),
                 Timestamp.from(plan.getCreatedAt()), updatedAt);
     }
 
@@ -430,11 +431,11 @@ public class JdbcStudioStorage implements StudioStorage {
         }
         try {
             jdbcTemplate.update("""
-                            INSERT INTO td_environment (environment_id, spec_id, name, document_json, created_at, updated_at)
-                            VALUES (?, ?, ?, ?, ?, ?)
+                            INSERT INTO td_environment (environment_id, spec_id, tenant_id, name, document_json, created_at, updated_at)
+                            VALUES (?, ?, ?, ?, ?, ?, ?)
                             """,
-                    environment.getId(), environment.getSpecId(), environment.getName(), environment.getDocumentJson(),
-                    Timestamp.from(environment.getCreatedAt()), updatedAt);
+                    environment.getId(), environment.getSpecId(), tenantId(), environment.getName(),
+                    environment.getDocumentJson(), Timestamp.from(environment.getCreatedAt()), updatedAt);
         } catch (DuplicateKeyException conflict) {
             Optional<StoredEnvironment> byName = findEnvironmentByName(environment.getSpecId(), environment.getName());
             if (byName.isEmpty()) {
@@ -515,8 +516,8 @@ public class JdbcStudioStorage implements StudioStorage {
                     documentJson, now, specId);
             if (rows == 0) {
                 jdbcTemplate.update(
-                        "INSERT INTO td_collection_variables (spec_id, document_json, updated_at) VALUES (?, ?, ?)",
-                        specId, documentJson, now);
+                        "INSERT INTO td_collection_variables (spec_id, tenant_id, document_json, updated_at) VALUES (?, ?, ?, ?)",
+                        specId, tenantId(), documentJson, now);
             }
         }
     }
@@ -541,8 +542,8 @@ public class JdbcStudioStorage implements StudioStorage {
                     documentJson, now, specId);
             if (rows == 0) {
                 jdbcTemplate.update(
-                        "INSERT INTO td_collection_settings (spec_id, document_json, updated_at) VALUES (?, ?, ?)",
-                        specId, documentJson, now);
+                        "INSERT INTO td_collection_settings (spec_id, tenant_id, document_json, updated_at) VALUES (?, ?, ?, ?)",
+                        specId, tenantId(), documentJson, now);
             }
         }
     }
@@ -558,10 +559,10 @@ public class JdbcStudioStorage implements StudioStorage {
     /** A copy of each published state, so a change can be looked up or undone later. */
     private void recordPublishedVersion(StudioTestCase testCase) {
         jdbcTemplate.update("""
-                INSERT INTO td_test_case_version (version_id, test_case_id, document_json, published_at, published_by_label)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO td_test_case_version (version_id, test_case_id, tenant_id, document_json, published_at, published_by_label)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                java.util.UUID.randomUUID().toString(), testCase.getId(),
+                java.util.UUID.randomUUID().toString(), testCase.getId(), tenantId(),
                 JsonMaps.toJson(com.tx.api.test.generator.studio.service.CaseVersionDocument.of(testCase)),
                 Timestamp.from(com.tx.api.test.generator.studio.concurrency.OptimisticConcurrency.toStorageInstant(Instant.now())),
                 testCase.getUpdatedByLabel());
@@ -620,9 +621,9 @@ public class JdbcStudioStorage implements StudioStorage {
                 draft.getRevision(), draft.getTestCaseId());
         if (changed == 0) {
             jdbcTemplate.update("""
-                    INSERT INTO td_test_case_draft (test_case_id, document_json, base_revision, updated_at, updated_by_label, revision)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """, draft.getTestCaseId(), draft.getDocumentJson(), draft.getBaseRevision(), updated,
+                    INSERT INTO td_test_case_draft (test_case_id, tenant_id, document_json, base_revision, updated_at, updated_by_label, revision)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, draft.getTestCaseId(), tenantId(), draft.getDocumentJson(), draft.getBaseRevision(), updated,
                     draft.getUpdatedByLabel(), draft.getRevision());
         }
     }
@@ -724,14 +725,14 @@ public class JdbcStudioStorage implements StudioStorage {
             Timestamp updatedAt = Timestamp.from(testCase.getUpdatedAt());
             jdbcTemplate.update("""
                             INSERT INTO td_test_case (
-                                test_case_id, spec_id, plan_id, operation_key, test_name, http_method, raw_path, endpoint,
+                                test_case_id, spec_id, tenant_id, plan_id, operation_key, test_name, http_method, raw_path, endpoint,
                                 base_url, content_type, request_body_json, response_schema_json, status_code,
                                 response_type, expected_response, response_match, ignore_fields, case_auth, data_rows, enabled, lifecycle, test_group, json_path_assertions, extracts,
                                 max_response_time_ms, created_at, updated_at,
                                 created_by_account_id, created_by_label, updated_by_account_id, updated_by_label, revision)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
                             """,
-                    testCase.getId(), testCase.getSpecId(), testCase.getPlanId(), testCase.getOperationKey(),
+                    testCase.getId(), testCase.getSpecId(), tenantId(), testCase.getPlanId(), testCase.getOperationKey(),
                     testCase.getTestName(), testCase.getMethod(), testCase.getRawPath(), testCase.getEndpoint(),
                     testCase.getBaseUrl(), testCase.getContentType(), JsonMaps.toJson(testCase.getRequestBody()),
                     JsonMaps.toJson(testCase.getResponseJsonSchema()), testCase.getStatusCode(),
@@ -782,8 +783,8 @@ public class JdbcStudioStorage implements StudioStorage {
             linked.add(id);
         }
         for (String id : linked) {
-            jdbcTemplate.update("INSERT INTO td_test_case_environment (test_case_id, environment_id) VALUES (?, ?)",
-                    testCase.getId(), id);
+            jdbcTemplate.update("INSERT INTO td_test_case_environment (test_case_id, environment_id, tenant_id) VALUES (?, ?, ?)",
+                    testCase.getId(), id, tenantId());
         }
     }
 
@@ -919,10 +920,10 @@ public class JdbcStudioStorage implements StudioStorage {
         file.setCreatedAt(file.getCreatedAt() == null ? now : file.getCreatedAt());
         jdbcTemplate.update("""
                         INSERT INTO td_request_file (
-                            file_id, test_case_id, file_name, content_type, size_bytes, content, created_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                            file_id, test_case_id, tenant_id, file_name, content_type, size_bytes, content, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                file.getFileId(), file.getTestCaseId(), file.getFileName(), file.getContentType(),
+                file.getFileId(), file.getTestCaseId(), tenantId(), file.getFileName(), file.getContentType(),
                 file.getSizeBytes(), file.getContent(), Timestamp.from(file.getCreatedAt()));
     }
 
@@ -1049,8 +1050,8 @@ public class JdbcStudioStorage implements StudioStorage {
             return;
         }
         values.forEach((name, value) -> jdbcTemplate.update(
-                "INSERT INTO td_test_case_param (test_case_id, param_in, param_name, param_value) VALUES (?, ?, ?, ?)",
-                testCaseId, in, name, value));
+                "INSERT INTO td_test_case_param (test_case_id, tenant_id, param_in, param_name, param_value) VALUES (?, ?, ?, ?, ?)",
+                testCaseId, tenantId(), in, name, value));
     }
 
     private void attachParams(List<StudioTestCase> cases) {
@@ -1176,22 +1177,22 @@ public class JdbcStudioStorage implements StudioStorage {
     public void saveRun(StudioRun run) {
         requireOwnedSpec(run.getSpecId());
         jdbcTemplate.update("""
-                        INSERT INTO td_run (run_id, spec_id, plan_id, environment_id, run_trigger, passed, failed, skipped, started_at)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        INSERT INTO td_run (run_id, spec_id, tenant_id, plan_id, environment_id, run_trigger, passed, failed, skipped, started_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
-                run.getId(), run.getSpecId(), run.getPlanId(), run.getEnvironmentId(), run.getTrigger(),
+                run.getId(), run.getSpecId(), tenantId(), run.getPlanId(), run.getEnvironmentId(), run.getTrigger(),
                 run.getPassed(), run.getFailed(), run.getSkipped(), Timestamp.from(run.getStartedAt()));
         for (StudioRunResult result : run.getResults()) {
             jdbcTemplate.update("""
                             INSERT INTO td_run_result (
-                                result_id, run_id, spec_id, plan_id, case_id, operation_key, test_name, run_trigger, outcome,
+                                result_id, run_id, spec_id, tenant_id, plan_id, case_id, operation_key, test_name, run_trigger, outcome,
                                 method, url, expected_status, actual_status, status_matched, elapsed_ms,
                                 max_response_time_ms, timed_out, error, request_headers, request_body,
                                 request_content_type, request_params, response_headers, response_body,
                                 assertions_json, download_path, created_at)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                             """,
-                    result.getId(), result.getRunId(), result.getSpecId(), result.getPlanId(), result.getCaseId(),
+                    result.getId(), result.getRunId(), result.getSpecId(), tenantId(), result.getPlanId(), result.getCaseId(),
                     result.getOperationKey(), result.getTestName(), result.getTrigger(), result.getOutcome(),
                     result.getMethod(), result.getUrl(), result.getExpectedStatus(), result.getActualStatus(),
                     result.getStatusMatched(), result.getElapsedMs(), result.getMaxResponseTimeMs(),
@@ -1529,14 +1530,14 @@ public class JdbcStudioStorage implements StudioStorage {
                                           AuditResourceType resourceType, String resourceId,
                                           AuditAction action, String actorAccountId, String actorLabel,
                                           String detail, Instant occurredAt) {
-        jdbcTemplate.update("""
+        com.tx.api.test.generator.studio.tenant.TenantContext.runAs(tenantId, () -> jdbcTemplate.update("""
                         INSERT INTO td_audit_event (
                             event_id, tenant_id, spec_id, resource_type, resource_id, action,
                             actor_account_id, actor_label, detail, occurred_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                 eventId, tenantId, specId, resourceType.name(), resourceId, action.name(),
-                actorAccountId, actorLabel, detail, Timestamp.from(occurredAt));
+                actorAccountId, actorLabel, detail, Timestamp.from(occurredAt)));
     }
 
     @Override
@@ -1585,13 +1586,13 @@ public class JdbcStudioStorage implements StudioStorage {
 
     @Override
     public Optional<EnvironmentOwner> findEnvironmentOwner(String environmentId) {
-        return jdbcTemplate.query(
+        return DatabaseTenant.acrossTenants(() -> jdbcTemplate.query(
                 """
                 SELECT s.tenant_id, e.name FROM td_environment e
                   JOIN td_spec s ON s.spec_id = e.spec_id
                  WHERE e.environment_id = ?
                 """,
-                (rs, rowNum) -> new EnvironmentOwner(rs.getString(1), rs.getString(2)), environmentId)
+                (rs, rowNum) -> new EnvironmentOwner(rs.getString(1), rs.getString(2)), environmentId))
                 .stream().findFirst();
     }
 

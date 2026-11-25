@@ -93,6 +93,35 @@ The migrations are the only definition of the schema. There are no separate DDL 
 
 `V6__collection_settings.sql` adds `td_collection_settings`: the auth and headers a collection and its case groups hand down, one JSON document per collection, deleted with it.
 
+`V11__tenant_columns.sql` adds a required `tenant_id` (the workspace) to every table under a collection, filled in from the collection, and composite foreign keys that include it: a row can't hang under another workspace's collection, plan, case, environment or run. Run history's optional references (plan, environment, case) keep single-column keys, because `ON DELETE SET NULL` would clear `tenant_id` too.
+
+`V12__row_level_security` (Java, PostgreSQL only) adds the policies below. It does nothing on H2, and MySQL has no V12 file.
+
+### Row-level security (PostgreSQL and AlloyDB)
+
+A connection sees and writes only the rows of the workspace in its `app.tenant_id` setting, so a query that forgets its tenant check returns nothing. `TenantDataSource` sets it from the signed-in workspace on every connection it hands out. With no workspace there are no rows; `*` means every workspace and is used only through `DatabaseTenant.acrossTenants`, for the few queries that have to look across them (counting an organization's collections, finding an approval's workspace, finding an environment's owner). H2 and MySQL rely on the app's checks and the V11 keys.
+
+It covers the collection tables, global variables and the audit log. Accounts, memberships, sessions, subscriptions and the production safety tables belong to a person or an organization and are not covered.
+
+**The database user.** Policies are forced, so the app may own its tables. A **superuser or a user with `BYPASSRLS` skips them silently**, so use a plain one:
+
+```sql
+CREATE ROLE studio_app LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '...';
+CREATE DATABASE testdata_studio OWNER studio_app;
+```
+
+For an existing database, run `ALTER TABLE ... OWNER TO studio_app` for every `td_` table and `flyway_schema_history` (and their sequences), and `GRANT USAGE, CREATE ON SCHEMA public TO studio_app`, then change `SPRING_DATASOURCE_USERNAME`. The startup log says whether row-level security is in force.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `TESTDATA_DB_REQUIRE_ROW_LEVEL_SECURITY` | `false` | `true` refuses to start when it isn't in force |
+| `TESTDATA_DB_ROW_LEVEL_SECURITY` | `true` | `false` is the emergency off switch: no migration to undo, the app's own checks stay |
+
+- **Don't** put a transaction-pooling proxy (PgBouncer in transaction mode, or managed pooling that works like it) between the app and the database: it shares sessions between clients.
+- **Tools:** in `psql`, run `SELECT set_config('app.tenant_id', '<workspace id>', false);` first (or `'*'`). `api-automation` with the JDBC data source does this itself from the same change on; an older one finds no collections.
+- **Migrations:** one that reads or changes rows of these tables starts, on PostgreSQL, with `SELECT set_config('app.tenant_id', '*', true);`.
+- **Deploying V11 and V12:** back up first, and deploy at a quiet time. An older app version can't save (it doesn't write `tenant_id`) and sees no rows, so requests still on it fail until the new one takes over, and you can't go back to it without restoring the backup.
+
 ### Changing the schema
 
 1. Add the next version, such as `V7__case_labels.sql`, to **both** folders, in each database's types.

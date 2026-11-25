@@ -67,6 +67,12 @@ spring:
       path: /h2-console
 
 testdata:
+  database:
+    # PostgreSQL row-level security (migration V12, docs/DATABASE.md). false is the emergency off switch: connections
+    # see every workspace, and only the app's own checks keep them apart.
+    row-level-security: ${TESTDATA_DB_ROW_LEVEL_SECURITY:true}
+    # true refuses to start when it isn't in force, such as with a superuser or BYPASSRLS database user.
+    require-row-level-security: ${TESTDATA_DB_REQUIRE_ROW_LEVEL_SECURITY:false}
   cache:
     redis:
       # Optional read-through cache (TESTDATA_REDIS_* / deploy-gcp cloudrun.env). Off unless enabled=true.
@@ -201,9 +207,20 @@ logging:
   # JSON console logs for log shipping (Elastic, Cloud Logging): TESTDATA_LOG_FORMAT=ecs (or logstash, gelf).
   # Unset keeps the readable pattern above. MDC fields (requestId, tenantId, studioReadSource) become top-level
   # fields; traceId/spanId are renamed to ECS trace.id/span.id. See docs/LOGGING.md.
+  # Log file for a shipper such as Filebeat (Elastic): TESTDATA_LOG_FILE=<absolute path>.json writes every line there
+  # as ECS JSON (TESTDATA_LOG_FILE_FORMAT, default ecs), next to the console in its own format. Unset writes no file.
+  # The file rolls at 50 MB and keeps 7 days (at most 500 MB). See docs/LOGGING.md.
+  file:
+    name: ${TESTDATA_LOG_FILE:}
+  logback:
+    rollingpolicy:
+      max-file-size: ${TESTDATA_LOG_FILE_MAX_SIZE:50MB}
+      max-history: ${TESTDATA_LOG_FILE_MAX_HISTORY:7}
+      total-size-cap: ${TESTDATA_LOG_FILE_TOTAL_SIZE_CAP:500MB}
   structured:
     format:
       console: ${TESTDATA_LOG_FORMAT:}
+      file: ${TESTDATA_LOG_FILE_FORMAT:ecs}
     ecs:
       service:
         environment: ${TESTDATA_LOG_ENVIRONMENT:}

@@ -13,6 +13,7 @@ import com.tx.api.test.generator.studio.model.StoredEnvironment;
 import com.tx.api.test.generator.studio.model.StudioTestCase;
 import com.tx.api.test.generator.studio.storage.StudioStorage;
 import com.tx.api.test.generator.studio.tenant.ForbiddenException;
+import com.tx.api.test.generator.studio.tenant.TenantContext;
 import com.tx.api.test.generator.studio.tenant.TenantStore;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
@@ -28,6 +29,7 @@ import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Production write approvals and emergency access (UI repo docs/PRODUCTION_SAFETY.md §3.5 and "Self-approval in
@@ -90,7 +92,7 @@ public class ApprovalService {
         if (maxRuns != null && (maxRuns < 1 || maxRuns > MAX_RUNS)) {
             throw new IllegalArgumentException("Runs must be 1 to " + MAX_RUNS + ", or leave it empty for no limit");
         }
-        for (WriteApproval open : refreshed(store.listOpenApprovals(caseId, environment.getId()))) {
+        for (WriteApproval open : refreshed(store.listOpenApprovals(access.orgId(), caseId, environment.getId()))) {
             if (WriteApproval.REQUESTED.equals(open.status())) {
                 throw new IllegalArgumentException("An approval for this case in " + environment.getName()
                         + " is already waiting for an admin");
@@ -128,8 +130,9 @@ public class ApprovalService {
 
     /** The case's approvals in an environment, newest first, for the case editor. */
     public List<ApprovalView> forCase(String caseId, String environmentId) {
-        policies.currentAccess();
-        return refreshed(store.listOpenApprovals(caseId, environmentId)).stream().map(this::view).toList();
+        SafetyPolicyService.Access access = policies.currentAccess();
+        studioStorage.findTestCase(caseId).orElseThrow(() -> new NoSuchElementException("Case not found"));
+        return refreshed(store.listOpenApprovals(access.orgId(), caseId, environmentId)).stream().map(this::view).toList();
     }
 
     // --- Decisions (organization owners and admins) ---
@@ -159,7 +162,7 @@ public class ApprovalService {
         if (!WriteApproval.REQUESTED.equals(approval.status())) {
             throw new IllegalStateException("Only a request still waiting can be approved");
         }
-        StudioTestCase testCase = studioStorage.findTestCase(approval.caseId()).orElse(null);
+        StudioTestCase testCase = approvedCase(approval).orElse(null);
         if (testCase == null || testCase.getRevision() != approval.caseRevision()) {
             store.setApprovalStatus(approvalId, WriteApproval.REQUESTED, WriteApproval.ENDED);
             throw new IllegalStateException("The case changed since this was asked for. Ask for a new approval.");
@@ -202,7 +205,7 @@ public class ApprovalService {
         if (!store.decideApproval(decided, WriteApproval.REQUESTED)) {
             throw new IllegalStateException("Someone else decided this request first. Reload the list.");
         }
-        audit(testCase.getSpecId(), AuditResourceType.WRITE_APPROVAL, approvalId,
+        auditCase(approval, testCase.getSpecId(),
                 self ? AuditAction.SELF_APPROVED : AuditAction.APPROVED,
                 (self ? "Self-approved" : "Approved") + " production writes for case " + caseName(testCase)
                         + " (version " + approval.caseRevision() + ") until " + expiresAt
@@ -300,9 +303,12 @@ public class ApprovalService {
                 .map(current -> emergencyView(current, second)).toList();
     }
 
-    /** Emergency access running now in one environment, for its banner. Any member of the organization may read it. */
+    /** Emergency access running now in one environment, for its banner. Any member of its workspace may read it. */
     public List<EmergencyAccessView> currentEmergencyFor(String environmentId) {
         SafetyPolicyService.Access access = policies.currentAccess();
+        if (studioStorage.findEnvironment(environmentId).isEmpty()) {
+            return List.of();
+        }
         boolean second = policies.policy(access.orgId()).requireSecondAdmin();
         Instant now = Instant.now();
         return store.listCurrentEmergencyAccess(access.orgId(), now).stream()
@@ -339,7 +345,7 @@ public class ApprovalService {
             return Permission.deny(SafetyGuard.DRAFT_IN_PROTECTED, "Drafts and unsaved cases never run in "
                     + environmentName + ". Publish the case, then ask an admin to approve it.");
         }
-        List<WriteApproval> open = store.listOpenApprovals(caseId, environmentId);
+        List<WriteApproval> open = store.listOpenApprovals(orgId, caseId, environmentId);
         Permission denial = Permission.deny(SafetyGuard.WRITE_TO_PROTECTED_TARGET, "Ask an organization admin to "
                 + "approve this case for " + environmentName + ".");
         for (WriteApproval approval : open) {
@@ -402,7 +408,7 @@ public class ApprovalService {
         if (!store.decideApproval(decided, from)) {
             throw new IllegalStateException("Someone else changed this approval first. Reload the list.");
         }
-        audit(null, AuditResourceType.WRITE_APPROVAL, approvalId, action,
+        auditCase(approval, null, action,
                 StringUtils.capitalize(to) + " approval" + (note == null ? "" : ": " + note));
         return view(decided);
     }
@@ -419,7 +425,7 @@ public class ApprovalService {
         for (WriteApproval approval : approvals) {
             WriteApproval current = approval;
             if (approval.open()) {
-                Long revision = studioStorage.findTestCase(approval.caseId()).map(StudioTestCase::getRevision).orElse(null);
+                Long revision = approvedCase(approval).map(StudioTestCase::getRevision).orElse(null);
                 if (revision == null || revision != approval.caseRevision()) {
                     store.setApprovalStatus(approval.id(), approval.status(), WriteApproval.ENDED);
                     current = approval.withStatus(WriteApproval.ENDED);
@@ -432,6 +438,32 @@ public class ApprovalService {
             out.add(current);
         }
         return out;
+    }
+
+    private Optional<StudioTestCase> approvedCase(WriteApproval approval) {
+        return inCaseWorkspace(approval, () -> studioStorage.findTestCase(approval.caseId())).orElse(Optional.empty());
+    }
+
+    /** Audits a decision in the case's workspace. */
+    private void auditCase(WriteApproval approval, String specId, AuditAction action, String detail) {
+        Optional<Boolean> written = inCaseWorkspace(approval, () -> {
+            audit(specId, AuditResourceType.WRITE_APPROVAL, approval.id(), action, detail);
+            return true;
+        });
+        if (written.isEmpty()) {
+            audit(specId, AuditResourceType.WRITE_APPROVAL, approval.id(), action, detail);
+        }
+    }
+
+    /**
+     * Admins decide for the whole organization, so an approval's case can be in another of its workspaces than the one
+     * they have open. Empty when the case is gone.
+     */
+    private <T> Optional<T> inCaseWorkspace(WriteApproval approval, Supplier<T> action) {
+        TenantContext.Scope scope = TenantContext.current();
+        return store.findCaseTenant(approval.orgId(), approval.caseId()).map(tenantId -> scope == null
+                ? TenantContext.callAs(tenantId, null, null, null, action)
+                : TenantContext.callAs(tenantId, scope.accountId(), scope.email(), scope.role(), action));
     }
 
     private boolean protectedEnvironment(String orgId, StoredEnvironment environment) {
@@ -450,8 +482,9 @@ public class ApprovalService {
     }
 
     private ApprovalView view(WriteApproval approval) {
-        Optional<StudioTestCase> testCase = studioStorage.findTestCase(approval.caseId());
-        String environmentName = studioStorage.findEnvironment(approval.environmentId())
+        Optional<StudioTestCase> testCase = approvedCase(approval);
+        String environmentName = inCaseWorkspace(approval, () -> studioStorage.findEnvironment(approval.environmentId()))
+                .flatMap(found -> found)
                 .map(StoredEnvironment::getName).orElse(approval.environmentId());
         return new ApprovalView(approval.id(), approval.caseId(), testCase.map(this::caseName).orElse(null),
                 testCase.map(StudioTestCase::getSpecId).orElse(null), approval.caseRevision(),

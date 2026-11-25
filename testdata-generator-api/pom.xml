@@ -161,6 +161,7 @@
                 <configuration>
                     <excludes>
                         <exclude>**/FlywayMigrationIntegrationTest.java</exclude>
+                        <exclude>**/RowSecurityIntegrationTest.java</exclude>
                     </excludes>
                 </configuration>
             </plugin>
@@ -198,6 +199,7 @@
                         <configuration combine.self="override">
                             <includes>
                                 <include>**/FlywayMigrationIntegrationTest.java</include>
+                                <include>**/RowSecurityIntegrationTest.java</include>
                             </includes>
                         </configuration>
                     </plugin>

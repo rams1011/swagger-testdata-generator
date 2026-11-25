@@ -58,6 +58,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -507,6 +508,54 @@ class ProductionApprovalsTest {
                 new RequestApprovalRequest(soloProduction.getId(), "Fix the smoke user's name", 7, 5));
         assertThrows(ForbiddenException.class, () -> approvals.approve(asked.id(), null),
                 "with two admins, the other one has to approve");
+    }
+
+    @Test
+    void anotherOrganizationCanNeitherReadNorEndApprovals() {
+        as(memberId);
+        ApprovalView asked = approvals.request(create.getId(),
+                new RequestApprovalRequest(environment.getId(), "Create the smoke test user", 7, 5));
+        AuthSessionView stranger = auth.register(
+                new RegisterRequest("owner@globex.test", "password1234", "Globex", "Globex"));
+        TenantContext.runAs(stranger.tenant().id(), stranger.account().id(), "OWNER", () -> {
+            assertThrows(NoSuchElementException.class,
+                    () -> approvals.forCase(create.getId(), environment.getId()));
+            assertThrows(NoSuchElementException.class, () -> approvals.withdraw(create.getId(), asked.id()));
+            assertThrows(NoSuchElementException.class, () -> approvals.approve(asked.id(), null));
+            assertThrows(NoSuchElementException.class, () -> approvals.reject(asked.id(), null));
+            assertTrue(approvals.list("").isEmpty());
+        });
+        assertEquals(WriteApproval.REQUESTED, storedStatus(asked.id()));
+    }
+
+    @Test
+    void theInboxInAnotherWorkspaceOfTheOrganizationKeepsApprovalsOpenAndCanDecide() {
+        as(memberId);
+        ApprovalView asked = approvals.request(create.getId(),
+                new RequestApprovalRequest(environment.getId(), "Create the smoke test user", 7, 5));
+        String second = UUID.randomUUID().toString();
+        jdbc.update("""
+                INSERT INTO td_tenant (tenant_id, name, slug, org_id, ready, created_at)
+                VALUES (?, 'Second', 'acme-second', ?, TRUE, CURRENT_TIMESTAMP)
+                """, second, owner.organization().id());
+        TenantContext.runAs(second, memberId, "MEMBER", () -> assertThrows(NoSuchElementException.class,
+                () -> approvals.forCase(create.getId(), environment.getId())));
+        TenantContext.runAs(second, adminId, "ADMIN", () -> {
+            ApprovalView waiting = approvals.list("waiting").get(0);
+            assertEquals("Create user", waiting.caseName());
+            assertEquals("Production", waiting.environmentName());
+            assertEquals(WriteApproval.APPROVED, approvals.approve(asked.id(), null).status());
+            assertEquals(1, approvals.list("active").size());
+            assertEquals(second, TenantContext.tenantId());
+        });
+        assertEquals(WriteApproval.APPROVED, storedStatus(asked.id()));
+        assertEquals(owner.tenant().id(), jdbc.queryForObject(
+                "SELECT tenant_id FROM td_audit_event WHERE resource_id = ? AND action = 'APPROVED'",
+                String.class, asked.id()));
+    }
+
+    private String storedStatus(String approvalId) {
+        return jdbc.queryForObject("SELECT status FROM td_write_approval WHERE approval_id = ?", String.class, approvalId);
     }
 
     private ApprovalView approve(Integer maxRuns) {

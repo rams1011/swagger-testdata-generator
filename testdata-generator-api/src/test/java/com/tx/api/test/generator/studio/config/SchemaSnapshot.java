@@ -78,15 +78,20 @@ final class SchemaSnapshot {
 
     private static List<String> foreignKeys(DatabaseMetaData meta, String catalog, String schema, String table)
             throws SQLException {
-        Map<String, String> lines = new TreeMap<>();
+        Map<String, TreeMap<Integer, String>> columns = new TreeMap<>();
+        Map<String, String> targets = new TreeMap<>();
         try (ResultSet rows = meta.getImportedKeys(catalog, schema, table)) {
             while (rows.next()) {
                 String name = lower(rows.getString("FK_NAME"));
-                lines.putIfAbsent(name, "foreign key " + name + " (" + lower(rows.getString("FKCOLUMN_NAME")) + ") -> "
-                        + lower(rows.getString("PKTABLE_NAME")) + " on delete " + rule(rows.getShort("DELETE_RULE")));
+                columns.computeIfAbsent(name, ignored -> new TreeMap<>())
+                        .put((int) rows.getShort("KEY_SEQ"), lower(rows.getString("FKCOLUMN_NAME")));
+                targets.put(name, lower(rows.getString("PKTABLE_NAME")) + " on delete " + rule(rows.getShort("DELETE_RULE")));
             }
         }
-        return new ArrayList<>(lines.values());
+        List<String> lines = new ArrayList<>();
+        columns.forEach((name, cols) -> lines.add("foreign key " + name + " (" + String.join(", ", cols.values())
+                + ") -> " + targets.get(name)));
+        return lines;
     }
 
     private static String rule(short deleteRule) {

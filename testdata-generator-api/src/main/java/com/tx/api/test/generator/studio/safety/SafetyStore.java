@@ -39,7 +39,10 @@ public interface SafetyStore {
     List<WriteApproval> listApprovals(String orgId, List<String> statuses);
 
     /** The open (requested or approved) approvals of one case in one environment, newest first. */
-    List<WriteApproval> listOpenApprovals(String caseId, String environmentId);
+    List<WriteApproval> listOpenApprovals(String orgId, String caseId, String environmentId);
+
+    /** The workspace holding a case of this organization; empty when the case is gone or belongs to another one. */
+    Optional<String> findCaseTenant(String orgId, String caseId);
 
     /** Moves an approval from {@code fromStatus} to the decided state; false when its status had changed. */
     boolean decideApproval(WriteApproval decided, String fromStatus);

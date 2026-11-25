@@ -1,0 +1,40 @@
+# Filebeat on your own machine (no Docker) reading the Studio API's ECS JSON log file and sending it to Elastic Cloud.
+# Copy it over filebeat.yml in the folder you unzipped Filebeat to (for example D:\tools\filebeat), and set `paths`
+# to the folder of TESTDATA_LOG_FILE. Credentials come from Filebeat's keystore, never from this file:
+#   .\filebeat.exe keystore create
+#   .\filebeat.exe keystore add ELASTIC_CLOUD_ID
+#   .\filebeat.exe keystore add ELASTIC_USERNAME
+#   .\filebeat.exe keystore add ELASTIC_PASSWORD
+# (Comment out the two cloud.* lines while adding them: Filebeat reads this file even for keystore commands.)
+# Then: .\filebeat.exe test output -c filebeat.yml  and  .\filebeat.exe -e -c filebeat.yml. See docs/LOGGING.md.
+filebeat.inputs:
+  - type: filestream
+    id: testdata-studio-api
+    # Single quotes: YAML would read backslashes in double quotes as escapes. Only the live .json file is read;
+    # Spring rolls old ones to <name>.<date>.<n>.gz.
+    paths:
+      - 'D:\code\swagger-testdata-generator\logs\*.json'
+    prospector.scanner.check_interval: 2s
+    parsers:
+      - ndjson:
+          target: ""
+          overwrite_keys: true
+          expand_keys: true
+          add_error_key: true
+          message_key: message
+    fields_under_root: true
+    fields:
+      event.dataset: testdata-studio.api
+
+processors:
+  - add_fields:
+      target: service
+      fields:
+        environment: local
+
+# Elastic Cloud deployment and a user with a Filebeat writer role (not the `elastic` superuser).
+# With an API key instead: drop cloud.auth and add  output.elasticsearch.api_key: ${ELASTIC_API_KEY}
+cloud.id: ${ELASTIC_CLOUD_ID}
+cloud.auth: ${ELASTIC_USERNAME}:${ELASTIC_PASSWORD}
+
+logging.level: info

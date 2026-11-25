@@ -1,4 +1,4 @@
-# Reads the Studio API's ECS JSON log file (LOGGING_STRUCTURED_FORMAT_FILE=ecs) and sends it to the local
+# Reads the Studio API's ECS JSON log file (TESTDATA_LOG_FILE) and sends it to the local
 # Elasticsearch. Each line is already ECS, so fields (requestId, tenantId, trace.id, log.level...) land at the root.
 filebeat.inputs:
   - type: filestream

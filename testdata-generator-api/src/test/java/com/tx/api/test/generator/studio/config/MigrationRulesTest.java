@@ -43,11 +43,11 @@ class MigrationRulesTest {
         TestSchema.migrate(h2);
         insertSpecPlanAndCase("case-1", "READY");
 
-        jdbc.update("INSERT INTO td_test_case_param (test_case_id, param_in, param_name, param_value) VALUES (?, ?, ?, ?)",
-                "case-1", "query", "page", "1");
+        jdbc.update("INSERT INTO td_test_case_param (test_case_id, tenant_id, param_in, param_name, param_value) VALUES (?, ?, ?, ?, ?)",
+                "case-1", LOCAL_TENANT, "query", "page", "1");
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
-                "INSERT INTO td_test_case_param (test_case_id, param_in, param_name, param_value) VALUES (?, ?, ?, ?)",
-                "case-1", "body", "x", "1"));
+                "INSERT INTO td_test_case_param (test_case_id, tenant_id, param_in, param_name, param_value) VALUES (?, ?, ?, ?, ?)",
+                "case-1", LOCAL_TENANT, "body", "x", "1"));
         assertThrows(DataIntegrityViolationException.class, () -> insertCase("case-2", "plan-1", "PUBLISHED"));
         assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
                 "INSERT INTO td_membership (tenant_id, account_id, role) VALUES (?, ?, ?)", LOCAL_TENANT, "nobody", "GUEST"));
@@ -68,7 +68,13 @@ class MigrationRulesTest {
     @Test
     void versionThreeMovesEnvironmentNamesIntoLinks() {
         Flyway.configure().dataSource(h2).locations("classpath:db/migration").target("2").load().migrate();
-        insertSpecPlanAndCase("case-1", "READY");
+        insertSpec();
+        jdbc.update("INSERT INTO td_test_plan (plan_id, spec_id, name) VALUES (?, ?, ?)", "plan-1", "spec-1", "Default");
+        jdbc.update("""
+                INSERT INTO td_test_case (test_case_id, spec_id, plan_id, operation_key, test_name, http_method,
+                                          raw_path, endpoint, status_code, lifecycle)
+                VALUES ('case-1', 'spec-1', 'plan-1', 'ok', 'Case', 'GET', '/ok', '/ok', 200, 'READY')
+                """);
         jdbc.update("ALTER TABLE td_test_case ADD COLUMN IF NOT EXISTS environment_names TEXT");
         jdbc.update("INSERT INTO td_environment (environment_id, spec_id, name, document_json) VALUES (?, ?, ?, ?)",
                 "env-staging", "spec-1", "Staging", "{}");
@@ -83,22 +89,43 @@ class MigrationRulesTest {
                  WHERE l.test_case_id = 'case-1' ORDER BY e.name
                 """, String.class);
         assertEquals(List.of("Missing", "Staging"), linked, "matched regardless of case; a missing one is created");
+        assertEquals(List.of(LOCAL_TENANT, LOCAL_TENANT), jdbc.queryForList("SELECT tenant_id FROM td_test_case_environment",
+                String.class), "V11 fills in the workspace of rows that were there");
         assertFalse(jdbc.queryForList("SELECT column_name FROM information_schema.columns"
                 + " WHERE table_name = 'td_test_case'", String.class).contains("environment_names"));
     }
 
-    private void insertSpecPlanAndCase(String caseId, String lifecycle) {
+    @Test
+    void aRowCannotHangUnderAnotherWorkspacesParent() {
+        TestSchema.migrate(h2);
+        insertSpecPlanAndCase("case-1", "READY");
+        String other = "00000000-0000-0000-0000-000000000002";
+
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "INSERT INTO td_test_plan (plan_id, spec_id, tenant_id, name) VALUES ('plan-2', 'spec-1', ?, 'Theirs')", other));
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update("INSERT INTO td_test_case_param"
+                + " (test_case_id, tenant_id, param_in, param_name) VALUES ('case-1', ?, 'query', 'page')", other));
+        assertThrows(DataIntegrityViolationException.class, () -> jdbc.update(
+                "UPDATE td_test_case SET tenant_id = ? WHERE test_case_id = 'case-1'", other));
+    }
+
+    private void insertSpec() {
         jdbc.update("INSERT INTO td_spec (spec_id, tenant_id, name, label, title) VALUES (?, ?, ?, ?, ?)",
                 "spec-1", LOCAL_TENANT, "Spec", "General", "Spec");
-        jdbc.update("INSERT INTO td_test_plan (plan_id, spec_id, name) VALUES (?, ?, ?)", "plan-1", "spec-1", "Default");
+    }
+
+    private void insertSpecPlanAndCase(String caseId, String lifecycle) {
+        insertSpec();
+        jdbc.update("INSERT INTO td_test_plan (plan_id, spec_id, tenant_id, name) VALUES (?, ?, ?, ?)", "plan-1", "spec-1",
+                LOCAL_TENANT, "Default");
         insertCase(caseId, "plan-1", lifecycle);
     }
 
     private void insertCase(String caseId, String planId, String lifecycle) {
         jdbc.update("""
-                INSERT INTO td_test_case (test_case_id, spec_id, plan_id, operation_key, test_name, http_method,
+                INSERT INTO td_test_case (test_case_id, spec_id, tenant_id, plan_id, operation_key, test_name, http_method,
                                           raw_path, endpoint, status_code, lifecycle)
-                VALUES (?, 'spec-1', ?, 'ok', 'Case', 'GET', '/ok', '/ok', 200, ?)
-                """, caseId, planId, lifecycle);
+                VALUES (?, 'spec-1', ?, ?, 'ok', 'Case', 'GET', '/ok', '/ok', 200, ?)
+                """, caseId, LOCAL_TENANT, planId, lifecycle);
     }
 }
